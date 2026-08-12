@@ -95,6 +95,7 @@ docker-compose up -d
 ```
 
 This starts:
+
 - **PostgreSQL** on port `5432` (`postgresql://user:password@localhost:5432/online_exam`)
 - **Redis** on port `6379` (`redis://localhost:6379`)
 
@@ -120,6 +121,7 @@ uvicorn app.main:app --reload --port 8000
 ```
 
 FastAPI Documentation available at:
+
 - **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
 - **ReDoc**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
 - **Health Check**: [http://localhost:8000/health](http://localhost:8000/health)
@@ -149,15 +151,15 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## API Endpoints Summary
 
-| Method | Endpoint | Description | Protected |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/health` | Server health check | No |
-| `POST` | `/api/v1/auth/register` | Register new user (STUDENT, FACULTY, ADMIN) | No |
-| `POST` | `/api/v1/auth/login` | Authenticate user & return Access + Refresh token | No |
-| `POST` | `/api/v1/auth/refresh` | Refresh JWT access token with token rotation | No |
-| `POST` | `/api/v1/auth/logout` | Invalidate refresh token in Redis | Yes |
-| `GET` | `/api/v1/auth/me` | Current authenticated user profile | Yes |
-| `GET` | `/api/v1/users/me` | Current user details | Yes |
+| Method | Endpoint                | Description                                       | Protected |
+| :----- | :---------------------- | :------------------------------------------------ | :-------- |
+| `GET`  | `/health`               | Server health check                               | No        |
+| `POST` | `/api/v1/auth/register` | Register new user (STUDENT, FACULTY, ADMIN)       | No        |
+| `POST` | `/api/v1/auth/login`    | Authenticate user & return Access + Refresh token | No        |
+| `POST` | `/api/v1/auth/refresh`  | Refresh JWT access token with token rotation      | No        |
+| `POST` | `/api/v1/auth/logout`   | Invalidate refresh token in Redis                 | Yes       |
+| `GET`  | `/api/v1/auth/me`       | Current authenticated user profile                | Yes       |
+| `GET`  | `/api/v1/users/me`      | Current user details                              | Yes       |
 
 ---
 
@@ -170,3 +172,5 @@ cd backend
 source .venv/bin/activate
 pytest
 ```
+
+hi
