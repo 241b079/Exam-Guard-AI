@@ -169,8 +169,8 @@ Run backend tests using `pytest`:
 
 ```bash
 cd backend
+python or python3 -m venv env
 source .venv/bin/activate
 pytest
 ```
 
-hi
