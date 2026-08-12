@@ -4,16 +4,20 @@ from typing import AsyncGenerator
 import asyncpg
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.pool import NullPool
 from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import settings
 from app.core.logging import logger
 
-# Create Async Engine
+# Use NullPool in testing or dev environments to prevent event loop sharing issues with asyncpg
+is_testing = os.getenv("TESTING", "0") == "1" or settings.APP_ENV == "testing"
+
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=False,
     future=True,
+    poolclass=NullPool if is_testing else None,
     pool_pre_ping=True
 )
 
@@ -115,5 +119,12 @@ async def ensure_database_exists():
 
 async def init_db():
     await ensure_database_exists()
+    
+    # Import all feature models so they are registered in Base.metadata before create_all
+    from app.features.users.models import User  # noqa
+    from app.features.exams.models import Exam  # noqa
+    from app.features.questions.models import Question  # noqa
+    from app.features.attempts.models import ExamAttempt, Answer  # noqa
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

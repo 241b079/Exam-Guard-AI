@@ -1,17 +1,23 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/shared/EmptyState';
-import { BookOpen, CalendarClock, Award, UserCheck } from 'lucide-react';
+import { useExams } from '@/features/exams';
+import { BookOpen, CalendarClock, Award, UserCheck, ArrowRight } from 'lucide-react';
 
 export default function StudentDashboardPage() {
   const { user } = useAuth();
+  const { exams } = useExams();
 
   if (!user) return null;
+
+  const availableExams = exams.filter(e => e.status === 'PUBLISHED');
 
   return (
     <DashboardLayout title="Student Dashboard">
@@ -27,23 +33,49 @@ export default function StudentDashboardPage() {
               Logged in as <span className="text-slate-200 font-medium">{user.email}</span>
             </p>
           </div>
-          <div className="flex items-center gap-3 bg-slate-900/60 p-3 rounded-xl border border-slate-800 text-xs text-slate-300">
-            <UserCheck className="w-4 h-4 text-emerald-400" />
-            <span>Account Active</span>
-          </div>
+          <Link href="/student/exams">
+            <Button variant="primary" className="gap-2 text-xs">
+              <BookOpen className="w-4 h-4" /> View Available Exams ({availableExams.length})
+            </Button>
+          </Link>
         </div>
 
         {/* Dashboard Content Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Section 1: Available Exams */}
-          <Card className="space-y-4">
-            <div className="flex items-center gap-3 pb-3 border-b border-slate-800">
-              <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                <BookOpen className="w-5 h-5" />
+          <Card className="space-y-4 flex flex-col justify-between">
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 pb-3 border-b border-slate-800">
+                <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  <BookOpen className="w-5 h-5" />
+                </div>
+                <h3 className="text-base font-bold text-slate-100">Available Exams</h3>
               </div>
-              <h3 className="text-base font-bold text-slate-100">Available Exams</h3>
+
+              {availableExams.length === 0 ? (
+                <p className="text-xs text-slate-400 italic">No exams available yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {availableExams.slice(0, 3).map((e) => (
+                    <div key={e.id} className="p-3 bg-slate-900/60 rounded-xl border border-slate-800 flex justify-between items-center text-xs">
+                      <div>
+                        <h4 className="font-bold text-slate-100">{e.title}</h4>
+                        <span className="text-[10px] text-slate-400">{e.duration_minutes} Mins • {e.question_count} Questions</span>
+                      </div>
+                      <Link href={`/student/exams/${e.id}/instructions`}>
+                        <Button variant="primary" size="sm" className="text-[11px] py-1 px-2">
+                          Start
+                        </Button>
+                      </Link>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            <p className="text-sm text-slate-400 italic">No exams available yet.</p>
+
+            <Link href="/student/exams" className="text-xs text-brand-400 hover:text-brand-300 font-semibold inline-flex items-center gap-1 pt-2">
+              Browse All Exams <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
           </Card>
 
           {/* Section 2: Upcoming Exams */}
@@ -54,7 +86,7 @@ export default function StudentDashboardPage() {
               </div>
               <h3 className="text-base font-bold text-slate-100">Upcoming Exams</h3>
             </div>
-            <EmptyState title="Upcoming Exams Schedule" badge="Phase 2 Feature" />
+            <EmptyState title="Upcoming Exams Schedule" badge="Phase 3 Feature" />
           </Card>
 
           {/* Section 3: Recent Results */}
@@ -65,7 +97,7 @@ export default function StudentDashboardPage() {
               </div>
               <h3 className="text-base font-bold text-slate-100">Recent Results</h3>
             </div>
-            <EmptyState title="Grades & Transcripts" badge="Phase 2 Feature" />
+            <EmptyState title="Grades & Transcripts" badge="Phase 3 Feature" />
           </Card>
         </div>
 
