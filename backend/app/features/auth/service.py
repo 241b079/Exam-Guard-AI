@@ -10,6 +10,7 @@ from app.core.security import (
 from app.core.redis import RedisSessionService
 from app.features.users.models import User, UserRole
 from app.features.users.service import UserService
+from app.features.students.service import StudentService
 from app.features.auth.schemas import RegisterRequest, LoginRequest, TokenResponse, UserResponse
 
 
@@ -30,6 +31,11 @@ class AuthService:
             password=req.password,
             role=req.role
         )
+
+        # Auto-create student profile if role is STUDENT
+        if user.role == UserRole.STUDENT:
+            await StudentService.ensure_student_profile(db, user)
+
         return UserResponse.model_validate(user)
 
     @staticmethod

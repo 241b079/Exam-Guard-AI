@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Shield, LayoutDashboard, User as UserIcon } from 'lucide-react';
+import { Shield, LayoutDashboard, FileText, Users, User as UserIcon } from 'lucide-react';
 import { UserRole } from '@/types';
 
 interface SidebarProps {
@@ -23,8 +23,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ role }) => {
 
   const navItems = [
     { label: 'Dashboard', href: getDashboardLink(), icon: LayoutDashboard },
-    { label: 'Profile', href: getDashboardLink(), icon: UserIcon },
   ];
+
+  if (role === 'FACULTY') {
+    navItems.push({ label: 'Exams', href: '/faculty/exams', icon: FileText });
+    navItems.push({ label: 'Students', href: '/faculty/students', icon: Users });
+  } else if (role === 'STUDENT') {
+    navItems.push({ label: 'Available Exams', href: '/student/exams', icon: FileText });
+  } else if (role === 'ADMIN') {
+    navItems.push({ label: 'Students', href: '/admin/students', icon: Users });
+  }
 
   return (
     <aside className="w-64 glass-panel border-r border-slate-800 flex flex-col h-screen sticky top-0 shrink-0">
@@ -43,7 +51,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ role }) => {
       <nav className="p-4 space-y-1 flex-1">
         {navItems.map((item) => {
           const Icon = item.icon;
-          const isActive = pathname === item.href;
+          const isActive = pathname === item.href || (item.href !== getDashboardLink() && pathname.startsWith(item.href));
 
           return (
             <Link
@@ -64,7 +72,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ role }) => {
 
       {/* Footer / Phase Info */}
       <div className="p-4 border-t border-slate-800 text-[11px] text-slate-500 text-center">
-        <span>Phase 1 — Auth & Dashboard Shell</span>
+        <span>Phase 2 — Examination & Students</span>
       </div>
     </aside>
   );

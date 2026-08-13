@@ -119,9 +119,10 @@ async def ensure_database_exists():
 
 async def init_db():
     await ensure_database_exists()
-    
+
     # Import all feature models so they are registered in Base.metadata before create_all
     from app.features.users.models import User  # noqa
+    from app.features.students.models import StudentProfile  # noqa
     from app.features.exams.models import Exam  # noqa
     from app.features.questions.models import Question  # noqa
     from app.features.attempts.models import ExamAttempt, Answer  # noqa

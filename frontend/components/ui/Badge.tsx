@@ -2,7 +2,7 @@ import React from 'react';
 
 interface BadgeProps {
   children: React.ReactNode;
-  variant?: 'student' | 'faculty' | 'admin' | 'info' | 'success';
+  variant?: 'student' | 'faculty' | 'admin' | 'info' | 'success' | 'danger';
 }
 
 export const Badge: React.FC<BadgeProps> = ({ children, variant = 'info' }) => {
@@ -12,6 +12,7 @@ export const Badge: React.FC<BadgeProps> = ({ children, variant = 'info' }) => {
     admin: 'bg-purple-500/10 text-purple-400 border-purple-500/30',
     info: 'bg-brand-500/10 text-brand-400 border-brand-500/30',
     success: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+    danger: 'bg-rose-500/10 text-rose-400 border-rose-500/30',
   };
 
   return (
