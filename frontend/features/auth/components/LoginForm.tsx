@@ -36,17 +36,17 @@ export const LoginForm: React.FC = () => {
   };
 
   return (
-    <div className="w-full max-w-md p-8 glass-panel rounded-2xl shadow-2xl space-y-6">
+    <div className="w-full max-w-md p-8 md:p-10 bg-white rounded-3xl border border-[#EBE5DC] shadow-warm-lg space-y-6">
       <div className="text-center space-y-2">
-        <div className="inline-flex items-center justify-center p-3 rounded-full bg-brand-500/10 border border-brand-500/30 text-brand-400 mb-2">
-          <Shield className="w-8 h-8" />
+        <div className="inline-flex items-center justify-center p-3 rounded-full bg-[#FBECE0] border border-[#F6D6C0] text-[#C25E1A] mb-1">
+          <Shield className="w-7 h-7" />
         </div>
-        <h1 className="text-2xl font-bold text-white tracking-tight">Sign In</h1>
-        <p className="text-sm text-slate-400">Enter your credentials to access your dashboard</p>
+        <h1 className="text-3xl font-serif font-bold text-stone-900 tracking-tight">Sign In</h1>
+        <p className="text-sm text-stone-500">Enter your credentials to access your dashboard</p>
       </div>
 
       {error && (
-        <div className="p-3.5 rounded-lg bg-rose-500/10 border border-rose-500/30 flex items-start gap-3 text-rose-400 text-sm">
+        <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 flex items-start gap-3 text-rose-700 text-sm">
           <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
           <span>{error}</span>
         </div>
@@ -80,12 +80,13 @@ export const LoginForm: React.FC = () => {
         </Button>
       </form>
 
-      <div className="text-center text-xs text-slate-400 pt-4 border-t border-slate-800">
+      <div className="text-center text-xs text-stone-500 pt-4 border-t border-[#EBE5DC]">
         Don&apos;t have an account?{' '}
-        <Link href="/register" className="text-brand-400 hover:text-brand-300 font-semibold transition-colors">
+        <Link href="/register" className="text-[#C25E1A] hover:text-[#A94F13] font-semibold transition-colors">
           Create Account
         </Link>
       </div>
     </div>
   );
 };
+

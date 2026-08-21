@@ -140,22 +140,24 @@ export const QuestionModal: React.FC<QuestionModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
-      <div className="glass-panel w-full max-w-2xl p-6 rounded-2xl border border-slate-700 shadow-2xl space-y-6 animate-in fade-in zoom-in-95 duration-150 my-8">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm overflow-y-auto">
+      <div className="bg-white w-full max-w-2xl p-6 md:p-8 rounded-3xl border border-[#EBE5DC] shadow-warm-lg space-y-6 animate-in fade-in zoom-in-95 duration-150 my-8">
+        <div className="flex items-center justify-between border-b border-[#EBE5DC] pb-4">
           <div className="flex items-center gap-2">
-            <HelpCircle className="w-5 h-5 text-brand-400" />
-            <h2 className="text-lg font-bold text-white">
+            <div className="p-2 rounded-xl bg-[#FBECE0] text-[#C25E1A] border border-[#F6D6C0]">
+              <HelpCircle className="w-5 h-5" />
+            </div>
+            <h2 className="text-lg font-bold font-serif text-stone-900">
               {questionToEdit ? 'Edit Question' : 'Add New Question'}
             </h2>
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
+          <button onClick={onClose} className="p-1 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-[#FAF7F2]">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {error && (
-          <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs">
+          <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
             {error}
           </div>
         )}
@@ -172,11 +174,11 @@ export const QuestionModal: React.FC<QuestionModalProps> = ({
           />
 
           <div className="space-y-1.5">
-            <label className="block text-xs font-medium text-slate-300 uppercase tracking-wider">
+            <label className="block text-[11px] font-semibold text-stone-600 uppercase tracking-wider">
               Question Text *
             </label>
             <textarea
-              className="w-full px-3.5 py-2.5 bg-slate-900/80 border border-slate-700 rounded-lg text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30 min-h-[90px]"
+              className="w-full px-3.5 py-2.5 bg-white border border-[#E2DAD0] rounded-xl text-sm text-stone-900 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-[#C25E1A]/20 focus:border-[#C25E1A] min-h-[90px]"
               placeholder="e.g. Which data structure operates on a First-In, First-Out (FIFO) basis?"
               value={questionText}
               onChange={(e) => setQuestionText(e.target.value)}
@@ -186,9 +188,9 @@ export const QuestionModal: React.FC<QuestionModalProps> = ({
 
           {/* MCQ Options */}
           {questionType === 'MCQ' && (
-            <div className="space-y-3 p-4 bg-slate-800/40 rounded-xl border border-slate-700/60">
+            <div className="space-y-3 p-4 bg-[#FAF7F2] rounded-2xl border border-[#EBE5DC]">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-slate-200 uppercase tracking-wider">
+                <label className="text-xs font-semibold text-stone-800 uppercase tracking-wider">
                   Options & Correct Answer Selection *
                 </label>
                 {options.length < 6 && (
@@ -207,14 +209,14 @@ export const QuestionModal: React.FC<QuestionModalProps> = ({
                       checked={correctAnswer === opt && opt.length > 0}
                       onChange={() => setCorrectAnswer(opt)}
                       title="Select as correct answer"
-                      className="w-4 h-4 text-brand-500 accent-brand-500 cursor-pointer"
+                      className="w-4 h-4 text-[#C25E1A] accent-[#C25E1A] cursor-pointer"
                     />
-                    <span className="text-xs font-bold text-slate-400 w-6">
+                    <span className="text-xs font-bold text-stone-500 w-6">
                       {String.fromCharCode(65 + i)}:
                     </span>
                     <input
                       type="text"
-                      className="flex-1 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                      className="flex-1 px-3 py-1.5 bg-white border border-[#E2DAD0] rounded-xl text-xs text-stone-900 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-[#C25E1A]/20 focus:border-[#C25E1A]"
                       placeholder={`Option ${String.fromCharCode(65 + i)}`}
                       value={opt}
                       onChange={(e) => handleOptionChange(i, e.target.value)}
@@ -223,7 +225,7 @@ export const QuestionModal: React.FC<QuestionModalProps> = ({
                       <button
                         type="button"
                         onClick={() => handleRemoveOption(i)}
-                        className="text-slate-500 hover:text-rose-400 p-1"
+                        className="text-stone-400 hover:text-rose-600 p-1"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -231,7 +233,7 @@ export const QuestionModal: React.FC<QuestionModalProps> = ({
                   </div>
                 ))}
               </div>
-              <p className="text-[11px] text-slate-400 italic pt-1">
+              <p className="text-[11px] text-stone-500 italic pt-1">
                 Click the radio button next to an option to set it as the Correct Answer.
               </p>
             </div>
@@ -240,11 +242,11 @@ export const QuestionModal: React.FC<QuestionModalProps> = ({
           {/* Short Answer Expected Answer */}
           {questionType === 'SHORT_ANSWER' && (
             <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-slate-300 uppercase tracking-wider">
+              <label className="block text-[11px] font-semibold text-stone-600 uppercase tracking-wider">
                 Expected Answer (Reference for Grading) *
               </label>
               <textarea
-                className="w-full px-3.5 py-2.5 bg-slate-900/80 border border-slate-700 rounded-lg text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30 min-h-[70px]"
+                className="w-full px-3.5 py-2.5 bg-white border border-[#E2DAD0] rounded-xl text-sm text-stone-900 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-[#C25E1A]/20 focus:border-[#C25E1A] min-h-[70px]"
                 placeholder="Enter expected keywords or model response..."
                 value={correctAnswer}
                 onChange={(e) => setCorrectAnswer(e.target.value)}
@@ -274,12 +276,12 @@ export const QuestionModal: React.FC<QuestionModalProps> = ({
             />
           </div>
 
-          <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
+          <div className="flex justify-end gap-3 pt-4 border-t border-[#EBE5DC]">
             <Button type="button" variant="secondary" onClick={onClose}>
               Cancel
             </Button>
             <Button type="submit" variant="primary" isLoading={isLoading}>
-              Save Question
+              {questionToEdit ? 'Update Question' : 'Save Question'}
             </Button>
           </div>
         </form>

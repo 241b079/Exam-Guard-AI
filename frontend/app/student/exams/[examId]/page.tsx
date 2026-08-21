@@ -174,7 +174,7 @@ export default function StudentExaminationPage() {
 
   if (isLoading || isQLoading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+      <div className="min-h-screen bg-[#FAF7F2] flex items-center justify-center">
         <Loading message="Starting examination session..." />
       </div>
     );
@@ -182,9 +182,9 @@ export default function StudentExaminationPage() {
 
   if (error || !exam || !attempt) {
     return (
-      <div className="min-h-screen bg-slate-900 p-8">
-        <div className="max-w-md mx-auto p-6 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-center space-y-4">
-          <p>{error || 'Exam session unavailable'}</p>
+      <div className="min-h-screen bg-[#FAF7F2] p-8">
+        <div className="max-w-md mx-auto p-6 bg-rose-50 border border-rose-200 rounded-2xl text-rose-700 text-center space-y-4 shadow-warm">
+          <p className="text-sm font-medium">{error || 'Exam session unavailable'}</p>
           <Button variant="secondary" onClick={() => router.push('/student/exams')}>
             Return to Dashboard
           </Button>
@@ -194,16 +194,16 @@ export default function StudentExaminationPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col selection:bg-brand-500 selection:text-white">
+    <div className="min-h-screen bg-[#FAF7F2] text-stone-800 flex flex-col selection:bg-[#C25E1A] selection:text-white">
       {/* Top Header Bar */}
-      <header className="h-16 glass-panel border-b border-slate-800 px-6 flex items-center justify-between sticky top-0 z-40">
+      <header className="h-16 bg-white border-b border-[#EBE5DC] px-6 flex items-center justify-between sticky top-0 z-40 shadow-warm-sm">
         <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-brand-500/10 text-brand-400 border border-brand-500/30">
+          <div className="p-2 rounded-xl bg-[#FBECE0] text-[#C25E1A] border border-[#F6D6C0]">
             <Shield className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-base font-bold text-white tracking-tight">{exam.title}</h1>
-            <p className="text-[10px] text-slate-400">Question {currentIndex + 1} of {questions.length}</p>
+            <h1 className="text-base font-bold font-serif text-stone-900 tracking-tight">{exam.title}</h1>
+            <p className="text-[10px] text-stone-500">Question {currentIndex + 1} of {questions.length}</p>
           </div>
         </div>
 
@@ -217,9 +217,9 @@ export default function StudentExaminationPage() {
             variant="primary"
             size="sm"
             onClick={() => setIsSubmitModalOpen(true)}
-            className="gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold"
+            className="gap-1.5 text-xs font-semibold"
           >
-            <Send className="w-4 h-4" /> Submit Exam
+            <Send className="w-3.5 h-3.5" /> Submit Exam
           </Button>
         </div>
       </header>
@@ -229,28 +229,28 @@ export default function StudentExaminationPage() {
         {/* Left/Center: Current Question Card */}
         <div className="lg:col-span-3 flex flex-col justify-between space-y-6">
           {currentQuestion && (
-            <Card className="flex-1 p-6 md:p-8 space-y-6 flex flex-col justify-between">
+            <Card className="flex-1 p-6 md:p-8 space-y-6 flex flex-col justify-between bg-white border border-[#EBE5DC] rounded-3xl shadow-warm">
               <div className="space-y-6">
                 {/* Question Header */}
-                <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+                <div className="flex items-center justify-between pb-4 border-b border-[#EBE5DC]">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    <span className="text-xs font-bold text-stone-500 uppercase tracking-wider">
                       Question {currentIndex + 1}
                     </span>
-                    <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-brand-500/10 text-brand-400 border border-brand-500/20">
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#FBECE0] text-[#C25E1A] border border-[#F6D6C0]">
                       {currentQuestion.question_type}
                     </span>
-                    <span className="text-xs font-semibold text-purple-400">
+                    <span className="text-xs font-semibold text-amber-800 bg-[#FEF3C7] border border-[#FDE68A] px-2 py-0.5 rounded-full">
                       [{currentQuestion.marks} Marks]
                     </span>
                   </div>
 
                   <button
                     onClick={handleToggleMarkReview}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
                       isMarkedReview
-                        ? 'bg-purple-500/20 text-purple-300 border-purple-500/50'
-                        : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
+                        ? 'bg-[#FEF3C7] text-[#92400E] border-[#FDE68A]'
+                        : 'bg-[#FAF7F2] text-stone-600 border-[#E3DCD2] hover:text-stone-900'
                     }`}
                   >
                     <Flag className="w-3.5 h-3.5" />
@@ -259,7 +259,7 @@ export default function StudentExaminationPage() {
                 </div>
 
                 {/* Question Text */}
-                <h2 className="text-base md:text-lg font-bold text-slate-100 leading-relaxed">
+                <h2 className="text-lg md:text-xl font-serif font-bold text-stone-900 leading-relaxed">
                   {currentQuestion.question_text}
                 </h2>
 
@@ -272,18 +272,18 @@ export default function StudentExaminationPage() {
                         <label
                           key={i}
                           onClick={() => handleOptionSelect(opt)}
-                          className={`flex items-center gap-4 p-4 rounded-xl border cursor-pointer transition-all ${
+                          className={`flex items-center gap-4 p-4 rounded-2xl border cursor-pointer transition-all ${
                             isSelected
-                              ? 'bg-brand-500/15 border-brand-500/60 text-white shadow-md'
-                              : 'bg-slate-900/60 border-slate-800/80 text-slate-300 hover:bg-slate-800/60 hover:border-slate-700'
+                              ? 'bg-[#FBECE0] border-[#C25E1A] text-stone-900 shadow-sm'
+                              : 'bg-white border-[#E5DFD7] text-stone-700 hover:bg-[#FAF7F2] hover:border-[#D0C5B5]'
                           }`}
                         >
-                          <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${
-                            isSelected ? 'border-brand-400 bg-brand-500 text-white' : 'border-slate-600'
+                          <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all ${
+                            isSelected ? 'border-[#C25E1A] bg-[#C25E1A] text-white' : 'border-[#D0C5B5]'
                           }`}>
                             {isSelected && <span className="w-2 h-2 rounded-full bg-white" />}
                           </div>
-                          <span className="text-xs font-bold text-slate-400 w-5">
+                          <span className="text-xs font-bold text-stone-500 w-5">
                             {String.fromCharCode(65 + i)}:
                           </span>
                           <span className="text-sm font-medium">{opt}</span>
@@ -296,11 +296,11 @@ export default function StudentExaminationPage() {
                 {/* Short Answer Input */}
                 {currentQuestion.question_type === 'SHORT_ANSWER' && (
                   <div className="space-y-2 pt-2">
-                    <label className="block text-xs font-medium text-slate-300 uppercase tracking-wider">
+                    <label className="block text-[11px] font-semibold text-stone-600 uppercase tracking-wider">
                       Type your answer below:
                     </label>
                     <textarea
-                      className="w-full px-4 py-3 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 min-h-[160px]"
+                      className="w-full px-4 py-3 bg-white border border-[#E2DAD0] rounded-2xl text-sm text-stone-900 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-[#C25E1A]/20 focus:border-[#C25E1A] min-h-[160px]"
                       placeholder="Type your response here..."
                       value={answerText}
                       onChange={(e) => handleTextChange(e.target.value)}
@@ -311,7 +311,7 @@ export default function StudentExaminationPage() {
               </div>
 
               {/* Card Footer Navigation Buttons */}
-              <div className="flex items-center justify-between pt-6 border-t border-slate-800">
+              <div className="flex items-center justify-between pt-6 border-t border-[#EBE5DC]">
                 <Button
                   variant="secondary"
                   onClick={handlePrev}
@@ -330,7 +330,7 @@ export default function StudentExaminationPage() {
                     <Button
                       variant="primary"
                       onClick={() => setIsSubmitModalOpen(true)}
-                      className="gap-2 bg-emerald-600 hover:bg-emerald-500 text-xs"
+                      className="gap-2 text-xs"
                     >
                       Review & Submit <Send className="w-4 h-4" />
                     </Button>
@@ -364,3 +364,4 @@ export default function StudentExaminationPage() {
     </div>
   );
 }
+

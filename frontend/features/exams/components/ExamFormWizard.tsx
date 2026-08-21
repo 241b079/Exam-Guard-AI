@@ -98,7 +98,7 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
   return (
     <div className="w-full max-w-4xl mx-auto space-y-8">
       {/* Wizard Steps Indicator */}
-      <div className="grid grid-cols-4 gap-2 border-b border-slate-800 pb-4">
+      <div className="grid grid-cols-4 gap-3 border-b border-[#EBE5DC] pb-4">
         {[
           { num: 1, label: 'Information', icon: FileText },
           { num: 2, label: 'Settings', icon: Settings },
@@ -113,12 +113,12 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
             <button
               key={s.num}
               onClick={() => s.num < step && setStep(s.num)}
-              className={`flex items-center gap-2 p-3 rounded-xl border text-xs font-semibold transition-all ${
+              className={`flex items-center gap-2 p-3.5 rounded-2xl border text-xs font-semibold transition-all ${
                 isActive
-                  ? 'bg-brand-500/15 border-brand-500/50 text-brand-400'
+                  ? 'bg-[#FBECE0] border-[#F6D6C0] text-[#C25E1A] shadow-warm-sm'
                   : isDone
-                  ? 'bg-slate-800/80 border-slate-700 text-emerald-400'
-                  : 'bg-slate-900 border-slate-800 text-slate-500'
+                  ? 'bg-[#DEF7EC] border-[#BCF0DA] text-[#03543F]'
+                  : 'bg-white border-[#EBE5DC] text-stone-500'
               }`}
             >
               <Icon className="w-4 h-4 shrink-0" />
@@ -129,15 +129,15 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
       </div>
 
       {error && (
-        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-sm">
+        <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-sm shadow-warm-sm">
           {error}
         </div>
       )}
 
       {/* Step 1: Exam Information */}
       {step === 1 && (
-        <div className="glass-panel p-6 rounded-2xl space-y-6">
-          <h2 className="text-lg font-bold text-white">1. Exam Information</h2>
+        <div className="bg-white p-6 md:p-8 rounded-3xl border border-[#EBE5DC] shadow-warm space-y-6">
+          <h2 className="text-xl font-bold font-serif text-stone-900">1. Exam Information</h2>
           
           <Input
             label="Exam Title *"
@@ -149,11 +149,11 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
           />
 
           <div className="space-y-1.5">
-            <label className="block text-xs font-medium text-slate-300 uppercase tracking-wider">
+            <label className="block text-[11px] font-semibold text-stone-600 uppercase tracking-wider">
               Description (Optional)
             </label>
             <textarea
-              className="w-full px-3.5 py-2.5 bg-slate-900/80 border border-slate-700/80 rounded-lg text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30 min-h-[100px]"
+              className="w-full px-3.5 py-2.5 bg-white border border-[#E2DAD0] rounded-xl text-sm text-stone-900 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-[#C25E1A]/20 focus:border-[#C25E1A] min-h-[100px]"
               placeholder="Provide instructions or syllabus topics for this exam..."
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -161,7 +161,7 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
           </div>
 
           <div className="space-y-2">
-            <label className="block text-xs font-medium text-slate-300 uppercase tracking-wider">
+            <label className="block text-[11px] font-semibold text-stone-600 uppercase tracking-wider">
               Exam Duration *
             </label>
             <div className="grid grid-cols-2 gap-4 max-w-md">
@@ -182,8 +182,8 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
                 onChange={(e) => setMinutes(parseInt(e.target.value) || 0)}
               />
             </div>
-            <p className="text-xs text-slate-400 pt-1">
-              Total Duration: <strong className="text-brand-400">{durationMinutes} minutes</strong>
+            <p className="text-xs text-stone-500 pt-1">
+              Total Duration: <strong className="text-[#C25E1A] font-bold">{durationMinutes} minutes</strong>
             </p>
           </div>
         </div>
@@ -191,8 +191,8 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
 
       {/* Step 2: Exam Settings */}
       {step === 2 && (
-        <div className="glass-panel p-6 rounded-2xl space-y-6">
-          <h2 className="text-lg font-bold text-white">2. Exam Settings</h2>
+        <div className="bg-white p-6 md:p-8 rounded-3xl border border-[#EBE5DC] shadow-warm space-y-6">
+          <h2 className="text-xl font-bold font-serif text-stone-900">2. Exam Settings</h2>
 
           <Select
             label="Negative Marking"
@@ -205,34 +205,34 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
           />
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="p-4 bg-slate-800/40 border border-slate-700/60 rounded-xl space-y-2">
-              <label className="text-sm font-semibold text-slate-200 block">Auto Submit on Timeout</label>
-              <p className="text-xs text-slate-400">Automatically submit test answers when timer reaches 00:00.</p>
+            <div className="p-4 bg-[#FAF7F2] border border-[#EBE5DC] rounded-2xl space-y-2">
+              <label className="text-sm font-semibold text-stone-900 block">Auto Submit on Timeout</label>
+              <p className="text-xs text-stone-500">Automatically submit test answers when timer reaches 00:00.</p>
               <div className="flex gap-4 pt-2">
-                <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
-                  <input type="radio" checked={autoSubmit} onChange={() => setAutoSubmit(true)} /> Yes (Default)
+                <label className="flex items-center gap-2 text-xs text-stone-700 cursor-pointer">
+                  <input type="radio" checked={autoSubmit} onChange={() => setAutoSubmit(true)} className="accent-[#C25E1A]" /> Yes (Default)
                 </label>
-                <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
-                  <input type="radio" checked={!autoSubmit} onChange={() => setAutoSubmit(false)} /> No
+                <label className="flex items-center gap-2 text-xs text-stone-700 cursor-pointer">
+                  <input type="radio" checked={!autoSubmit} onChange={() => setAutoSubmit(false)} className="accent-[#C25E1A]" /> No
                 </label>
               </div>
             </div>
 
-            <div className="p-4 bg-slate-800/40 border border-slate-700/60 rounded-xl space-y-2">
-              <label className="text-sm font-semibold text-slate-200 block">Display Timer Countdown</label>
-              <p className="text-xs text-slate-400">Show remaining time clock in top bar of student exam screen.</p>
+            <div className="p-4 bg-[#FAF7F2] border border-[#EBE5DC] rounded-2xl space-y-2">
+              <label className="text-sm font-semibold text-stone-900 block">Display Timer Countdown</label>
+              <p className="text-xs text-stone-500">Show remaining time clock in top bar of student exam screen.</p>
               <div className="flex gap-4 pt-2">
-                <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
-                  <input type="radio" checked={displayCountdown} onChange={() => setDisplayCountdown(true)} /> Yes (Default)
+                <label className="flex items-center gap-2 text-xs text-stone-700 cursor-pointer">
+                  <input type="radio" checked={displayCountdown} onChange={() => setDisplayCountdown(true)} className="accent-[#C25E1A]" /> Yes (Default)
                 </label>
-                <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
-                  <input type="radio" checked={!displayCountdown} onChange={() => setDisplayCountdown(false)} /> No
+                <label className="flex items-center gap-2 text-xs text-stone-700 cursor-pointer">
+                  <input type="radio" checked={!displayCountdown} onChange={() => setDisplayCountdown(false)} className="accent-[#C25E1A]" /> No
                 </label>
               </div>
             </div>
           </div>
 
-          <div className="space-y-4 pt-4 border-t border-slate-800">
+          <div className="space-y-4 pt-4 border-t border-[#EBE5DC]">
             <Select
               label="Exam Availability"
               options={[
@@ -244,7 +244,7 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
             />
 
             {availabilityType === 'SCHEDULED' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 bg-slate-800/40 rounded-xl border border-slate-700">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 bg-[#FAF7F2] rounded-2xl border border-[#EBE5DC]">
                 <Input
                   label="Start Date & Time"
                   type="datetime-local"
@@ -265,8 +265,8 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
 
       {/* Step 3: Exam Assignment */}
       {step === 3 && (
-        <div className="glass-panel p-6 rounded-2xl space-y-6">
-          <h2 className="text-lg font-bold text-white">3. Student Assignment</h2>
+        <div className="bg-white p-6 md:p-8 rounded-3xl border border-[#EBE5DC] shadow-warm space-y-6">
+          <h2 className="text-xl font-bold font-serif text-stone-900">3. Student Assignment</h2>
 
           <div className="space-y-4">
             <Select
@@ -280,7 +280,7 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
             />
 
             {assignmentType === 'SELECTED_STUDENTS' && (
-              <div className="p-4 bg-slate-800/50 rounded-xl border border-slate-700 text-xs text-amber-300 space-y-2">
+              <div className="p-4 bg-[#FAF7F2] rounded-2xl border border-[#EBE5DC] text-xs text-amber-800 space-y-2">
                 <p>Selected students mode enabled. All enrolled students will be able to take this exam by default in Phase 2.</p>
               </div>
             )}
@@ -290,37 +290,37 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
 
       {/* Step 4: Review & Publish */}
       {step === 4 && (
-        <div className="glass-panel p-6 rounded-2xl space-y-6">
-          <h2 className="text-lg font-bold text-white">4. Review & Confirm</h2>
+        <div className="bg-white p-6 md:p-8 rounded-3xl border border-[#EBE5DC] shadow-warm space-y-6">
+          <h2 className="text-xl font-bold font-serif text-stone-900">4. Review & Confirm</h2>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm bg-slate-800/50 p-4 rounded-xl border border-slate-700">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm bg-[#FAF7F2] p-4 rounded-2xl border border-[#EBE5DC]">
             <div>
-              <span className="text-xs text-slate-400 block uppercase">Title</span>
-              <span className="font-semibold text-slate-100">{title}</span>
+              <span className="text-xs text-stone-500 block uppercase font-semibold">Title</span>
+              <span className="font-semibold text-stone-900">{title}</span>
             </div>
             <div>
-              <span className="text-xs text-slate-400 block uppercase">Duration</span>
-              <span className="font-semibold text-slate-100">{durationMinutes} Minutes</span>
+              <span className="text-xs text-stone-500 block uppercase font-semibold">Duration</span>
+              <span className="font-semibold text-stone-900">{durationMinutes} Minutes</span>
             </div>
             <div>
-              <span className="text-xs text-slate-400 block uppercase">Negative Marking</span>
-              <span className="font-semibold text-slate-100">{negativeMarking}</span>
+              <span className="text-xs text-stone-500 block uppercase font-semibold">Negative Marking</span>
+              <span className="font-semibold text-stone-900">{negativeMarking}</span>
             </div>
             <div>
-              <span className="text-xs text-slate-400 block uppercase">Availability</span>
-              <span className="font-semibold text-slate-100">{availabilityType}</span>
+              <span className="text-xs text-stone-500 block uppercase font-semibold">Availability</span>
+              <span className="font-semibold text-stone-900">{availabilityType}</span>
             </div>
           </div>
 
-          <div className="p-4 bg-brand-500/10 border border-brand-500/30 rounded-xl text-xs text-brand-300 space-y-1">
-            <p className="font-bold text-brand-200">Next Step after saving:</p>
-            <p>You will be taken directly to the Question Builder to add MCQ / Short Answer questions or import CSV questions.</p>
+          <div className="p-4 bg-[#FBECE0] border border-[#F6D6C0] rounded-2xl text-xs text-[#C25E1A] space-y-1">
+            <p className="font-bold">Next Step after saving:</p>
+            <p className="text-stone-700">You will be taken directly to the Question Builder to add MCQ / Short Answer questions or import CSV questions.</p>
           </div>
         </div>
       )}
 
       {/* Navigation Footer */}
-      <div className="flex items-center justify-between pt-4 border-t border-slate-800">
+      <div className="flex items-center justify-between pt-4 border-t border-[#EBE5DC]">
         {step > 1 ? (
           <Button variant="secondary" onClick={handlePrev} className="gap-2">
             <ArrowLeft className="w-4 h-4" /> Previous
@@ -356,3 +356,4 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
     </div>
   );
 };
+

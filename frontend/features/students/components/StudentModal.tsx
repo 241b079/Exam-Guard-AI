@@ -124,22 +124,24 @@ export const StudentModal: React.FC<StudentModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
-      <div className="glass-panel w-full max-w-2xl p-6 rounded-2xl border border-slate-700 shadow-2xl space-y-6 animate-in fade-in zoom-in-95 duration-150 my-8">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm overflow-y-auto">
+      <div className="bg-white w-full max-w-2xl p-6 md:p-8 rounded-3xl border border-[#EBE5DC] shadow-warm-lg space-y-6 animate-in fade-in zoom-in-95 duration-150 my-8">
+        <div className="flex items-center justify-between border-b border-[#EBE5DC] pb-4">
           <div className="flex items-center gap-2">
-            {studentToEdit ? <Edit className="w-5 h-5 text-brand-400" /> : <UserPlus className="w-5 h-5 text-brand-400" />}
-            <h2 className="text-lg font-bold text-white">
+            <div className="p-2 rounded-xl bg-[#FBECE0] text-[#C25E1A] border border-[#F6D6C0]">
+              {studentToEdit ? <Edit className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
+            </div>
+            <h2 className="text-lg font-bold font-serif text-stone-900">
               {studentToEdit ? 'Edit Student Details' : 'Add New Student'}
             </h2>
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
+          <button onClick={onClose} className="p-1 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-[#FAF7F2]">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {error && (
-          <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs">
+          <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
             {error}
           </div>
         )}
@@ -232,18 +234,18 @@ export const StudentModal: React.FC<StudentModalProps> = ({
           </div>
 
           <div className="space-y-1.5">
-            <label className="block text-xs font-medium text-slate-300 uppercase tracking-wider">
+            <label className="block text-[11px] font-semibold text-stone-600 uppercase tracking-wider">
               Address
             </label>
             <textarea
-              className="w-full px-3.5 py-2.5 bg-slate-900/80 border border-slate-700 rounded-lg text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30 min-h-[70px]"
+              className="w-full px-3.5 py-2.5 bg-white border border-[#E2DAD0] rounded-xl text-sm text-stone-900 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-[#C25E1A]/20 focus:border-[#C25E1A] min-h-[70px]"
               placeholder="Enter full postal address..."
               value={address}
               onChange={(e) => setAddress(e.target.value)}
             />
           </div>
 
-          <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
+          <div className="flex justify-end gap-3 pt-4 border-t border-[#EBE5DC]">
             <Button type="button" variant="secondary" onClick={onClose}>
               Cancel
             </Button>
@@ -256,3 +258,4 @@ export const StudentModal: React.FC<StudentModalProps> = ({
     </div>
   );
 };
+

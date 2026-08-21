@@ -11,11 +11,12 @@ export const Card: React.FC<CardProps> = ({
   className = '',
   ...props
 }) => {
-  const styles = variant === 'glass' ? 'glass-card' : 'bg-slate-800 border border-slate-700';
+  const styles = variant === 'glass' ? 'glass-card' : 'bg-white border border-[#EBE5DC]';
 
   return (
-    <div className={`${styles} rounded-xl p-6 shadow-xl ${className}`} {...props}>
+    <div className={`${styles} rounded-2xl p-6 shadow-warm ${className}`} {...props}>
       {children}
     </div>
   );
 };
+

@@ -81,16 +81,16 @@ export default function FacultyQuestionsPage() {
   return (
     <DashboardLayout title="Question Builder">
       <div className="space-y-6">
-        <Link href={`/faculty/exams/${examId}`} className="inline-flex items-center gap-2 text-xs text-slate-400 hover:text-white transition-colors">
+        <Link href={`/faculty/exams/${examId}`} className="inline-flex items-center gap-2 text-xs text-stone-500 hover:text-stone-900 transition-colors">
           <ArrowLeft className="w-4 h-4" /> Back to Exam Overview
         </Link>
 
         {/* Action Header */}
-        <div className="p-6 glass-panel rounded-2xl border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="p-6 md:p-8 bg-white rounded-3xl border border-[#EBE5DC] shadow-warm flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="space-y-1">
-            <h1 className="text-xl font-bold text-white">Questions — {exam?.title || 'Exam'}</h1>
-            <p className="text-xs text-slate-400">
-              Total Questions: <strong className="text-brand-400">{questions.length}</strong> • Total Marks: <strong className="text-purple-400">{totalMarks}</strong>
+            <h1 className="text-xl font-bold font-serif text-stone-900">Questions — {exam?.title || 'Exam'}</h1>
+            <p className="text-xs text-stone-500">
+              Total Questions: <strong className="text-[#C25E1A]">{questions.length}</strong> • Total Marks: <strong className="text-stone-900">{totalMarks}</strong>
             </p>
           </div>
 
@@ -111,7 +111,7 @@ export default function FacultyQuestionsPage() {
                 size="sm"
                 onClick={handlePublish}
                 isLoading={isPublishing}
-                className="gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-500"
+                className="gap-1.5 text-xs bg-emerald-700 hover:bg-emerald-800"
               >
                 <Send className="w-4 h-4" /> Publish Exam
               </Button>
@@ -120,7 +120,7 @@ export default function FacultyQuestionsPage() {
         </div>
 
         {error && (
-          <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-sm">
+          <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-sm shadow-warm-sm">
             {error}
           </div>
         )}
@@ -152,24 +152,24 @@ export default function FacultyQuestionsPage() {
                 <div className="flex items-start justify-between gap-4">
                   <div className="space-y-1 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-slate-400">Question {idx + 1}</span>
+                      <span className="text-xs font-bold text-stone-500">Question {idx + 1}</span>
                       <Badge variant={q.question_type === 'MCQ' ? 'info' : 'faculty'}>
                         {q.question_type}
                       </Badge>
-                      <span className="text-xs font-semibold text-purple-400">{q.marks} Marks</span>
+                      <span className="text-xs font-semibold text-stone-700">{q.marks} Marks</span>
                       {q.negative_marks > 0 && (
-                        <span className="text-[11px] text-rose-400">(-{q.negative_marks} Negative)</span>
+                        <span className="text-[11px] text-rose-600">(-{q.negative_marks} Negative)</span>
                       )}
                     </div>
-                    <h3 className="text-sm font-bold text-slate-100">{q.question_text}</h3>
+                    <h3 className="text-base font-bold font-serif text-stone-900">{q.question_text}</h3>
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <Button variant="ghost" size="sm" onClick={() => handleOpenEdit(q)} className="p-2">
-                      <Edit className="w-4 h-4 text-slate-400" />
+                    <Button variant="ghost" size="sm" onClick={() => handleOpenEdit(q)} className="p-2 text-stone-400 hover:text-stone-700">
+                      <Edit className="w-4 h-4" />
                     </Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleDelete(q.id)} className="p-2">
-                      <Trash2 className="w-4 h-4 text-rose-400" />
+                    <Button variant="ghost" size="sm" onClick={() => handleDelete(q.id)} className="p-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50">
+                      <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
                 </div>
@@ -182,14 +182,14 @@ export default function FacultyQuestionsPage() {
                       return (
                         <div
                           key={optIdx}
-                          className={`p-2.5 rounded-lg border flex items-center justify-between ${
+                          className={`p-3 rounded-2xl border flex items-center justify-between ${
                             isCorrect
-                              ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300 font-semibold'
-                              : 'bg-slate-900/60 border-slate-800 text-slate-300'
+                              ? 'bg-[#DEF7EC] border-[#BCF0DA] text-[#03543F] font-semibold'
+                              : 'bg-[#FAF7F2] border-[#EBE5DC] text-stone-700'
                           }`}
                         >
                           <span>{String.fromCharCode(65 + optIdx)}: {opt}</span>
-                          {isCorrect && <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />}
+                          {isCorrect && <CheckCircle className="w-4 h-4 text-emerald-700" />}
                         </div>
                       );
                     })}
@@ -198,9 +198,9 @@ export default function FacultyQuestionsPage() {
 
                 {/* Short Answer Reference */}
                 {q.question_type === 'SHORT_ANSWER' && (
-                  <div className="p-3 bg-slate-900/60 border border-slate-800 rounded-lg text-xs space-y-1">
-                    <span className="text-[10px] text-slate-500 font-semibold uppercase block">Expected Answer Reference:</span>
-                    <p className="text-slate-300 italic">{q.correct_answer}</p>
+                  <div className="p-3 bg-[#FAF7F2] border border-[#EBE5DC] rounded-2xl text-xs space-y-1">
+                    <span className="text-[10px] text-stone-500 font-semibold uppercase block">Expected Answer Reference:</span>
+                    <p className="text-stone-700 italic">{q.correct_answer}</p>
                   </div>
                 )}
               </Card>
@@ -208,6 +208,7 @@ export default function FacultyQuestionsPage() {
           </div>
         )}
       </div>
+
 
       {/* Question Form Modal */}
       <QuestionModal

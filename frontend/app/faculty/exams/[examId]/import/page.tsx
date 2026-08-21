@@ -18,25 +18,25 @@ export default function FacultyImportQuestionsPage() {
   return (
     <DashboardLayout title="Import Questions">
       <div className="space-y-6">
-        <Link href={`/faculty/exams/${examId}/questions`} className="inline-flex items-center gap-2 text-xs text-slate-400 hover:text-white transition-colors">
+        <Link href={`/faculty/exams/${examId}/questions`} className="inline-flex items-center gap-2 text-xs text-stone-500 hover:text-stone-900 transition-colors">
           <ArrowLeft className="w-4 h-4" /> Back to Question Builder
         </Link>
 
-        <div className="glass-panel p-8 rounded-2xl border border-slate-800 space-y-6 max-w-3xl mx-auto text-center">
-          <div className="w-16 h-16 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center justify-center mx-auto">
+        <div className="bg-white p-8 md:p-10 rounded-3xl border border-[#EBE5DC] shadow-warm space-y-6 max-w-3xl mx-auto text-center">
+          <div className="w-16 h-16 rounded-2xl bg-[#DEF7EC] text-[#03543F] border border-[#BCF0DA] flex items-center justify-center mx-auto">
             <FileSpreadsheet className="w-8 h-8" />
           </div>
 
           <div className="space-y-2">
-            <h1 className="text-xl font-bold text-white">Import Questions via CSV / Excel</h1>
-            <p className="text-sm text-slate-400 max-w-lg mx-auto">
+            <h1 className="text-2xl font-bold font-serif text-stone-900">Import Questions via CSV / Excel</h1>
+            <p className="text-sm text-stone-600 max-w-lg mx-auto">
               Bulk import questions into your exam using a structured CSV file with options and answers.
             </p>
           </div>
 
-          <div className="bg-slate-900/80 p-4 rounded-xl border border-slate-800 text-left text-xs text-slate-300 space-y-2">
-            <p className="font-bold text-slate-200 uppercase tracking-wider">CSV Format Specification:</p>
-            <ul className="list-disc list-inside space-y-1 text-slate-400">
+          <div className="bg-[#FAF7F2] p-5 rounded-2xl border border-[#EBE5DC] text-left text-xs text-stone-700 space-y-2">
+            <p className="font-bold text-stone-900 uppercase tracking-wider">CSV Format Specification:</p>
+            <ul className="list-disc list-inside space-y-1 text-stone-600">
               <li><strong>type</strong>: MCQ or SHORT_ANSWER</li>
               <li><strong>question</strong>: Question text prompt</li>
               <li><strong>option A, option B, option C, option D</strong>: Choices for MCQ</li>
@@ -50,6 +50,7 @@ export default function FacultyImportQuestionsPage() {
           </Button>
         </div>
       </div>
+
 
       <ImportQuestionsModal
         isOpen={isModalOpen}

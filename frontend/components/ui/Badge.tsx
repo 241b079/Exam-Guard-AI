@@ -7,12 +7,12 @@ interface BadgeProps {
 
 export const Badge: React.FC<BadgeProps> = ({ children, variant = 'info' }) => {
   const styles = {
-    student: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
-    faculty: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
-    admin: 'bg-purple-500/10 text-purple-400 border-purple-500/30',
-    info: 'bg-brand-500/10 text-brand-400 border-brand-500/30',
-    success: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
-    danger: 'bg-rose-500/10 text-rose-400 border-rose-500/30',
+    student: 'bg-[#DEF7EC] text-[#03543F] border-[#BCF0DA]',
+    faculty: 'bg-[#FEF3C7] text-[#92400E] border-[#FDE68A]',
+    admin: 'bg-[#F3E8FF] text-[#6B21A8] border-[#E9D5FF]',
+    info: 'bg-[#FBECE0] text-[#C25E1A] border-[#F6D6C0]',
+    success: 'bg-[#DEF7EC] text-[#03543F] border-[#BCF0DA]',
+    danger: 'bg-[#FDE8E8] text-[#9B1C1C] border-[#F8B4B4]',
   };
 
   return (
@@ -21,3 +21,4 @@ export const Badge: React.FC<BadgeProps> = ({ children, variant = 'info' }) => {
     </span>
   );
 };
+

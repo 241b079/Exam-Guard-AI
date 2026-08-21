@@ -64,14 +64,15 @@ export default function FacultyStudentsPage() {
   return (
     <DashboardLayout title="Student Management">
       <div className="space-y-6">
-        <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+        <div className="flex items-center justify-between pb-4 border-b border-[#EBE5DC]">
           <div>
-            <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              <Users className="w-5 h-5 text-brand-400" /> Student Directory
+            <h2 className="text-xl font-bold font-serif text-stone-900 flex items-center gap-2">
+              <Users className="w-5 h-5 text-[#C25E1A]" /> Student Directory
             </h2>
-            <p className="text-xs text-slate-400">Manage student accounts, roll numbers, and bulk imports</p>
+            <p className="text-xs text-stone-500">Manage student accounts, roll numbers, and bulk imports</p>
           </div>
         </div>
+
 
         {error && (
           <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-sm">

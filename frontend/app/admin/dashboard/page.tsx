@@ -17,19 +17,19 @@ export default function AdminDashboardPage() {
     <DashboardLayout title="Admin Dashboard">
       <div className="space-y-8">
         {/* Welcome Header */}
-        <div className="p-6 rounded-2xl bg-gradient-to-r from-purple-950/60 via-slate-800 to-slate-900 border border-purple-500/20 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="p-6 md:p-8 rounded-3xl bg-white border border-[#EBE5DC] shadow-warm flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <h2 className="text-2xl font-extrabold text-white">Welcome, {user.name}</h2>
+              <h2 className="text-2xl font-bold font-serif text-stone-900">Welcome, {user.name}</h2>
               <Badge variant="admin">Admin</Badge>
             </div>
-            <p className="text-sm text-slate-400">
-              Logged in as <span className="text-slate-200 font-medium">{user.email}</span>
+            <p className="text-sm text-stone-600">
+              Logged in as <span className="text-stone-900 font-medium">{user.email}</span>
             </p>
           </div>
-          <div className="flex items-center gap-3 bg-slate-900/60 p-3 rounded-xl border border-slate-800 text-xs text-slate-300">
-            <ShieldCheck className="w-4 h-4 text-purple-400" />
-            <span>Full System Administrator Access</span>
+          <div className="flex items-center gap-3 bg-[#FAF7F2] p-3 rounded-2xl border border-[#EBE5DC] text-xs text-stone-700">
+            <ShieldCheck className="w-4 h-4 text-[#C25E1A]" />
+            <span className="font-medium">Full System Administrator Access</span>
           </div>
         </div>
 
@@ -37,44 +37,44 @@ export default function AdminDashboardPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {/* Section 1: Users */}
           <Card className="space-y-4">
-            <div className="flex items-center gap-3 pb-3 border-b border-slate-800">
-              <div className="p-2 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/20">
-                <Users className="w-5 h-5" />
+            <div className="flex items-center gap-3 pb-3 border-b border-[#EBE5DC]">
+              <div className="p-2 rounded-xl bg-[#FBECE0] text-[#C25E1A] border border-[#F6D6C0]">
+                <Users className="w-4 h-4" />
               </div>
-              <h3 className="text-base font-bold text-slate-100">Users</h3>
+              <h3 className="text-base font-bold font-serif text-stone-900">Users</h3>
             </div>
             <EmptyState title="User Management" badge="Phase 2 Feature" />
           </Card>
 
           {/* Section 2: Exams */}
           <Card className="space-y-4">
-            <div className="flex items-center gap-3 pb-3 border-b border-slate-800">
-              <div className="p-2 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                <FileText className="w-5 h-5" />
+            <div className="flex items-center gap-3 pb-3 border-b border-[#EBE5DC]">
+              <div className="p-2 rounded-xl bg-[#E8F1F5] text-[#1E5D88] border border-[#CDE1EC]">
+                <FileText className="w-4 h-4" />
               </div>
-              <h3 className="text-base font-bold text-slate-100">Exams</h3>
+              <h3 className="text-base font-bold font-serif text-stone-900">Exams</h3>
             </div>
             <EmptyState title="Global Exam Catalog" badge="Phase 2 Feature" />
           </Card>
 
           {/* Section 3: System Monitoring */}
           <Card className="space-y-4">
-            <div className="flex items-center gap-3 pb-3 border-b border-slate-800">
-              <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                <Activity className="w-5 h-5" />
+            <div className="flex items-center gap-3 pb-3 border-b border-[#EBE5DC]">
+              <div className="p-2 rounded-xl bg-[#DEF7EC] text-[#03543F] border border-[#BCF0DA]">
+                <Activity className="w-4 h-4" />
               </div>
-              <h3 className="text-base font-bold text-slate-100">System Monitoring</h3>
+              <h3 className="text-base font-bold font-serif text-stone-900">System Monitoring</h3>
             </div>
             <EmptyState title="Server Telemetry & Logs" badge="Phase 2 Feature" />
           </Card>
 
           {/* Section 4: Settings */}
           <Card className="space-y-4">
-            <div className="flex items-center gap-3 pb-3 border-b border-slate-800">
-              <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                <Settings className="w-5 h-5" />
+            <div className="flex items-center gap-3 pb-3 border-b border-[#EBE5DC]">
+              <div className="p-2 rounded-xl bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A]">
+                <Settings className="w-4 h-4" />
               </div>
-              <h3 className="text-base font-bold text-slate-100">Settings</h3>
+              <h3 className="text-base font-bold font-serif text-stone-900">Settings</h3>
             </div>
             <EmptyState title="Platform Configurations" badge="Phase 2 Feature" />
           </Card>
@@ -82,25 +82,25 @@ export default function AdminDashboardPage() {
 
         {/* Profile Card */}
         <Card className="space-y-4">
-          <h3 className="text-base font-bold text-slate-100 pb-3 border-b border-slate-800">
+          <h3 className="text-base font-bold font-serif text-stone-900 pb-3 border-b border-[#EBE5DC]">
             Profile Information
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-sm">
             <div className="space-y-1">
-              <span className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Name</span>
-              <p className="text-slate-100 font-medium">{user.name}</p>
+              <span className="text-[11px] text-stone-500 uppercase tracking-wider font-semibold">Name</span>
+              <p className="text-stone-900 font-medium">{user.name}</p>
             </div>
             <div className="space-y-1">
-              <span className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Email</span>
-              <p className="text-slate-100 font-medium">{user.email}</p>
+              <span className="text-[11px] text-stone-500 uppercase tracking-wider font-semibold">Email</span>
+              <p className="text-stone-900 font-medium">{user.email}</p>
             </div>
             <div className="space-y-1">
-              <span className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Role</span>
+              <span className="text-[11px] text-stone-500 uppercase tracking-wider font-semibold">Role</span>
               <p><Badge variant="admin">{user.role}</Badge></p>
             </div>
             <div className="space-y-1">
-              <span className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Account Created</span>
-              <p className="text-slate-100 font-medium">{new Date(user.created_at || Date.now()).toLocaleDateString()}</p>
+              <span className="text-[11px] text-stone-500 uppercase tracking-wider font-semibold">Account Created</span>
+              <p className="text-stone-900 font-medium">{new Date(user.created_at || Date.now()).toLocaleDateString()}</p>
             </div>
           </div>
         </Card>
@@ -108,3 +108,4 @@ export default function AdminDashboardPage() {
     </DashboardLayout>
   );
 }
+

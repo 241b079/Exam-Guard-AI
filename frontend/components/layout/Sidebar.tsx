@@ -35,15 +35,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ role }) => {
   }
 
   return (
-    <aside className="w-64 glass-panel border-r border-slate-800 flex flex-col h-screen sticky top-0 shrink-0">
+    <aside className="w-64 bg-white border-r border-[#EBE5DC] flex flex-col h-screen sticky top-0 shrink-0 shadow-warm-sm">
       {/* Brand Header */}
-      <div className="p-6 border-b border-slate-800 flex items-center gap-3">
-        <div className="p-2 rounded-xl bg-brand-500/10 border border-brand-500/30 text-brand-400">
+      <div className="p-6 border-b border-[#EBE5DC] flex items-center gap-3">
+        <div className="p-2 rounded-xl bg-[#FBECE0] border border-[#F6D6C0] text-[#C25E1A]">
           <Shield className="w-6 h-6" />
         </div>
         <div>
-          <h2 className="text-base font-bold text-white tracking-tight">ExamGuard AI</h2>
-          <p className="text-[10px] text-slate-400 uppercase tracking-widest font-semibold">{role} PORTAL</p>
+          <h2 className="text-base font-bold font-serif text-stone-900 tracking-tight">ExamGuard AI</h2>
+          <p className="text-[10px] text-stone-500 uppercase tracking-widest font-semibold">{role} PORTAL</p>
         </div>
       </div>
 
@@ -59,8 +59,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ role }) => {
               href={item.href}
               className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all ${
                 isActive
-                  ? 'bg-brand-500/15 text-brand-400 border border-brand-500/30 shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                  ? 'bg-[#FBECE0] text-[#C25E1A] font-semibold border border-[#F6D6C0] shadow-sm'
+                  : 'text-stone-600 hover:text-stone-900 hover:bg-[#FAF7F2]'
               }`}
             >
               <Icon className="w-4 h-4" />
@@ -71,9 +71,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ role }) => {
       </nav>
 
       {/* Footer / Phase Info */}
-      <div className="p-4 border-t border-slate-800 text-[11px] text-slate-500 text-center">
+      <div className="p-4 border-t border-[#EBE5DC] text-[11px] text-stone-400 text-center">
         <span>Phase 2 — Examination & Students</span>
       </div>
     </aside>
   );
 };
+

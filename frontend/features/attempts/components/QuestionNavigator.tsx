@@ -44,10 +44,10 @@ export const QuestionNavigator: React.FC<QuestionNavigatorProps> = ({
   });
 
   return (
-    <div className="glass-panel p-5 rounded-2xl space-y-5 border border-slate-800">
-      <div className="space-y-1 pb-3 border-b border-slate-800">
-        <h3 className="text-sm font-bold text-slate-100">Question Navigator</h3>
-        <p className="text-xs text-slate-400">Click a number to jump directly</p>
+    <div className="bg-white p-5 rounded-3xl space-y-5 border border-[#EBE5DC] shadow-warm">
+      <div className="space-y-1 pb-3 border-b border-[#EBE5DC]">
+        <h3 className="text-sm font-bold font-serif text-stone-900">Question Navigator</h3>
+        <p className="text-xs text-stone-500">Click a number to jump directly</p>
       </div>
 
       {/* Grid of question buttons */}
@@ -56,15 +56,15 @@ export const QuestionNavigator: React.FC<QuestionNavigatorProps> = ({
           const status = getQuestionStatus(q.id);
           const isCurrent = idx === currentIndex;
 
-          let btnStyle = 'bg-slate-800 text-slate-400 border-slate-700 hover:border-slate-500';
+          let btnStyle = 'bg-[#FAF7F2] text-stone-600 border-[#E3DCD2] hover:border-[#D0C5B5]';
           if (status === 'answered') {
-            btnStyle = 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 font-semibold';
+            btnStyle = 'bg-[#DEF7EC] text-[#03543F] border-[#BCF0DA] font-semibold';
           } else if (status === 'marked') {
-            btnStyle = 'bg-purple-500/25 text-purple-300 border-purple-500/50 font-semibold';
+            btnStyle = 'bg-[#FEF3C7] text-[#92400E] border-[#FDE68A] font-semibold';
           }
 
           if (isCurrent) {
-            btnStyle += ' ring-2 ring-brand-500 ring-offset-2 ring-offset-slate-900 border-brand-400 text-white font-bold';
+            btnStyle += ' ring-2 ring-[#C25E1A] ring-offset-2 ring-offset-[#FAF7F2] border-[#C25E1A] font-bold';
           }
 
           return (
@@ -75,7 +75,7 @@ export const QuestionNavigator: React.FC<QuestionNavigatorProps> = ({
             >
               <span>{idx + 1}</span>
               {status === 'marked' && (
-                <Flag className="w-2.5 h-2.5 text-purple-400 absolute top-1 right-1" />
+                <Flag className="w-2.5 h-2.5 text-amber-600 absolute top-1 right-1" />
               )}
             </button>
           );
@@ -83,31 +83,32 @@ export const QuestionNavigator: React.FC<QuestionNavigatorProps> = ({
       </div>
 
       {/* Legend & Stats */}
-      <div className="space-y-2 pt-3 border-t border-slate-800 text-xs">
-        <div className="flex items-center justify-between text-slate-300">
+      <div className="space-y-2 pt-3 border-t border-[#EBE5DC] text-xs">
+        <div className="flex items-center justify-between text-stone-700">
           <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full bg-emerald-500/30 border border-emerald-500" />
+            <span className="w-3 h-3 rounded-full bg-[#DEF7EC] border border-[#BCF0DA]" />
             <span>Answered</span>
           </div>
-          <span className="font-bold text-emerald-400">{answeredCount}</span>
+          <span className="font-bold text-emerald-800">{answeredCount}</span>
         </div>
 
-        <div className="flex items-center justify-between text-slate-300">
+        <div className="flex items-center justify-between text-stone-700">
           <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full bg-purple-500/30 border border-purple-500" />
+            <span className="w-3 h-3 rounded-full bg-[#FEF3C7] border border-[#FDE68A]" />
             <span>Marked for Review</span>
           </div>
-          <span className="font-bold text-purple-300">{markedCount}</span>
+          <span className="font-bold text-amber-800">{markedCount}</span>
         </div>
 
-        <div className="flex items-center justify-between text-slate-300">
+        <div className="flex items-center justify-between text-stone-700">
           <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full bg-slate-800 border border-slate-700" />
+            <span className="w-3 h-3 rounded-full bg-[#FAF7F2] border border-[#E3DCD2]" />
             <span>Unanswered</span>
           </div>
-          <span className="font-bold text-slate-400">{unansweredCount}</span>
+          <span className="font-bold text-stone-500">{unansweredCount}</span>
         </div>
       </div>
     </div>
   );
 };
+

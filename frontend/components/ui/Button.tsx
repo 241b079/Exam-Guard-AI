@@ -15,14 +15,14 @@ export const Button: React.FC<ButtonProps> = ({
   disabled,
   ...props
 }) => {
-  const baseStyles = 'inline-flex items-center justify-center font-medium rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed';
+  const baseStyles = 'inline-flex items-center justify-center font-medium rounded-xl transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[#FAF7F2] disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.99]';
 
   const variants = {
-    primary: 'bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 text-white shadow-lg shadow-brand-500/20 focus:ring-brand-500',
-    secondary: 'bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 focus:ring-slate-500',
-    outline: 'border border-brand-500/50 text-brand-400 hover:bg-brand-500/10 focus:ring-brand-500',
-    danger: 'bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-600/20 focus:ring-rose-500',
-    ghost: 'text-slate-300 hover:text-white hover:bg-slate-800 focus:ring-slate-500',
+    primary: 'bg-[#C25E1A] hover:bg-[#A94F13] text-white shadow-sm hover:shadow focus:ring-[#C25E1A]',
+    secondary: 'bg-[#F5EFEB] hover:bg-[#EDE5DC] text-stone-800 border border-[#E3DCD2] focus:ring-stone-400',
+    outline: 'border border-[#D6CEC4] bg-white hover:bg-[#FAF7F2] text-stone-800 focus:ring-[#C25E1A]',
+    danger: 'bg-rose-600 hover:bg-rose-700 text-white shadow-sm focus:ring-rose-500',
+    ghost: 'text-stone-600 hover:text-stone-900 hover:bg-[#F5EFEB] focus:ring-stone-400',
   };
 
   const sizes = {
@@ -51,3 +51,4 @@ export const Button: React.FC<ButtonProps> = ({
     </button>
   );
 };
+

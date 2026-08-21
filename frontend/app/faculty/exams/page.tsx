@@ -26,10 +26,10 @@ export default function FacultyExamsPage() {
   return (
     <DashboardLayout title="Exam Management">
       <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#EBE5DC]">
           <div>
-            <h2 className="text-xl font-bold text-white">My Exams</h2>
-            <p className="text-xs text-slate-400">Create, configure, and manage your examination papers</p>
+            <h2 className="text-xl font-bold font-serif text-stone-900">My Exams</h2>
+            <p className="text-xs text-stone-500">Create, configure, and manage your examination papers</p>
           </div>
           <Link href="/faculty/exams/create">
             <Button variant="primary" className="gap-2 text-xs">
@@ -37,6 +37,7 @@ export default function FacultyExamsPage() {
             </Button>
           </Link>
         </div>
+
 
         {error && (
           <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-sm">

@@ -16,7 +16,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, titl
 
   if (isLoading) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-slate-900">
+      <div className="flex h-screen w-full items-center justify-center bg-[#FAF7F2]">
         <Loading message="Authenticating session..." />
       </div>
     );
@@ -27,7 +27,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, titl
   }
 
   return (
-    <div className="flex min-h-screen bg-slate-900 text-slate-100">
+    <div className="flex min-h-screen bg-[#FAF7F2] text-stone-800">
       <Sidebar role={user.role} />
       <div className="flex-1 flex flex-col min-w-0">
         <Header title={title} />
@@ -38,3 +38,4 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, titl
     </div>
   );
 };
+

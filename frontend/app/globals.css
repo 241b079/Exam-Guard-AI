@@ -4,21 +4,38 @@
 
 @layer base {
   body {
-    @apply bg-slate-900 text-slate-100 antialiased min-h-screen selection:bg-brand-500 selection:text-white;
+    @apply bg-[#FAF7F2] text-stone-800 antialiased min-h-screen selection:bg-[#C25E1A] selection:text-white;
   }
 }
 
-/* Glassmorphism utilities */
+/* Warm Card and Panel Utilities matching the editorial aesthetics */
 .glass-panel {
-  background: rgba(15, 23, 42, 0.75);
+  background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid #EBE5DC;
+  box-shadow: 0 4px 20px -2px rgba(90, 60, 40, 0.04);
 }
 
 .glass-card {
-  background: rgba(30, 41, 59, 0.6);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #FFFFFF;
+  border: 1px solid #EBE5DC;
+  box-shadow: 0 2px 12px -2px rgba(90, 60, 40, 0.03);
 }
+
+/* Subtle warm scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #FAF7F2;
+}
+::-webkit-scrollbar-thumb {
+  background: #D8CFBF;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #C25E1A;
+}
+

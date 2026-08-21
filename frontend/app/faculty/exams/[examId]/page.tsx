@@ -87,18 +87,18 @@ export default function FacultyExamDetailPage() {
   return (
     <DashboardLayout title={`Manage Exam: ${exam.title}`}>
       <div className="space-y-6">
-        <Link href="/faculty/exams" className="inline-flex items-center gap-2 text-xs text-slate-400 hover:text-white transition-colors">
+        <Link href="/faculty/exams" className="inline-flex items-center gap-2 text-xs text-stone-500 hover:text-stone-900 transition-colors">
           <ArrowLeft className="w-4 h-4" /> Back to My Exams
         </Link>
 
         {/* Header Action Bar */}
-        <div className="p-6 glass-panel rounded-2xl border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="p-6 md:p-8 bg-white rounded-3xl border border-[#EBE5DC] shadow-warm flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-white">{exam.title}</h1>
+              <h1 className="text-2xl font-bold font-serif text-stone-900">{exam.title}</h1>
               <Badge variant={statusVariant}>{exam.status}</Badge>
             </div>
-            {exam.description && <p className="text-xs text-slate-400">{exam.description}</p>}
+            {exam.description && <p className="text-xs text-stone-500">{exam.description}</p>}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -126,7 +126,7 @@ export default function FacultyExamDetailPage() {
                 size="sm"
                 onClick={handlePublish}
                 isLoading={isPublishing}
-                className="gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-500"
+                className="gap-1.5 text-xs bg-emerald-700 hover:bg-emerald-800"
               >
                 <Send className="w-4 h-4" /> Publish Exam
               </Button>
@@ -136,7 +136,7 @@ export default function FacultyExamDetailPage() {
               variant="ghost"
               size="sm"
               onClick={handleDelete}
-              className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 p-2"
+              className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 p-2"
             >
               <Trash2 className="w-4 h-4" />
             </Button>
@@ -146,51 +146,51 @@ export default function FacultyExamDetailPage() {
         {/* Details Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <Card className="space-y-3">
-            <span className="text-xs font-semibold uppercase text-slate-400">Duration & Marks</span>
-            <div className="space-y-2 text-sm text-slate-200">
+            <span className="text-[11px] font-semibold uppercase text-stone-500">Duration & Marks</span>
+            <div className="space-y-2 text-sm text-stone-700">
               <div className="flex justify-between">
                 <span>Duration:</span>
-                <strong className="text-brand-400">{exam.duration_minutes} Mins</strong>
+                <strong className="text-[#C25E1A]">{exam.duration_minutes} Mins</strong>
               </div>
               <div className="flex justify-between">
                 <span>Total Questions:</span>
-                <strong>{exam.question_count}</strong>
+                <strong className="text-stone-900">{exam.question_count}</strong>
               </div>
               <div className="flex justify-between">
                 <span>Total Marks:</span>
-                <strong className="text-purple-400">{exam.total_marks} Marks</strong>
+                <strong className="text-stone-900">{exam.total_marks} Marks</strong>
               </div>
             </div>
           </Card>
 
           <Card className="space-y-3">
-            <span className="text-xs font-semibold uppercase text-slate-400">Exam Rules & Settings</span>
-            <div className="space-y-2 text-sm text-slate-200">
+            <span className="text-[11px] font-semibold uppercase text-stone-500">Exam Rules & Settings</span>
+            <div className="space-y-2 text-sm text-stone-700">
               <div className="flex justify-between">
                 <span>Negative Marking:</span>
-                <strong>{exam.negative_marking}</strong>
+                <strong className="text-stone-900">{exam.negative_marking}</strong>
               </div>
               <div className="flex justify-between">
                 <span>Auto Submit:</span>
-                <strong>{exam.auto_submit ? 'Yes' : 'No'}</strong>
+                <strong className="text-stone-900">{exam.auto_submit ? 'Yes' : 'No'}</strong>
               </div>
               <div className="flex justify-between">
                 <span>Display Countdown:</span>
-                <strong>{exam.display_countdown ? 'Yes' : 'No'}</strong>
+                <strong className="text-stone-900">{exam.display_countdown ? 'Yes' : 'No'}</strong>
               </div>
             </div>
           </Card>
 
           <Card className="space-y-3">
-            <span className="text-xs font-semibold uppercase text-slate-400">Target Assignment</span>
-            <div className="space-y-2 text-sm text-slate-200">
+            <span className="text-[11px] font-semibold uppercase text-stone-500">Target Assignment</span>
+            <div className="space-y-2 text-sm text-stone-700">
               <div className="flex justify-between">
                 <span>Assignment Type:</span>
-                <strong>{exam.assignment_type}</strong>
+                <strong className="text-stone-900">{exam.assignment_type}</strong>
               </div>
               <div className="flex justify-between">
                 <span>Availability:</span>
-                <strong>{exam.availability_type}</strong>
+                <strong className="text-stone-900">{exam.availability_type}</strong>
               </div>
             </div>
           </Card>
@@ -198,4 +198,5 @@ export default function FacultyExamDetailPage() {
       </div>
     </DashboardLayout>
   );
+
 }

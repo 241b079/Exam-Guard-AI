@@ -14,13 +14,13 @@ export default function StudentExamsPage() {
   return (
     <DashboardLayout title="Available Examinations">
       <div className="space-y-6">
-        <div className="pb-4 border-b border-slate-800">
-          <h2 className="text-xl font-bold text-white">Available Exams</h2>
-          <p className="text-xs text-slate-400">Select an exam to read instructions and begin your test attempt</p>
+        <div className="pb-4 border-b border-[#EBE5DC]">
+          <h2 className="text-xl font-bold font-serif text-stone-900">Available Exams</h2>
+          <p className="text-xs text-stone-500">Select an exam to read instructions and begin your test attempt</p>
         </div>
 
         {error && (
-          <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-sm">
+          <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-sm shadow-warm-sm">
             {error}
           </div>
         )}
@@ -43,3 +43,4 @@ export default function StudentExamsPage() {
     </DashboardLayout>
   );
 }
+

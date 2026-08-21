@@ -42,41 +42,41 @@ export const SubmitModal: React.FC<SubmitModalProps> = ({
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-      <div className="glass-panel w-full max-w-md p-6 rounded-2xl border border-slate-700 shadow-2xl space-y-6 animate-in fade-in zoom-in-95 duration-150">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm">
+      <div className="bg-white w-full max-w-md p-6 md:p-8 rounded-3xl border border-[#EBE5DC] shadow-warm-lg space-y-6 animate-in fade-in zoom-in-95 duration-150">
+        <div className="flex items-center justify-between border-b border-[#EBE5DC] pb-3">
           <div className="flex items-center gap-2">
-            <AlertCircle className="w-5 h-5 text-brand-400" />
-            <h2 className="text-lg font-bold text-white">Submit Exam Confirmation</h2>
+            <AlertCircle className="w-5 h-5 text-[#C25E1A]" />
+            <h2 className="text-lg font-bold font-serif text-stone-900">Submit Exam Confirmation</h2>
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
+          <button onClick={onClose} className="p-1 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-[#FAF7F2]">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <p className="text-sm text-slate-300">
+        <p className="text-sm text-stone-600">
           Are you sure you want to submit your exam? Once submitted, you will not be able to change your answers.
         </p>
 
         {/* Summary Breakdown */}
         <div className="grid grid-cols-3 gap-3 text-center">
-          <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl space-y-1">
-            <span className="text-[11px] text-emerald-400 uppercase font-semibold block">Answered</span>
-            <span className="text-lg font-extrabold text-emerald-300">{answeredCount} / {questions.length}</span>
+          <div className="p-3 bg-[#DEF7EC] border border-[#BCF0DA] rounded-2xl space-y-1">
+            <span className="text-[11px] text-emerald-800 uppercase font-semibold block">Answered</span>
+            <span className="text-lg font-extrabold text-emerald-900">{answeredCount} / {questions.length}</span>
           </div>
 
-          <div className="p-3 bg-slate-800/80 border border-slate-700 rounded-xl space-y-1">
-            <span className="text-[11px] text-slate-400 uppercase font-semibold block">Unanswered</span>
-            <span className="text-lg font-extrabold text-slate-300">{unansweredCount}</span>
+          <div className="p-3 bg-[#FAF7F2] border border-[#E3DCD2] rounded-2xl space-y-1">
+            <span className="text-[11px] text-stone-500 uppercase font-semibold block">Unanswered</span>
+            <span className="text-lg font-extrabold text-stone-700">{unansweredCount}</span>
           </div>
 
-          <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl space-y-1">
-            <span className="text-[11px] text-purple-300 uppercase font-semibold block">Review</span>
-            <span className="text-lg font-extrabold text-purple-300">{markedCount}</span>
+          <div className="p-3 bg-[#FEF3C7] border border-[#FDE68A] rounded-2xl space-y-1">
+            <span className="text-[11px] text-amber-800 uppercase font-semibold block">Review</span>
+            <span className="text-lg font-extrabold text-amber-900">{markedCount}</span>
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
+        <div className="flex items-center justify-end gap-3 pt-4 border-t border-[#EBE5DC]">
           <Button variant="secondary" onClick={onClose} disabled={isLoading}>
             Continue Exam
           </Button>
@@ -88,3 +88,4 @@ export const SubmitModal: React.FC<SubmitModalProps> = ({
     </div>
   );
 };
+

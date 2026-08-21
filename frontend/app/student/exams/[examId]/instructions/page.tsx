@@ -53,7 +53,7 @@ export default function StudentExamInstructionsPage() {
   if (error || !exam) {
     return (
       <DashboardLayout title="Exam Instructions">
-        <div className="p-6 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400">
+        <div className="p-6 bg-rose-50 border border-rose-200 rounded-2xl text-rose-700 shadow-warm">
           {error || 'Exam not found'}
         </div>
       </DashboardLayout>
@@ -63,54 +63,54 @@ export default function StudentExamInstructionsPage() {
   return (
     <DashboardLayout title={`Instructions — ${exam.title}`}>
       <div className="space-y-6 max-w-4xl mx-auto">
-        <Link href="/student/exams" className="inline-flex items-center gap-2 text-xs text-slate-400 hover:text-white transition-colors">
+        <Link href="/student/exams" className="inline-flex items-center gap-2 text-xs text-stone-500 hover:text-stone-900 transition-colors">
           <ArrowLeft className="w-4 h-4" /> Back to Available Exams
         </Link>
 
         {/* Title Header */}
-        <div className="p-6 glass-panel rounded-2xl border border-slate-800 space-y-4">
+        <div className="p-6 bg-white rounded-3xl border border-[#EBE5DC] shadow-warm space-y-4">
           <div className="flex items-center gap-3">
-            <div className="p-3 rounded-xl bg-brand-500/10 text-brand-400 border border-brand-500/30">
+            <div className="p-3 rounded-2xl bg-[#FBECE0] text-[#C25E1A] border border-[#F6D6C0]">
               <ShieldCheck className="w-8 h-8" />
             </div>
             <div>
-              <h1 className="text-2xl font-extrabold text-white">{exam.title}</h1>
-              <p className="text-xs text-slate-400">Please read all guidelines carefully before starting.</p>
+              <h1 className="text-2xl font-bold font-serif text-stone-900">{exam.title}</h1>
+              <p className="text-xs text-stone-500">Please read all guidelines carefully before starting.</p>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-4 border-t border-slate-800 text-sm">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-4 border-t border-[#EBE5DC] text-sm">
             <div className="space-y-1">
-              <span className="text-xs text-slate-400 uppercase font-semibold block">Duration</span>
-              <span className="font-bold text-amber-400 flex items-center gap-1.5">
-                <Clock className="w-4 h-4" /> {exam.duration_minutes} Mins
+              <span className="text-xs text-stone-500 uppercase font-semibold block">Duration</span>
+              <span className="font-bold text-amber-800 flex items-center gap-1.5">
+                <Clock className="w-4 h-4 text-[#C25E1A]" /> {exam.duration_minutes} Mins
               </span>
             </div>
             <div className="space-y-1">
-              <span className="text-xs text-slate-400 uppercase font-semibold block">Questions</span>
-              <span className="font-bold text-brand-400 flex items-center gap-1.5">
-                <HelpCircle className="w-4 h-4" /> {exam.question_count} Questions
+              <span className="text-xs text-stone-500 uppercase font-semibold block">Questions</span>
+              <span className="font-bold text-stone-900 flex items-center gap-1.5">
+                <HelpCircle className="w-4 h-4 text-[#C25E1A]" /> {exam.question_count} Questions
               </span>
             </div>
             <div className="space-y-1">
-              <span className="text-xs text-slate-400 uppercase font-semibold block">Total Marks</span>
-              <span className="font-bold text-purple-400 flex items-center gap-1.5">
-                <Award className="w-4 h-4" /> {exam.total_marks} Marks
+              <span className="text-xs text-stone-500 uppercase font-semibold block">Total Marks</span>
+              <span className="font-bold text-stone-900 flex items-center gap-1.5">
+                <Award className="w-4 h-4 text-amber-700" /> {exam.total_marks} Marks
               </span>
             </div>
             <div className="space-y-1">
-              <span className="text-xs text-slate-400 uppercase font-semibold block">Negative Marking</span>
-              <span className="font-bold text-slate-200">{exam.negative_marking}</span>
+              <span className="text-xs text-stone-500 uppercase font-semibold block">Negative Marking</span>
+              <span className="font-bold text-stone-800">{exam.negative_marking}</span>
             </div>
           </div>
         </div>
 
         {/* Rules & Guidelines */}
         <Card className="space-y-4">
-          <h3 className="text-base font-bold text-white border-b border-slate-800 pb-3">
+          <h3 className="text-base font-bold font-serif text-stone-900 border-b border-[#EBE5DC] pb-3">
             Examination Rules & Guidelines
           </h3>
-          <ul className="space-y-3 text-sm text-slate-300 list-disc list-inside">
+          <ul className="space-y-3 text-sm text-stone-700 list-disc list-inside">
             <li>Read each question carefully before selecting or typing your response.</li>
             <li>Do not refresh or close the browser window unnecessarily during the exam session.</li>
             <li>Your answers are saved automatically as you navigate between questions.</li>
@@ -120,7 +120,7 @@ export default function StudentExamInstructionsPage() {
         </Card>
 
         {/* Actions */}
-        <div className="flex items-center justify-between pt-4 border-t border-slate-800">
+        <div className="flex items-center justify-between pt-4 border-t border-[#EBE5DC]">
           <Link href="/student/exams">
             <Button variant="secondary">Back</Button>
           </Link>
@@ -129,7 +129,7 @@ export default function StudentExamInstructionsPage() {
             size="lg"
             onClick={handleStartExam}
             isLoading={isStarting}
-            className="gap-2 text-base shadow-xl shadow-brand-500/20"
+            className="gap-2 text-base shadow-warm"
           >
             <Play className="w-5 h-5" /> Start Exam Now
           </Button>
@@ -138,3 +138,4 @@ export default function StudentExamInstructionsPage() {
     </DashboardLayout>
   );
 }
+

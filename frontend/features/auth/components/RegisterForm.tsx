@@ -49,17 +49,17 @@ export const RegisterForm: React.FC = () => {
   ];
 
   return (
-    <div className="w-full max-w-md p-8 glass-panel rounded-2xl shadow-2xl space-y-6">
+    <div className="w-full max-w-md p-8 md:p-10 bg-white rounded-3xl border border-[#EBE5DC] shadow-warm-lg space-y-6">
       <div className="text-center space-y-2">
-        <div className="inline-flex items-center justify-center p-3 rounded-full bg-brand-500/10 border border-brand-500/30 text-brand-400 mb-2">
-          <UserPlus className="w-8 h-8" />
+        <div className="inline-flex items-center justify-center p-3 rounded-full bg-[#FBECE0] border border-[#F6D6C0] text-[#C25E1A] mb-1">
+          <UserPlus className="w-7 h-7" />
         </div>
-        <h1 className="text-2xl font-bold text-white tracking-tight">Create Account</h1>
-        <p className="text-sm text-slate-400">Join the Online Examination & Proctoring Platform</p>
+        <h1 className="text-3xl font-serif font-bold text-stone-900 tracking-tight">Create Account</h1>
+        <p className="text-sm text-stone-500">Join the Online Examination & Proctoring Platform</p>
       </div>
 
       {error && (
-        <div className="p-3.5 rounded-lg bg-rose-500/10 border border-rose-500/30 flex items-start gap-3 text-rose-400 text-sm">
+        <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 flex items-start gap-3 text-rose-700 text-sm">
           <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
           <span>{error}</span>
         </div>
@@ -95,8 +95,8 @@ export const RegisterForm: React.FC = () => {
         />
 
         {/* Development Role Selector */}
-        <div className="p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-2">
-          <div className="flex items-center gap-2 text-xs font-semibold text-amber-400 uppercase tracking-wider">
+        <div className="p-4 bg-[#FAF7F2] border border-[#EBE5DC] rounded-2xl space-y-2">
+          <div className="flex items-center gap-2 text-xs font-semibold text-amber-800 uppercase tracking-wider">
             <Sparkles className="w-3.5 h-3.5" />
             <span>Development Mode: Select Role</span>
           </div>
@@ -106,7 +106,7 @@ export const RegisterForm: React.FC = () => {
             value={role}
             onChange={(e) => setRole(e.target.value as UserRole)}
           />
-          <p className="text-[11px] text-amber-300/80 italic">
+          <p className="text-[11px] text-stone-500 italic">
             Note: Role selection is enabled for testing during Phase 1.
           </p>
         </div>
@@ -116,12 +116,13 @@ export const RegisterForm: React.FC = () => {
         </Button>
       </form>
 
-      <div className="text-center text-xs text-slate-400 pt-4 border-t border-slate-800">
+      <div className="text-center text-xs text-stone-500 pt-4 border-t border-[#EBE5DC]">
         Already have an account?{' '}
-        <Link href="/login" className="text-brand-400 hover:text-brand-300 font-semibold transition-colors">
+        <Link href="/login" className="text-[#C25E1A] hover:text-[#A94F13] font-semibold transition-colors">
           Sign In
         </Link>
       </div>
     </div>
   );
 };
+

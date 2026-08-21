@@ -51,7 +51,7 @@ export const ExamTimer: React.FC<ExamTimerProps> = ({
 
   if (!displayCountdown) {
     return (
-      <div className="flex items-center gap-2 text-xs font-semibold text-slate-400">
+      <div className="flex items-center gap-2 text-xs font-semibold text-stone-500">
         <Clock className="w-4 h-4" /> Exam In Progress
       </div>
     );
@@ -59,14 +59,15 @@ export const ExamTimer: React.FC<ExamTimerProps> = ({
 
   return (
     <div
-      className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border text-xs font-bold font-mono transition-all ${
+      className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full border text-xs font-bold font-mono transition-all ${
         isWarning
-          ? 'bg-rose-500/15 border-rose-500/40 text-rose-400 animate-pulse'
-          : 'bg-slate-800/90 border-slate-700 text-brand-300'
+          ? 'bg-rose-50 border-rose-200 text-rose-700 animate-pulse'
+          : 'bg-[#FAF7F2] border-[#E3DCD2] text-stone-800'
       }`}
     >
-      {isWarning ? <AlertTriangle className="w-4 h-4 text-rose-400" /> : <Clock className="w-4 h-4 text-brand-400" />}
+      {isWarning ? <AlertTriangle className="w-4 h-4 text-rose-600" /> : <Clock className="w-4 h-4 text-[#C25E1A]" />}
       <span>Time Remaining: {formatTime(secondsLeft)}</span>
     </div>
   );
 };
+
