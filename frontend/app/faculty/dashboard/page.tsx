@@ -95,15 +95,24 @@ export default function FacultyDashboardPage() {
           </Card>
 
           {/* Section 3: Proctoring Monitoring */}
-          <Card className="space-y-4">
-            <div className="flex items-center gap-3 pb-3 border-b border-[#EBE5DC]">
-              <div className="p-2 rounded-xl bg-[#FAF7F2] text-[#C25E1A] border border-[#E3DCD2]">
-                <Eye className="w-4 h-4" />
+          <Card className="space-y-4 flex flex-col justify-between">
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 pb-3 border-b border-[#EBE5DC]">
+                <div className="p-2 rounded-xl bg-[#FBECE0] text-[#C25E1A] border border-[#F6D6C0]">
+                  <Eye className="w-4 h-4" />
+                </div>
+                <h3 className="text-base font-bold font-serif text-stone-900">Live Proctoring</h3>
               </div>
-              <h3 className="text-base font-bold font-serif text-stone-900">Proctoring</h3>
+              <p className="text-xs text-stone-600">
+                View candidate video feeds, live telemetry, and integrity trust scores.
+              </p>
             </div>
-            <EmptyState title="Live Proctoring Feeds" badge="Phase 3 Feature" />
+
+            <Link href="/faculty/proctoring" className="text-xs text-[#C25E1A] hover:text-[#A94F13] font-semibold inline-flex items-center gap-1 pt-2">
+              Launch Control Room <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
           </Card>
+
 
           {/* Section 4: Results */}
           <Card className="space-y-4">

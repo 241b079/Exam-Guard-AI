@@ -126,6 +126,17 @@ async def init_db():
     from app.features.exams.models import Exam  # noqa
     from app.features.questions.models import Question  # noqa
     from app.features.attempts.models import ExamAttempt, Answer  # noqa
+    from app.features.proctoring.models import ProctoringEvent  # noqa
+
+    from sqlalchemy import text
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Automatic non-breaking column additions
+        try:
+            await conn.execute(text("ALTER TABLE exams ADD COLUMN IF NOT EXISTS enable_proctoring BOOLEAN DEFAULT FALSE NOT NULL;"))
+        except Exception:
+            pass
+
+
+

@@ -13,6 +13,7 @@ export interface Exam {
   negative_marking: NegativeMarkingType;
   auto_submit: boolean;
   display_countdown: boolean;
+  enable_proctoring: boolean;
   assignment_type: AssignmentType;
   assigned_student_ids?: string[];
   availability_type: AvailabilityType;
@@ -31,6 +32,7 @@ export interface CreateExamPayload {
   negative_marking: NegativeMarkingType;
   auto_submit: boolean;
   display_countdown: boolean;
+  enable_proctoring: boolean;
   assignment_type: AssignmentType;
   assigned_student_ids?: string[];
   availability_type: AvailabilityType;
@@ -41,3 +43,4 @@ export interface CreateExamPayload {
 export type UpdateExamPayload = Partial<CreateExamPayload> & {
   status?: ExamStatus;
 };
+

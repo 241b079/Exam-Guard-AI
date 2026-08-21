@@ -30,6 +30,7 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
   const [negativeMarking, setNegativeMarking] = useState<NegativeMarkingType>(initialData?.negative_marking || 'NONE');
   const [autoSubmit, setAutoSubmit] = useState<boolean>(initialData?.auto_submit ?? true);
   const [displayCountdown, setDisplayCountdown] = useState<boolean>(initialData?.display_countdown ?? true);
+  const [enableProctoring, setEnableProctoring] = useState<boolean>(initialData?.enable_proctoring ?? false);
 
   const [availabilityType, setAvailabilityType] = useState<AvailabilityType>(initialData?.availability_type || 'ALWAYS');
   const [startTime, setStartTime] = useState(initialData?.start_time ? initialData.start_time.slice(0, 16) : '');
@@ -68,12 +69,14 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
       negative_marking: negativeMarking,
       auto_submit: autoSubmit,
       display_countdown: displayCountdown,
+      enable_proctoring: enableProctoring,
       assignment_type: assignmentType,
       assigned_student_ids: [],
       availability_type: availabilityType,
       start_time: startTime ? new Date(startTime).toISOString() : undefined,
       end_time: endTime ? new Date(endTime).toISOString() : undefined,
     };
+
 
     try {
       let createdExam;
@@ -232,6 +235,27 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
             </div>
           </div>
 
+          {/* AI Proctoring Toggle */}
+          <div className="p-4 bg-[#FAF7F2] border border-[#EBE5DC] rounded-2xl space-y-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="text-sm font-semibold text-stone-900 block">AI Proctoring & Webcam Verification</label>
+                <p className="text-xs text-stone-500">When enabled, students MUST grant camera & mic permissions to enter. Tab switches and screen violations are tracked live.</p>
+              </div>
+              <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${enableProctoring ? 'bg-[#DEF7EC] text-[#03543F] border border-[#BCF0DA]' : 'bg-[#F3EFEA] text-stone-600 border border-[#E2DAD0]'}`}>
+                {enableProctoring ? 'PROCTORED' : 'STANDARD'}
+              </span>
+            </div>
+            <div className="flex gap-6 pt-2">
+              <label className="flex items-center gap-2 text-xs text-stone-700 cursor-pointer">
+                <input type="radio" checked={!enableProctoring} onChange={() => setEnableProctoring(false)} className="accent-[#C25E1A]" /> No (Default — Standard Exam)
+              </label>
+              <label className="flex items-center gap-2 text-xs text-stone-700 cursor-pointer">
+                <input type="radio" checked={enableProctoring} onChange={() => setEnableProctoring(true)} className="accent-[#C25E1A]" /> Yes (Strict Webcam, Mic & Tab-switch Tracking)
+              </label>
+            </div>
+          </div>
+
           <div className="space-y-4 pt-4 border-t border-[#EBE5DC]">
             <Select
               label="Exam Availability"
@@ -293,7 +317,7 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
         <div className="bg-white p-6 md:p-8 rounded-3xl border border-[#EBE5DC] shadow-warm space-y-6">
           <h2 className="text-xl font-bold font-serif text-stone-900">4. Review & Confirm</h2>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm bg-[#FAF7F2] p-4 rounded-2xl border border-[#EBE5DC]">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-sm bg-[#FAF7F2] p-4 rounded-2xl border border-[#EBE5DC]">
             <div>
               <span className="text-xs text-stone-500 block uppercase font-semibold">Title</span>
               <span className="font-semibold text-stone-900">{title}</span>
@@ -303,6 +327,10 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
               <span className="font-semibold text-stone-900">{durationMinutes} Minutes</span>
             </div>
             <div>
+              <span className="text-xs text-stone-500 block uppercase font-semibold">Proctoring</span>
+              <span className="font-semibold text-[#C25E1A]">{enableProctoring ? 'Enforced (Webcam & Mic)' : 'Off (Standard)'}</span>
+            </div>
+            <div>
               <span className="text-xs text-stone-500 block uppercase font-semibold">Negative Marking</span>
               <span className="font-semibold text-stone-900">{negativeMarking}</span>
             </div>
@@ -310,7 +338,12 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
               <span className="text-xs text-stone-500 block uppercase font-semibold">Availability</span>
               <span className="font-semibold text-stone-900">{availabilityType}</span>
             </div>
+            <div>
+              <span className="text-xs text-stone-500 block uppercase font-semibold">Assignment</span>
+              <span className="font-semibold text-stone-900">{assignmentType}</span>
+            </div>
           </div>
+
 
           <div className="p-4 bg-[#FBECE0] border border-[#F6D6C0] rounded-2xl text-xs text-[#C25E1A] space-y-1">
             <p className="font-bold">Next Step after saving:</p>

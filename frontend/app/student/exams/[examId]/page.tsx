@@ -16,6 +16,11 @@ import {
   QuestionNavigator,
   SubmitModal
 } from '@/features/attempts';
+import {
+  useProctoringStream,
+  ProctoringCameraBadge,
+  ProctoringPermissionModal
+} from '@/features/proctoring';
 
 export default function StudentExaminationPage() {
   const params = useParams();
@@ -38,6 +43,23 @@ export default function StudentExaminationPage() {
   const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const {
+    videoRef,
+    isCameraActive,
+    isMicActive,
+    isFullscreen,
+    isBlocked,
+    blockReason,
+    totalViolations,
+    lastWarning,
+    clearLastWarning,
+    requestFullscreen,
+  } = useProctoringStream({
+    attemptId: attempt?.id,
+    isProctoringEnabled: Boolean(exam?.enable_proctoring),
+  });
+
 
   // Load Exam and Attempt
   useEffect(() => {
@@ -341,8 +363,21 @@ export default function StudentExaminationPage() {
           )}
         </div>
 
-        {/* Right Sidebar: Question Navigator */}
-        <div className="lg:col-span-1">
+        {/* Right Sidebar: Proctoring Feed & Question Navigator */}
+        <div className="lg:col-span-1 space-y-6">
+          {exam.enable_proctoring && (
+            <ProctoringCameraBadge
+              videoRef={videoRef}
+              isCameraActive={isCameraActive}
+              isMicActive={isMicActive}
+              isFullscreen={isFullscreen}
+              totalViolations={totalViolations}
+              lastWarning={lastWarning}
+              onClearWarning={clearLastWarning}
+              onRequestFullscreen={requestFullscreen}
+            />
+          )}
+
           <QuestionNavigator
             questions={questions}
             answers={answersMap}
@@ -361,6 +396,18 @@ export default function StudentExaminationPage() {
         answers={answersMap}
         isLoading={isSubmitting}
       />
+
+      {/* Proctoring Hard Block Modal if Camera Lost */}
+      {exam.enable_proctoring && isBlocked && (
+        <ProctoringPermissionModal
+          isOpen={isBlocked}
+          isCameraActive={isCameraActive}
+          isMicActive={isMicActive}
+          blockReason={blockReason}
+          onRetry={() => window.location.reload()}
+        />
+      )}
+
     </div>
   );
 }

@@ -13,6 +13,7 @@ from app.features.students.router import router as students_router
 from app.features.exams.router import router as exams_router
 from app.features.questions.router import router as questions_router
 from app.features.attempts.router import router as attempts_router
+from app.features.proctoring.router import router as proctoring_router
 
 
 @asynccontextmanager
@@ -61,3 +62,5 @@ app.include_router(students_router, prefix="/api/v1")
 app.include_router(exams_router, prefix="/api/v1")
 app.include_router(questions_router, prefix="/api/v1")
 app.include_router(attempts_router, prefix="/api/v1")
+app.include_router(proctoring_router, prefix="/api/v1")
+

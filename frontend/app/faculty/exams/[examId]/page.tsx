@@ -3,7 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { FileText, Edit, HelpCircle, Upload, Send, Trash2, ArrowLeft } from 'lucide-react';
+import { FileText, Edit, HelpCircle, Upload, Send, Trash2, ArrowLeft, Eye } from 'lucide-react';
+
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -102,8 +103,14 @@ export default function FacultyExamDetailPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <Link href={`/faculty/exams/${examId}/proctoring`}>
+              <Button variant="primary" size="sm" className="gap-1.5 text-xs bg-[#C25E1A] hover:bg-[#A94F13]">
+                <Eye className="w-4 h-4" /> Live Proctoring
+              </Button>
+            </Link>
+
             <Link href={`/faculty/exams/${examId}/questions`}>
-              <Button variant="primary" size="sm" className="gap-1.5 text-xs">
+              <Button variant="outline" size="sm" className="gap-1.5 text-xs">
                 <HelpCircle className="w-4 h-4" /> Questions ({exam.question_count})
               </Button>
             </Link>
@@ -113,6 +120,7 @@ export default function FacultyExamDetailPage() {
                 <Upload className="w-4 h-4" /> Import Questions
               </Button>
             </Link>
+
 
             <Link href={`/faculty/exams/${examId}/edit`}>
               <Button variant="secondary" size="sm" className="gap-1.5 text-xs">

@@ -53,6 +53,8 @@ class Exam(Base):
     )
     auto_submit: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     display_countdown: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    enable_proctoring: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
 
     assignment_type: Mapped[AssignmentType] = mapped_column(
         SQLEnum(AssignmentType, name="assignment_type_enum"),

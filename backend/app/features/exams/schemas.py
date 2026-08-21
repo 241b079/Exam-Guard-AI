@@ -16,6 +16,7 @@ class ExamBase(BaseModel):
     negative_marking: NegativeMarkingType = NegativeMarkingType.NONE
     auto_submit: bool = True
     display_countdown: bool = True
+    enable_proctoring: bool = False
     assignment_type: AssignmentType = AssignmentType.ALL_STUDENTS
     assigned_student_ids: Optional[List[str]] = []
     availability_type: AvailabilityType = AvailabilityType.ALWAYS
@@ -34,12 +35,14 @@ class ExamUpdate(BaseModel):
     negative_marking: Optional[NegativeMarkingType] = None
     auto_submit: Optional[bool] = None
     display_countdown: Optional[bool] = None
+    enable_proctoring: Optional[bool] = None
     assignment_type: Optional[AssignmentType] = None
     assigned_student_ids: Optional[List[str]] = None
     availability_type: Optional[AvailabilityType] = None
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
     status: Optional[ExamStatus] = None
+
 
 
 class ExamResponse(ExamBase):
