@@ -8,9 +8,12 @@ export async function fetchApi<T>(endpoint: string, options: RequestOptions = {}
   const url = `${API_URL}${endpoint}`;
   
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     ...options.headers,
   };
+
+  if (!(options.body instanceof FormData) && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json';
+  }
 
   // Get token if in client environment
   if (typeof window !== 'undefined') {

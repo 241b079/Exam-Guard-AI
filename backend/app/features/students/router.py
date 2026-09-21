@@ -3,8 +3,9 @@ from fastapi import APIRouter, Depends, status, UploadFile, File, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.features.auth.dependencies import require_roles
+from app.features.auth.dependencies import require_roles, get_current_user
 from app.features.users.models import User, UserRole
+from app.core.config import settings
 from app.features.students.schemas import (
     StudentCreate,
     StudentUpdate,
@@ -14,8 +15,49 @@ from app.features.students.schemas import (
     StudentImportPreviewResponse
 )
 from app.features.students.service import StudentService
+import os
+import uuid
 
 router = APIRouter(prefix="/students", tags=["Students"])
+
+
+@router.get("/me", response_model=StudentResponse)
+async def get_my_student_profile(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    return await StudentService.get_student_by_user_id(db, current_user.id)
+
+
+@router.post("/me/photo", response_model=StudentResponse)
+async def upload_my_profile_photo(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    # Validate extension
+    allowed = {".jpg", ".jpeg", ".png", ".webp"}
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported image format '{ext}'. Allowed: {', '.join(allowed)}"
+        )
+
+    upload_dir = os.path.join(settings.UPLOAD_DIR, "profiles")
+    os.makedirs(upload_dir, exist_ok=True)
+    filename = f"{current_user.id}_{uuid.uuid4().hex[:8]}{ext}"
+    filepath = os.path.join(upload_dir, filename)
+
+    content = await file.read()
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File exceeds 5MB limit")
+
+    with open(filepath, "wb") as f:
+        f.write(content)
+
+    photo_url = f"/uploads/profiles/{filename}"
+    return await StudentService.update_profile_picture(db, current_user.id, photo_url)
 
 
 @router.post("", response_model=StudentResponse, status_code=status.HTTP_201_CREATED)

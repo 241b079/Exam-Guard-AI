@@ -59,6 +59,11 @@ export default function StudentExaminationPage() {
         });
         setAnswersMap(map);
 
+        if (!attData.identity_verified) {
+          router.replace(`/student/exams/${examId}/instructions`);
+          return;
+        }
+
         if (attData.status === 'SUBMITTED') {
           router.push(`/student/exams/${examId}/result`);
         }

@@ -21,6 +21,9 @@ export interface ExamAttempt {
   status: AttemptStatus;
   total_score?: number;
   max_possible_score?: number;
+  identity_verified?: boolean;
+  identity_verified_at?: string;
+  identity_verification_score?: number;
   answers: Answer[];
   time_remaining_seconds: number;
 }

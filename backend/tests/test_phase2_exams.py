@@ -103,6 +103,23 @@ async def test_phase2_complete_exam_flow():
         attempt_id = attempt_data["id"]
         assert attempt_data["status"] == "IN_PROGRESS"
 
+        # 8.5 Student Completes Identity Verification
+        with open("tests/fixtures/face1.jpg", "rb") as f:
+            face_bytes = f.read()
+        await ac.post(
+            "/api/v1/students/me/photo",
+            files={"file": ("profile.jpg", face_bytes, "image/jpeg")},
+            headers=student_headers
+        )
+        ver_res = await ac.post(
+            "/api/v1/identity/verify",
+            data={"exam_id": exam_id},
+            files={"file": ("live.jpg", face_bytes, "image/jpeg")},
+            headers=student_headers
+        )
+        assert ver_res.status_code == 200
+        assert ver_res.json()["verified"] is True
+
         # 9. Student Answers MCQ Question Correctly
         mcq_ans_res = await ac.post(f"/api/v1/attempts/{attempt_id}/answers", json={
             "question_id": mcq_q_id,

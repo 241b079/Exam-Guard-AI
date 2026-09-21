@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import String, Text, Integer, DateTime, ForeignKey
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, backref
 
 from app.core.database import Base
 
@@ -35,6 +35,7 @@ class StudentProfile(Base):
     date_of_birth: Mapped[str] = mapped_column(String(30), nullable=True)
     gender: Mapped[str] = mapped_column(String(20), nullable=True)
     address: Mapped[str] = mapped_column(Text, nullable=True)
+    profile_picture_url: Mapped[str] = mapped_column(String(500), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -49,4 +50,4 @@ class StudentProfile(Base):
     )
 
     # Relationships
-    user = relationship("User", backref="student_profile", lazy="selectin")
+    user = relationship("User", backref=backref("student_profile", uselist=False), lazy="selectin")

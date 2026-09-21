@@ -29,6 +29,7 @@ class StudentUpdate(BaseModel):
     date_of_birth: Optional[str] = None
     gender: Optional[str] = None
     address: Optional[str] = None
+    profile_picture_url: Optional[str] = None
 
 
 class StudentStatusPatch(BaseModel):
@@ -50,6 +51,7 @@ class StudentResponse(BaseModel):
     date_of_birth: Optional[str] = None
     gender: Optional[str] = None
     address: Optional[str] = None
+    profile_picture_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

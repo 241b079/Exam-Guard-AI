@@ -34,6 +34,9 @@ class AttemptResponse(BaseModel):
     status: AttemptStatus
     total_score: Optional[float] = None
     max_possible_score: Optional[float] = None
+    identity_verified: bool = False
+    identity_verified_at: Optional[datetime] = None
+    identity_verification_score: Optional[float] = None
     answers: List[AnswerResponse] = []
     time_remaining_seconds: int = 0
 

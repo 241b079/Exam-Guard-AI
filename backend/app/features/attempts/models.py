@@ -47,6 +47,11 @@ class ExamAttempt(Base):
     total_score: Mapped[float] = mapped_column(Float, nullable=True)
     max_possible_score: Mapped[float] = mapped_column(Float, nullable=True)
 
+    # Pre-exam Identity Verification Audit Fields
+    identity_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    identity_verified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    identity_verification_score: Mapped[float] = mapped_column(Float, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

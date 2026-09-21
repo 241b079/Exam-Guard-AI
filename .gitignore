@@ -35,3 +35,10 @@ yarn-error.log*
 # Database / Local Docker data
 *.sqlite3
 *.db
+
+# Uploads
+uploads/
+backend/uploads/
+
+# Model binaries (auto-downloaded on runtime)
+*.onnx

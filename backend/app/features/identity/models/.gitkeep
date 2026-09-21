@@ -1,0 +1,2 @@
+# Model weight directory for OpenCV YuNet & SFace ONNX weights
+# Models will be automatically fetched on first service initialization if missing.

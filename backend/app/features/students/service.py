@@ -340,6 +340,38 @@ class StudentService:
         return [StudentService._to_response(p, u) for p, u in created]
 
     @staticmethod
+    async def get_student_by_user_id(db: AsyncSession, user_id: str) -> StudentResponse:
+        user_res = await db.execute(select(User).where(User.id == user_id))
+        user = user_res.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        
+        prof_res = await db.execute(select(StudentProfile).where(StudentProfile.user_id == user_id))
+        profile = prof_res.scalar_one_or_none()
+        if not profile:
+            profile = await StudentService.ensure_student_profile(db, user)
+        return StudentService._to_response(profile, user)
+
+    @staticmethod
+    async def update_profile_picture(db: AsyncSession, user_id: str, photo_url: str) -> StudentResponse:
+        result = await db.execute(
+            select(StudentProfile).where(StudentProfile.user_id == user_id).options(selectinload(StudentProfile.user))
+        )
+        profile = result.scalar_one_or_none()
+        if not profile:
+            user_res = await db.execute(select(User).where(User.id == user_id))
+            user = user_res.scalar_one_or_none()
+            if not user:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+            profile = await StudentService.ensure_student_profile(db, user)
+            profile.user = user
+
+        profile.profile_picture_url = photo_url
+        await db.commit()
+        await db.refresh(profile)
+        return StudentService._to_response(profile, profile.user)
+
+    @staticmethod
     def _to_response(profile: StudentProfile, user: User) -> StudentResponse:
         return StudentResponse(
             id=profile.id,
@@ -356,6 +388,7 @@ class StudentService:
             date_of_birth=profile.date_of_birth,
             gender=profile.gender,
             address=profile.address,
+            profile_picture_url=profile.profile_picture_url,
             created_at=profile.created_at,
             updated_at=profile.updated_at
         )

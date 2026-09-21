@@ -129,3 +129,13 @@ async def init_db():
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        
+        # Idempotently ensure newly added columns exist in PostgreSQL
+        try:
+            from sqlalchemy import text
+            await conn.execute(text("ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS profile_picture_url VARCHAR(500);"))
+            await conn.execute(text("ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS identity_verified BOOLEAN DEFAULT FALSE;"))
+            await conn.execute(text("ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS identity_verified_at TIMESTAMPTZ;"))
+            await conn.execute(text("ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS identity_verification_score DOUBLE PRECISION;"))
+        except Exception as e:
+            logger.warning(f"Note: Column migration check skipped or completed: {e}")

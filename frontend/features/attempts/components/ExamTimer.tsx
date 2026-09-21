@@ -14,13 +14,20 @@ export const ExamTimer: React.FC<ExamTimerProps> = ({
   onTimeExpired,
   displayCountdown = true,
 }) => {
-  const [secondsLeft, setSecondsLeft] = useState(initialSeconds);
+  const [secondsLeft, setSecondsLeft] = useState<number>(initialSeconds);
+  const [hasStartedCountdown, setHasStartedCountdown] = useState(false);
 
   useEffect(() => {
-    setSecondsLeft(initialSeconds);
+    if (initialSeconds > 0) {
+      setSecondsLeft(initialSeconds);
+      setHasStartedCountdown(true);
+    }
   }, [initialSeconds]);
 
   useEffect(() => {
+    // Only fire expiration if the countdown was actively running and hit 0
+    if (!hasStartedCountdown || secondsLeft === undefined) return;
+
     if (secondsLeft <= 0) {
       onTimeExpired();
       return;
@@ -38,7 +45,7 @@ export const ExamTimer: React.FC<ExamTimerProps> = ({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [secondsLeft, onTimeExpired]);
+  }, [secondsLeft, hasStartedCountdown, onTimeExpired]);
 
   const formatTime = (totalSecs: number) => {
     const h = Math.floor(totalSecs / 3600);

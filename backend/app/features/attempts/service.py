@@ -98,6 +98,12 @@ class AttemptService:
         if attempt.status != AttemptStatus.IN_PROGRESS:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Attempt is already submitted or expired")
 
+        if not attempt.identity_verified:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Identity verification required before attempting examination questions"
+            )
+
         # Find existing answer or create new
         ans_res = await db.execute(
             select(Answer).where(Answer.attempt_id == attempt_id, Answer.question_id == req.question_id)
@@ -207,6 +213,9 @@ class AttemptService:
             status=attempt.status,
             total_score=attempt.total_score,
             max_possible_score=attempt.max_possible_score,
+            identity_verified=attempt.identity_verified or False,
+            identity_verified_at=attempt.identity_verified_at,
+            identity_verification_score=attempt.identity_verification_score,
             answers=answers_resp,
             time_remaining_seconds=remaining_seconds
         )

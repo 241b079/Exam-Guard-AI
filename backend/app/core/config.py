@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     REDIS_URL: str = Field(..., description="Redis connection string")
     
     CORS_ORIGINS: Union[str, List[str]] = "http://localhost:3000"
+    
+    # Face verification settings
+    FACE_VERIFICATION_THRESHOLD: float = 0.363
+    UPLOAD_DIR: str = "uploads"
 
     model_config = SettingsConfigDict(
         env_file=".env",
