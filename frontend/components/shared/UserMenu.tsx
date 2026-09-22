@@ -59,7 +59,19 @@ export const UserMenu: React.FC = () => {
             </div>
 
             {/* Actions */}
-            <div className="pt-1">
+            <div className="pt-1 space-y-2">
+              <a
+                href={user.role === 'STUDENT' ? '/student/profile' : '/faculty/profile'}
+                onClick={() => setIsOpen(false)}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-stone-50 hover:bg-[#FBECE0] text-stone-800 hover:text-[#C25E1A] border border-[#EBE5DC] text-xs font-semibold transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <User className="w-3.5 h-3.5" />
+                  <span>My Profile</span>
+                </div>
+                <span className="text-[10px] text-stone-400 font-normal">View &rarr;</span>
+              </a>
+
               <button
                 onClick={() => {
                   setIsOpen(false);

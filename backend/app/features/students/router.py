@@ -1,5 +1,7 @@
+import os
+import uuid
 from typing import List, Optional
-from fastapi import APIRouter, Depends, status, UploadFile, File, Query
+from fastapi import APIRouter, Depends, status, UploadFile, File, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -9,14 +11,15 @@ from app.core.config import settings
 from app.features.students.schemas import (
     StudentCreate,
     StudentUpdate,
+    StudentSelfUpdate,
     StudentStatusPatch,
     StudentResponse,
     StudentImportRow,
-    StudentImportPreviewResponse
+    StudentImportPreviewResponse,
+    PermissionGrantRequest,
+    PermissionResponse
 )
 from app.features.students.service import StudentService
-import os
-import uuid
 
 router = APIRouter(prefix="/students", tags=["Students"])
 
@@ -29,13 +32,21 @@ async def get_my_student_profile(
     return await StudentService.get_student_by_user_id(db, current_user.id)
 
 
+@router.put("/me/profile", response_model=StudentResponse)
+async def update_my_student_profile(
+    req: StudentSelfUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    return await StudentService.update_self_profile(db, current_user.id, req)
+
+
 @router.post("/me/photo", response_model=StudentResponse)
 async def upload_my_profile_photo(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # Validate extension
     allowed = {".jpg", ".jpeg", ".png", ".webp"}
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in allowed:
@@ -73,11 +84,14 @@ async def create_student(
 async def get_students(
     search: Optional[str] = Query(None, description="Search by name, email, roll no, department"),
     department: Optional[str] = Query(None, description="Filter by department"),
+    batch: Optional[str] = Query(None, description="Filter by batch: B1, B2, B3, B4, B5"),
     status: Optional[str] = Query(None, description="Filter by status: active, inactive, all"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN]))
 ):
-    return await StudentService.get_students(db, search=search, department=department, status_filter=status)
+    return await StudentService.get_students(
+        db, search=search, department=department, batch=batch, status_filter=status
+    )
 
 
 @router.get("/{student_id}", response_model=StudentResponse)
@@ -107,6 +121,34 @@ async def patch_student_status(
     current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN]))
 ):
     return await StudentService.patch_status(db, student_id, is_active=req.is_active)
+
+
+@router.get("/{student_id}/permissions", response_model=List[PermissionResponse])
+async def get_student_permissions(
+    student_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN]))
+):
+    return await StudentService.get_student_permissions(db, student_id)
+
+
+@router.post("/{student_id}/permissions", response_model=PermissionResponse, status_code=status.HTTP_201_CREATED)
+async def grant_student_permission(
+    student_id: str,
+    req: PermissionGrantRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN]))
+):
+    return await StudentService.grant_permission(db, student_id, current_user, req)
+
+
+@router.delete("/permissions/{permission_id}", response_model=PermissionResponse)
+async def revoke_permission(
+    permission_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN]))
+):
+    return await StudentService.revoke_permission(db, permission_id, current_user)
 
 
 @router.post("/import/preview", response_model=StudentImportPreviewResponse)

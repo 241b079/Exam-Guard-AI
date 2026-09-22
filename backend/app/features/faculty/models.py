@@ -1,13 +1,13 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, Text, Integer, Boolean, DateTime, ForeignKey
+from sqlalchemy import String, DateTime, ForeignKey, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship, backref
 
 from app.core.database import Base
 
 
-class StudentProfile(Base):
-    __tablename__ = "student_profiles"
+class FacultyProfile(Base):
+    __tablename__ = "faculty_profiles"
 
     id: Mapped[str] = mapped_column(
         String(36),
@@ -21,23 +21,17 @@ class StudentProfile(Base):
         nullable=False,
         index=True
     )
-    student_id: Mapped[str] = mapped_column(
+    faculty_id: Mapped[str] = mapped_column(
         String(50),
         unique=True,
         nullable=False,
         index=True
     )
-    batch: Mapped[str] = mapped_column(String(10), nullable=True, index=True)
     phone: Mapped[str] = mapped_column(String(20), nullable=True)
     department: Mapped[str] = mapped_column(String(100), nullable=True)
-    course: Mapped[str] = mapped_column(String(100), nullable=True)
-    semester: Mapped[int] = mapped_column(Integer, nullable=True)
-    section: Mapped[str] = mapped_column(String(20), nullable=True)
-    date_of_birth: Mapped[str] = mapped_column(String(30), nullable=True)
-    gender: Mapped[str] = mapped_column(String(20), nullable=True)
-    address: Mapped[str] = mapped_column(Text, nullable=True)
+    designation: Mapped[str] = mapped_column(String(100), nullable=True)
+    assigned_batches: Mapped[list] = mapped_column(JSON, default=list, nullable=True)
     profile_picture_url: Mapped[str] = mapped_column(String(500), nullable=True)
-    profile_completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -52,4 +46,4 @@ class StudentProfile(Base):
     )
 
     # Relationships
-    user = relationship("User", backref=backref("student_profile", uselist=False), lazy="selectin")
+    user = relationship("User", backref=backref("faculty_profile", uselist=False), lazy="selectin")

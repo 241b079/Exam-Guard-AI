@@ -14,6 +14,7 @@ from app.features.exams.router import router as exams_router
 from app.features.questions.router import router as questions_router
 from app.features.attempts.router import router as attempts_router
 from app.features.identity.router import router as identity_router
+from app.features.faculty.router import router as faculty_router
 import os
 from fastapi.staticfiles import StaticFiles
 
@@ -69,3 +70,4 @@ app.include_router(exams_router, prefix="/api/v1")
 app.include_router(questions_router, prefix="/api/v1")
 app.include_router(attempts_router, prefix="/api/v1")
 app.include_router(identity_router, prefix="/api/v1")
+app.include_router(faculty_router, prefix="/api/v1")

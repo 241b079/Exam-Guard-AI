@@ -123,6 +123,8 @@ async def init_db():
     # Import all feature models so they are registered in Base.metadata before create_all
     from app.features.users.models import User  # noqa
     from app.features.students.models import StudentProfile  # noqa
+    from app.features.students.permission_models import ProfileEditPermission  # noqa
+    from app.features.faculty.models import FacultyProfile  # noqa
     from app.features.exams.models import Exam  # noqa
     from app.features.questions.models import Question  # noqa
     from app.features.attempts.models import ExamAttempt, Answer  # noqa
@@ -130,10 +132,13 @@ async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         
-        # Idempotently ensure newly added columns exist in PostgreSQL
+        # Idempotently ensure newly added columns and tables exist in PostgreSQL
         try:
             from sqlalchemy import text
             await conn.execute(text("ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS profile_picture_url VARCHAR(500);"))
+            await conn.execute(text("ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS batch VARCHAR(10);"))
+            await conn.execute(text("ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS profile_completed BOOLEAN DEFAULT FALSE;"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_student_profiles_batch ON student_profiles(batch);"))
             await conn.execute(text("ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS identity_verified BOOLEAN DEFAULT FALSE;"))
             await conn.execute(text("ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS identity_verified_at TIMESTAMPTZ;"))
             await conn.execute(text("ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS identity_verification_score DOUBLE PRECISION;"))

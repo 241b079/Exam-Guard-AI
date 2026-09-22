@@ -27,11 +27,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ role }) => {
 
   if (role === 'FACULTY') {
     navItems.push({ label: 'Exams', href: '/faculty/exams', icon: FileText });
-    navItems.push({ label: 'Students', href: '/faculty/students', icon: Users });
+    navItems.push({ label: 'Batches & Permissions', href: '/faculty/batches', icon: Users });
+    navItems.push({ label: 'My Profile', href: '/faculty/profile', icon: UserIcon });
   } else if (role === 'STUDENT') {
     navItems.push({ label: 'Available Exams', href: '/student/exams', icon: FileText });
+    navItems.push({ label: 'My Profile', href: '/student/profile', icon: UserIcon });
   } else if (role === 'ADMIN') {
     navItems.push({ label: 'Students', href: '/admin/students', icon: Users });
+    navItems.push({ label: 'Batches & Permissions', href: '/faculty/batches', icon: Users });
   }
 
   return (
