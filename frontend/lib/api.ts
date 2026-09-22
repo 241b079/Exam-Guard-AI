@@ -77,3 +77,12 @@ export async function fetchApi<T>(endpoint: string, options: RequestOptions = {}
 
   return response.json();
 }
+
+export function getImageUrl(path?: string | null): string {
+  if (!path) return '';
+  if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('data:')) {
+    return path;
+  }
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${API_URL}${cleanPath}`;
+}

@@ -61,8 +61,28 @@ async def upload_my_profile_photo(
     filepath = os.path.join(upload_dir, filename)
 
     content = await file.read()
-    if len(content) > 5 * 1024 * 1024:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File exceeds 5MB limit")
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File exceeds 10MB limit")
+
+    # Validate face existence for exam identity verification
+    try:
+        from app.features.identity.service import FaceVerificationService
+        img = FaceVerificationService.decode_and_validate_image(content, "Profile Photo")
+        face_count, _ = FaceVerificationService.detect_and_embed_face(img, "Profile Photo")
+        if face_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No face detected in the photo. Please upload a clear photo of your face for identity verification."
+            )
+        if face_count > 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Multiple faces detected ({face_count}). Please upload a photo with only yourself."
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        pass
 
     with open(filepath, "wb") as f:
         f.write(content)

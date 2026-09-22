@@ -6,7 +6,7 @@ import { useAuth } from '@/features/auth/hooks/useAuth';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { fetchApi } from '@/lib/api';
+import { fetchApi, getImageUrl } from '@/lib/api';
 import { FacultyProfile } from '@/types';
 import {
   User,
@@ -174,7 +174,7 @@ export default function FacultyProfilePage() {
               <div className="w-28 h-28 rounded-3xl overflow-hidden bg-[#FBECE0] border-2 border-[#F6D6C0] flex items-center justify-center shadow-warm-sm">
                 {profile.profile_picture_url ? (
                   <img
-                    src={profile.profile_picture_url}
+                    src={getImageUrl(profile.profile_picture_url)}
                     alt={profile.name}
                     className="w-full h-full object-cover"
                   />

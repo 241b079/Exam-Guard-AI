@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
+import { getImageUrl } from '@/lib/api';
 import { identityService } from '../services/identityService';
 import { VerificationStatus, VerificationResponse } from '../types';
 
@@ -201,7 +202,7 @@ export const IdentityVerificationStep: React.FC<IdentityVerificationStepProps> =
           <div className="relative w-20 h-20 rounded-2xl overflow-hidden bg-stone-100 border-2 border-[#EBE5DC] flex-shrink-0 flex items-center justify-center">
             {status?.profile_picture_url ? (
               <img
-                src={status.profile_picture_url}
+                src={getImageUrl(status.profile_picture_url)}
                 alt="Registered Profile"
                 className="w-full h-full object-cover"
               />

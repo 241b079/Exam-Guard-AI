@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Optional, Tuple
 import cv2
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -69,10 +69,10 @@ class FaceVerificationService:
         return cls._detector, cls._recognizer
 
     @staticmethod
-    def decode_and_validate_image(image_bytes: bytes, field_label: str = "Image") -> np.ndarray:
+    def decode_and_validate_image(image_bytes: bytes, field_label: str = "Image", max_dim: int = 1024) -> np.ndarray:
         """
-        Validates payload size, decodes bytes into an OpenCV BGR numpy array,
-        and verifies dimensions.
+        Validates payload size, handles EXIF orientation, normalizes high-resolution
+        images to optimal YuNet receptive field (max 1024px), and converts to OpenCV BGR.
         """
         if not image_bytes:
             raise HTTPException(
@@ -80,22 +80,31 @@ class FaceVerificationService:
                 detail=f"{field_label} data is empty"
             )
 
-        if len(image_bytes) > 5 * 1024 * 1024:
+        if len(image_bytes) > 10 * 1024 * 1024:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"{field_label} exceeds the maximum allowed size of 5MB"
+                detail=f"{field_label} exceeds the maximum allowed size of 10MB"
             )
 
-        # Attempt decoding with OpenCV
-        nparr = np.frombuffer(image_bytes, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        try:
+            # Open with PIL and automatically correct EXIF orientation (mobile phone rotation)
+            pil_img = Image.open(io.BytesIO(image_bytes))
+            pil_img = ImageOps.exif_transpose(pil_img)
+            pil_img = pil_img.convert("RGB")
 
-        # Fallback to PIL if imdecode returned None
-        if img is None:
-            try:
-                pil_img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-                img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-            except Exception:
+            # Scale high-resolution images so maximum dimension is <= max_dim (optimal for YuNet detection)
+            w, h = pil_img.size
+            if max(w, h) > max_dim:
+                scale = max_dim / max(w, h)
+                new_w, new_h = max(64, int(w * scale)), max(64, int(h * scale))
+                pil_img = pil_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+            img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+        except Exception:
+            # Fallback to direct OpenCV decoding
+            nparr = np.frombuffer(image_bytes, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if img is None:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Invalid or corrupted {field_label.lower()} format. Please capture/upload a valid image."

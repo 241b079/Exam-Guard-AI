@@ -5,7 +5,7 @@ import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { fetchApi } from '@/lib/api';
+import { fetchApi, getImageUrl } from '@/lib/api';
 import { StudentProfile, BatchSummary, ProfileEditPermission } from '@/types';
 import {
   Users,
@@ -355,7 +355,7 @@ export default function FacultyBatchesPage() {
                             <div className="w-9 h-9 rounded-2xl bg-[#FBECE0] border border-[#F6D6C0] flex items-center justify-center text-[#C25E1A] font-bold text-xs shrink-0 overflow-hidden shadow-warm-sm">
                               {st.profile_picture_url ? (
                                 <img
-                                  src={st.profile_picture_url}
+                                  src={getImageUrl(st.profile_picture_url)}
                                   alt={st.name}
                                   className="w-full h-full object-cover"
                                 />
