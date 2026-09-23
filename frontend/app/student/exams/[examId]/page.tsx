@@ -16,6 +16,13 @@ import {
   QuestionNavigator,
   SubmitModal
 } from '@/features/attempts';
+import {
+  useExamLockdown,
+  ExamLockdownOverlay,
+  ExamIntegrityIndicator,
+  ExamViolationToast,
+} from '@/features/proctoring';
+
 
 export default function StudentExaminationPage() {
   const params = useParams();
@@ -154,12 +161,34 @@ export default function StudentExaminationPage() {
     setAnswerText(txt);
   };
 
+  const isExamActive = Boolean(
+    attempt &&
+    attempt.status === 'IN_PROGRESS' &&
+    !isSubmitting &&
+    !isLoading &&
+    !isQLoading
+  );
+
+  const {
+    isFullscreen,
+    isFullscreenRequired,
+    violationCount,
+    activeWarning,
+    requestFullscreen,
+    exitFullscreen,
+  } = useExamLockdown({
+    attemptId: attempt?.id,
+    isActive: isExamActive,
+    initialViolationCount: attempt?.violation_count || 0,
+  });
+
   const handleFinalSubmit = async () => {
     if (!attempt) return;
     setIsSubmitting(true);
     try {
       await saveCurrentAnswer();
       await attemptService.submitAttempt(attempt.id);
+      await exitFullscreen();
       router.push(`/student/exams/${examId}/result`);
     } catch (err: any) {
       alert(err.message || 'Failed to submit exam');
@@ -171,11 +200,14 @@ export default function StudentExaminationPage() {
     if (!attempt || attempt.status === 'SUBMITTED') return;
     try {
       await attemptService.submitAttempt(attempt.id);
+      await exitFullscreen();
       router.push(`/student/exams/${examId}/result`);
     } catch {
+      await exitFullscreen();
       router.push(`/student/exams/${examId}/result`);
     }
-  }, [attempt, examId, router]);
+  }, [attempt, examId, router, exitFullscreen]);
+
 
   if (isLoading || isQLoading) {
     return (
@@ -212,7 +244,11 @@ export default function StudentExaminationPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 md:gap-4">
+          <ExamIntegrityIndicator
+            isFullscreen={isFullscreen}
+            violationCount={violationCount}
+          />
           <ExamTimer
             initialSeconds={attempt.time_remaining_seconds}
             onTimeExpired={handleTimeExpired}
@@ -227,6 +263,7 @@ export default function StudentExaminationPage() {
             <Send className="w-3.5 h-3.5" /> Submit Exam
           </Button>
         </div>
+
       </header>
 
       {/* Main Examination Grid Layout */}
@@ -366,7 +403,16 @@ export default function StudentExaminationPage() {
         answers={answersMap}
         isLoading={isSubmitting}
       />
+
+      {/* Floating Violation Alert Toast */}
+      <ExamViolationToast message={activeWarning} />
+
+      {/* Fullscreen Required / Exit Warning Overlay */}
+      <ExamLockdownOverlay
+        isOpen={isFullscreenRequired}
+        violationCount={violationCount}
+        onReturnToFullscreen={requestFullscreen}
+      />
     </div>
   );
 }
-

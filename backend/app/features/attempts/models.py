@@ -1,7 +1,7 @@
 import enum
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, Text, Float, Boolean, DateTime, Enum as SQLEnum, ForeignKey
+from sqlalchemy import String, Text, Float, Boolean, DateTime, Enum as SQLEnum, ForeignKey, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -68,6 +68,59 @@ class ExamAttempt(Base):
     exam = relationship("Exam", back_populates="attempts")
     student = relationship("User", lazy="selectin")
     answers = relationship("Answer", back_populates="attempt", cascade="all, delete-orphan", lazy="selectin")
+    violations = relationship("ExamViolation", back_populates="attempt", cascade="all, delete-orphan", lazy="selectin")
+
+
+class ViolationType(str, enum.Enum):
+    FULLSCREEN_EXIT = "FULLSCREEN_EXIT"
+    CONTEXT_MENU = "CONTEXT_MENU"
+    COPY_ATTEMPT = "COPY_ATTEMPT"
+    PASTE_ATTEMPT = "PASTE_ATTEMPT"
+    CUT_ATTEMPT = "CUT_ATTEMPT"
+    PAGE_HIDDEN = "PAGE_HIDDEN"
+    WINDOW_BLUR = "WINDOW_BLUR"
+
+
+class ExamViolation(Base):
+    __tablename__ = "exam_violations"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4())
+    )
+    exam_attempt_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("exam_attempts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    student_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    violation_type: Mapped[ViolationType] = mapped_column(
+        SQLEnum(ViolationType, name="violation_type_enum"),
+        nullable=False,
+        index=True
+    )
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False
+    )
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False
+    )
+
+    # Relationships
+    attempt = relationship("ExamAttempt", back_populates="violations")
+    student = relationship("User", lazy="selectin")
 
 
 class Answer(Base):

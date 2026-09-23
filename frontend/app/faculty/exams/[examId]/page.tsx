@@ -3,12 +3,13 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { FileText, Edit, HelpCircle, Upload, Send, Trash2, ArrowLeft } from 'lucide-react';
+import { FileText, Edit, HelpCircle, Upload, Send, Trash2, ArrowLeft, ShieldCheck, ShieldAlert, RefreshCw, AlertTriangle } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
 import { Exam, examService } from '@/features/exams';
+import { attemptService, AttemptMonitoringResponse } from '@/features/attempts';
 import { Loading } from '@/components/shared/Loading';
 
 export default function FacultyExamDetailPage() {
@@ -20,6 +21,10 @@ export default function FacultyExamDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
+
+  const [monitoringData, setMonitoringData] = useState<AttemptMonitoringResponse[]>([]);
+  const [isLoadingMonitoring, setIsLoadingMonitoring] = useState(false);
+
 
   const fetchExam = async () => {
     setIsLoading(true);
@@ -34,9 +39,25 @@ export default function FacultyExamDetailPage() {
     }
   };
 
+  const fetchMonitoring = async () => {
+    setIsLoadingMonitoring(true);
+    try {
+      const data = await attemptService.getExamAttemptsMonitoring(examId);
+      setMonitoringData(data);
+    } catch {
+      // Ignore if user lacks permissions or network hiccup
+    } finally {
+      setIsLoadingMonitoring(false);
+    }
+  };
+
   useEffect(() => {
-    if (examId) fetchExam();
+    if (examId) {
+      fetchExam();
+      fetchMonitoring();
+    }
   }, [examId]);
+
 
   const handlePublish = async () => {
     if (!exam) return;
@@ -195,8 +216,87 @@ export default function FacultyExamDetailPage() {
             </div>
           </Card>
         </div>
+
+        {/* Candidate Integrity & Attempt Monitoring Section */}
+        <div className="space-y-4 pt-6 border-t border-[#EBE5DC]">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-[#C25E1A]" />
+              <h2 className="text-lg font-bold font-serif text-stone-900">
+                Candidate Integrity & Attempt Monitoring
+              </h2>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchMonitoring}
+              isLoading={isLoadingMonitoring}
+              className="gap-1.5 text-xs"
+            >
+              <RefreshCw className="w-3.5 h-3.5" /> Refresh Live Feed
+            </Button>
+          </div>
+
+          {monitoringData.length === 0 ? (
+            <Card className="p-8 text-center text-stone-500 text-sm">
+              No candidate attempts recorded for this exam yet.
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {monitoringData.map((att) => (
+                <Card key={att.attempt_id} className="p-5 space-y-4 border border-[#EBE5DC]">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="font-bold text-stone-900 text-sm">{att.student.name}</h3>
+                      <p className="text-xs text-stone-500">
+                        {att.student.roll_number ? `ID: ${att.student.roll_number} • ` : ''}
+                        {att.student.email}
+                      </p>
+                    </div>
+                    <Badge variant={att.status === 'SUBMITTED' ? 'success' : 'faculty'}>
+                      {att.status}
+                    </Badge>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs py-2 px-3 bg-[#FAF7F2] rounded-xl border border-[#EBE5DC]">
+                    <span className="text-stone-600 font-medium">Integrity Violations:</span>
+                    <span
+                      className={`font-bold px-2 py-0.5 rounded-full ${
+                        att.violation_count > 0 ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'
+                      }`}
+                    >
+                      {att.violation_count} {att.violation_count === 1 ? 'Violation' : 'Violations'}
+                    </span>
+                  </div>
+
+                  {att.recent_violations && att.recent_violations.length > 0 && (
+                    <div className="space-y-1.5 pt-1">
+                      <span className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block">
+                        Recent Logged Events:
+                      </span>
+                      <div className="space-y-1 max-h-36 overflow-y-auto text-xs">
+                        {att.recent_violations.map((v) => (
+                          <div
+                            key={v.id}
+                            className="flex items-center justify-between py-1 px-2.5 rounded-lg bg-stone-50 border border-stone-200 text-stone-700"
+                          >
+                            <span className="font-mono font-semibold text-rose-700 text-[11px]">
+                              {v.violation_type}
+                            </span>
+                            <span className="text-[10px] text-stone-400">
+                              {new Date(v.timestamp).toLocaleTimeString()}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </DashboardLayout>
   );
-
 }

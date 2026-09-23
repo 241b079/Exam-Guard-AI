@@ -6,8 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "node --test tests/lockdown.test.mjs"
+
   },
+
   "dependencies": {
     "clsx": "^2.1.0",
     "lucide-react": "^0.359.0",

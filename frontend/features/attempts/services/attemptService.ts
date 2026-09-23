@@ -3,7 +3,10 @@ import {
   ExamAttempt,
   Answer,
   SaveAnswerPayload,
-  SubmitAttemptResponse
+  SubmitAttemptResponse,
+  ExamViolation,
+  CreateViolationPayload,
+  AttemptMonitoringResponse,
 } from '../types';
 
 export const attemptService = {
@@ -28,5 +31,20 @@ export const attemptService = {
     return fetchApi<SubmitAttemptResponse>(`/api/v1/attempts/${attemptId}/submit`, {
       method: 'POST',
     });
+  },
+
+  async recordViolation(attemptId: string, payload: CreateViolationPayload): Promise<ExamViolation> {
+    return fetchApi<ExamViolation>(`/api/v1/attempts/${attemptId}/violations`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getViolations(attemptId: string): Promise<ExamViolation[]> {
+    return fetchApi<ExamViolation[]>(`/api/v1/attempts/${attemptId}/violations`);
+  },
+
+  async getExamAttemptsMonitoring(examId: string): Promise<AttemptMonitoringResponse[]> {
+    return fetchApi<AttemptMonitoringResponse[]>(`/api/v1/exams/${examId}/attempts-monitoring`);
   },
 };

@@ -5,16 +5,22 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.features.attempts.models import ExamAttempt, Answer, AttemptStatus
+from app.features.attempts.models import ExamAttempt, Answer, AttemptStatus, ExamViolation, ViolationType
 from app.features.attempts.schemas import (
     SaveAnswerRequest,
     AnswerResponse,
     AttemptResponse,
-    SubmitAttemptResponse
+    SubmitAttemptResponse,
+    CreateViolationRequest,
+    ViolationResponse,
+    AttemptMonitoringResponse,
+    AttemptMonitoringStudentInfo,
 )
+from app.features.users.models import User, UserRole
 from app.features.exams.models import Exam, NegativeMarkingType
 from app.features.exams.service import ExamService
 from app.features.questions.models import Question, QuestionType
+
 
 
 class AttemptService:
@@ -31,7 +37,7 @@ class AttemptService:
         result = await db.execute(
             select(ExamAttempt)
             .where(ExamAttempt.exam_id == exam_id, ExamAttempt.student_id == student_id)
-            .options(selectinload(ExamAttempt.answers))
+            .options(selectinload(ExamAttempt.answers), selectinload(ExamAttempt.violations))
         )
         attempt = result.scalar_one_or_none()
 
@@ -68,9 +74,14 @@ class AttemptService:
         result = await db.execute(
             select(ExamAttempt)
             .where(ExamAttempt.id == attempt_id)
-            .options(selectinload(ExamAttempt.answers), selectinload(ExamAttempt.exam))
+            .options(
+                selectinload(ExamAttempt.answers),
+                selectinload(ExamAttempt.exam),
+                selectinload(ExamAttempt.violations)
+            )
         )
         attempt = result.scalar_one_or_none()
+
         if not attempt:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attempt not found")
         if attempt.student_id != student_id:
@@ -204,6 +215,7 @@ class AttemptService:
     @staticmethod
     def _to_response(attempt: ExamAttempt, remaining_seconds: int) -> AttemptResponse:
         answers_resp = [AnswerResponse.model_validate(a) for a in (attempt.answers or [])]
+        violation_cnt = len(attempt.violations) if hasattr(attempt, "violations") and attempt.violations else 0
         return AttemptResponse(
             id=attempt.id,
             exam_id=attempt.exam_id,
@@ -217,7 +229,8 @@ class AttemptService:
             identity_verified_at=attempt.identity_verified_at,
             identity_verification_score=attempt.identity_verification_score,
             answers=answers_resp,
-            time_remaining_seconds=remaining_seconds
+            time_remaining_seconds=remaining_seconds,
+            violation_count=violation_cnt
         )
 
     @staticmethod
@@ -256,3 +269,130 @@ class AttemptService:
             max_possible_score=attempt.max_possible_score or sum(q.marks for q in questions),
             short_answer_status="Pending Review"
         )
+
+    @staticmethod
+    async def record_violation(
+        db: AsyncSession,
+        attempt_id: str,
+        req: CreateViolationRequest,
+        student_id: str
+    ) -> ViolationResponse:
+        result = await db.execute(
+            select(ExamAttempt)
+            .where(ExamAttempt.id == attempt_id)
+        )
+        attempt = result.scalar_one_or_none()
+        if not attempt:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attempt not found")
+        if attempt.student_id != student_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to log violation for this attempt")
+        if attempt.status != AttemptStatus.IN_PROGRESS:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Attempt is already submitted or expired")
+
+        # Rate limiting / deduplication: if identical violation recorded within the last 1.5 seconds, return latest
+        now = datetime.now(timezone.utc)
+        recent_cutoff = now.timestamp() - 1.5
+        existing_result = await db.execute(
+            select(ExamViolation)
+            .where(
+                ExamViolation.exam_attempt_id == attempt_id,
+                ExamViolation.violation_type == req.violation_type
+            )
+            .order_by(ExamViolation.created_at.desc())
+            .limit(1)
+        )
+        recent = existing_result.scalar_one_or_none()
+        if recent and recent.created_at and recent.created_at.timestamp() >= recent_cutoff:
+            return ViolationResponse.model_validate(recent)
+
+        violation = ExamViolation(
+            exam_attempt_id=attempt_id,
+            student_id=student_id,
+            violation_type=req.violation_type,
+            timestamp=req.timestamp or now,
+            metadata_json=req.metadata or {},
+            created_at=now
+        )
+        db.add(violation)
+        await db.commit()
+        await db.refresh(violation)
+        return ViolationResponse.model_validate(violation)
+
+    @staticmethod
+    async def get_violations(
+        db: AsyncSession,
+        attempt_id: str,
+        current_user: User
+    ) -> List[ViolationResponse]:
+        result = await db.execute(
+            select(ExamAttempt)
+            .where(ExamAttempt.id == attempt_id)
+            .options(selectinload(ExamAttempt.violations), selectinload(ExamAttempt.exam))
+        )
+        attempt = result.scalar_one_or_none()
+        if not attempt:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attempt not found")
+
+        # Student can only view own violations; Faculty/Admin can view
+        if current_user.role == UserRole.STUDENT and attempt.student_id != current_user.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to view violations for this attempt")
+
+        violations_result = await db.execute(
+            select(ExamViolation)
+            .where(ExamViolation.exam_attempt_id == attempt_id)
+            .order_by(ExamViolation.created_at.desc())
+        )
+        violations = violations_result.scalars().all()
+        return [ViolationResponse.model_validate(v) for v in violations]
+
+    @staticmethod
+    async def get_exam_monitoring(
+        db: AsyncSession,
+        exam_id: str,
+        current_user: User
+    ) -> List[AttemptMonitoringResponse]:
+        exam = await ExamService.get_by_id(db, exam_id)
+        if not exam:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exam not found")
+        if current_user.role == UserRole.FACULTY and exam.created_by_id != current_user.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to monitor this exam")
+
+        attempts_result = await db.execute(
+            select(ExamAttempt)
+            .where(ExamAttempt.exam_id == exam_id)
+            .options(
+                selectinload(ExamAttempt.student).selectinload(User.student_profile),
+                selectinload(ExamAttempt.violations)
+            )
+            .order_by(ExamAttempt.started_at.desc())
+        )
+        attempts = attempts_result.scalars().all()
+
+        monitoring_data = []
+        for att in attempts:
+            student = att.student
+            roll = student.student_profile.student_id if student and student.student_profile else None
+            student_info = AttemptMonitoringStudentInfo(
+                id=student.id if student else att.student_id,
+                name=student.name if student else "Candidate",
+                email=student.email if student else "",
+                roll_number=roll
+            )
+
+            # Sort violations descending
+            sorted_violations = sorted(att.violations or [], key=lambda v: v.created_at, reverse=True)
+            recent_v_responses = [ViolationResponse.model_validate(v) for v in sorted_violations[:10]]
+
+            monitoring_data.append(
+                AttemptMonitoringResponse(
+                    attempt_id=att.id,
+                    exam_id=att.exam_id,
+                    student=student_info,
+                    status=att.status,
+                    started_at=att.started_at,
+                    submitted_at=att.submitted_at,
+                    violation_count=len(att.violations or []),
+                    recent_violations=recent_v_responses
+                )
+            )
+        return monitoring_data

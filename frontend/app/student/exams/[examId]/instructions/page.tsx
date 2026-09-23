@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { ShieldCheck, Clock, HelpCircle, Award, ArrowLeft, Play, ArrowRight, UserCheck } from 'lucide-react';
+import { ShieldCheck, Clock, HelpCircle, Award, ArrowLeft, Play, ArrowRight, UserCheck, AlertCircle } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -43,9 +43,37 @@ export default function StudentExamInstructionsPage() {
     }
   }, [examId]);
 
+  const requestBrowserFullscreen = async (): Promise<boolean> => {
+    try {
+      const docEl = document.documentElement as any;
+      if (docEl.requestFullscreen) {
+        await docEl.requestFullscreen();
+      } else if (docEl.webkitRequestFullscreen) {
+        await docEl.webkitRequestFullscreen();
+      } else if (docEl.mozRequestFullScreen) {
+        await docEl.mozRequestFullScreen();
+      } else if (docEl.msRequestFullscreen) {
+        await docEl.msRequestFullscreen();
+      }
+      return true;
+    } catch (err) {
+      console.warn('Fullscreen entry rejected or blocked:', err);
+      return false;
+    }
+  };
+
   const handleStartExam = async () => {
     setIsStarting(true);
     setError(null);
+
+    // Request fullscreen from direct user gesture
+    const entered = await requestBrowserFullscreen();
+    if (!entered) {
+      setError('Fullscreen mode is required to start this exam. Please allow fullscreen in your browser and try again.');
+      setIsStarting(false);
+      return;
+    }
+
     try {
       await attemptService.startOrResumeAttempt(examId);
       router.push(`/student/exams/${examId}`);
@@ -63,7 +91,7 @@ export default function StudentExamInstructionsPage() {
     );
   }
 
-  if (error || !exam) {
+  if (!exam) {
     return (
       <DashboardLayout title="Exam Instructions">
         <div className="p-6 bg-rose-50 border border-rose-200 rounded-2xl text-rose-700 shadow-warm max-w-2xl mx-auto space-y-4">
@@ -78,8 +106,22 @@ export default function StudentExamInstructionsPage() {
 
   return (
     <DashboardLayout title={`Exam Onboarding — ${exam.title}`}>
+
       <div className="space-y-6 max-w-4xl mx-auto">
+        {error && (
+          <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-center justify-between gap-4 text-rose-800 text-xs">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+              <span>{error}</span>
+            </div>
+            <Button variant="secondary" size="sm" onClick={handleStartExam} disabled={isStarting}>
+              Try Again
+            </Button>
+          </div>
+        )}
+
         <div className="flex items-center justify-between">
+
           <Link href="/student/exams" className="inline-flex items-center gap-2 text-xs text-stone-500 hover:text-stone-900 transition-colors">
             <ArrowLeft className="w-4 h-4" /> Back to Available Exams
           </Link>

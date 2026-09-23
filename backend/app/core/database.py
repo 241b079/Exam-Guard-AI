@@ -127,7 +127,7 @@ async def init_db():
     from app.features.faculty.models import FacultyProfile  # noqa
     from app.features.exams.models import Exam  # noqa
     from app.features.questions.models import Question  # noqa
-    from app.features.attempts.models import ExamAttempt, Answer  # noqa
+    from app.features.attempts.models import ExamAttempt, Answer, ExamViolation  # noqa
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -142,5 +142,19 @@ async def init_db():
             await conn.execute(text("ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS identity_verified BOOLEAN DEFAULT FALSE;"))
             await conn.execute(text("ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS identity_verified_at TIMESTAMPTZ;"))
             await conn.execute(text("ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS identity_verification_score DOUBLE PRECISION;"))
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS exam_violations (
+                    id VARCHAR(36) PRIMARY KEY,
+                    exam_attempt_id VARCHAR(36) NOT NULL REFERENCES exam_attempts(id) ON DELETE CASCADE,
+                    student_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    violation_type VARCHAR(50) NOT NULL,
+                    timestamp TIMESTAMPTZ NOT NULL,
+                    metadata_json JSON,
+                    created_at TIMESTAMPTZ NOT NULL
+                );
+            """))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_exam_violations_attempt_id ON exam_violations(exam_attempt_id);"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_exam_violations_student_id ON exam_violations(student_id);"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_exam_violations_type ON exam_violations(violation_type);"))
         except Exception as e:
             logger.warning(f"Note: Column migration check skipped or completed: {e}")

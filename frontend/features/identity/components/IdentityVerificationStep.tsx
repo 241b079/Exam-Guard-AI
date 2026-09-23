@@ -45,6 +45,20 @@ export const IdentityVerificationStep: React.FC<IdentityVerificationStepProps> =
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
+  // Callback ref to reliably attach media stream to the video DOM element
+  const setVideoRef = useCallback((node: HTMLVideoElement | null) => {
+    videoRef.current = node;
+    if (node && streamRef.current) {
+      if (node.srcObject !== streamRef.current) {
+        node.srcObject = streamRef.current;
+      }
+      node.onloadedmetadata = () => {
+        node.play().catch(() => {});
+      };
+      node.play().catch(() => {});
+    }
+  }, []);
+
   // Load current verification status & student info
   useEffect(() => {
     let mounted = true;
@@ -83,6 +97,9 @@ export const IdentityVerificationStep: React.FC<IdentityVerificationStepProps> =
       });
       streamRef.current = null;
     }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
     setCameraActive(false);
   }, []);
 
@@ -102,21 +119,31 @@ export const IdentityVerificationStep: React.FC<IdentityVerificationStepProps> =
         throw new Error('Your browser does not support webcam video capture.');
       }
 
+      // Stop previous tracks if already running
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          width: { ideal: 640 },
-          height: { ideal: 480 },
+          width: { ideal: 1280, min: 640 },
+          height: { ideal: 720, min: 480 },
           facingMode: 'user',
         },
         audio: false,
       });
 
       streamRef.current = stream;
+      setCameraActive(true);
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current?.play().catch(() => {});
+        };
         await videoRef.current.play().catch(() => {});
       }
-      setCameraActive(true);
     } catch (err: any) {
       let msg = 'Failed to access camera.';
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
@@ -130,6 +157,26 @@ export const IdentityVerificationStep: React.FC<IdentityVerificationStepProps> =
       setCameraActive(false);
     }
   };
+
+  // Re-attach stream whenever cameraActive changes or stream updates
+  useEffect(() => {
+    if (cameraActive && videoRef.current && streamRef.current) {
+      if (videoRef.current.srcObject !== streamRef.current) {
+        videoRef.current.srcObject = streamRef.current;
+      }
+      videoRef.current.onloadedmetadata = () => {
+        videoRef.current?.play().catch(() => {});
+      };
+      videoRef.current.play().catch(() => {});
+    }
+  }, [cameraActive]);
+
+  // Auto-start camera when entering verification step if not already active and not yet captured/verified
+  useEffect(() => {
+    if (!isLoadingStatus && !verificationResult?.verified && !capturedDataUrl && !cameraActive && !cameraError) {
+      startCamera();
+    }
+  }, [isLoadingStatus, verificationResult, capturedDataUrl]);
 
   // Capture frame to canvas
   const handleCapture = () => {
@@ -309,39 +356,44 @@ export const IdentityVerificationStep: React.FC<IdentityVerificationStepProps> =
                     Photo Captured
                   </div>
                 </div>
-              ) : cameraActive ? (
-                /* 2. Live Webcam Stream */
+              ) : (
+                /* 2. Live Webcam Stream Area (persistent video element) */
                 <div className="relative w-full h-full flex items-center justify-center">
                   <video
-                    ref={videoRef}
+                    ref={setVideoRef}
                     autoPlay
                     playsInline
                     muted
-                    className="w-full h-full object-cover -scale-x-100"
+                    className={`w-full h-full object-cover -scale-x-100 ${cameraActive ? 'block' : 'hidden'}`}
                   />
-                  {/* Face positioning oval guide overlay */}
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <div className="w-48 h-64 border-2 border-dashed border-white/60 rounded-[50%] shadow-[0_0_0_9999px_rgba(0,0,0,0.3)] animate-pulse" />
-                  </div>
-                  <div className="absolute bottom-3 text-white/90 text-xs font-medium bg-black/60 px-4 py-1 rounded-full backdrop-blur-sm pointer-events-none">
-                    Align your face within the frame
-                  </div>
-                </div>
-              ) : (
-                /* 3. Camera Initial / Inactive State */
-                <div className="text-center p-6 space-y-4 text-stone-400">
-                  <div className="w-14 h-14 rounded-2xl bg-stone-800 flex items-center justify-center mx-auto text-stone-400 border border-stone-700">
-                    <Camera className="w-7 h-7" />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium text-stone-200">Webcam Inactive</p>
-                    <p className="text-xs text-stone-400 max-w-xs">
-                      Click below to enable camera preview and capture your verification photo.
-                    </p>
-                  </div>
-                  <Button variant="primary" size="sm" onClick={startCamera} className="gap-2">
-                    <Camera className="w-4 h-4" /> Enable Camera
-                  </Button>
+
+                  {cameraActive ? (
+                    <>
+                      {/* Face positioning oval guide overlay */}
+                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <div className="w-48 h-64 border-2 border-dashed border-white/60 rounded-[50%] shadow-[0_0_0_9999px_rgba(0,0,0,0.3)] animate-pulse" />
+                      </div>
+                      <div className="absolute bottom-3 text-white/90 text-xs font-medium bg-black/60 px-4 py-1 rounded-full backdrop-blur-sm pointer-events-none">
+                        Align your face within the frame
+                      </div>
+                    </>
+                  ) : (
+                    /* 3. Camera Initial / Inactive State */
+                    <div className="text-center p-6 space-y-4 text-stone-400">
+                      <div className="w-14 h-14 rounded-2xl bg-stone-800 flex items-center justify-center mx-auto text-stone-400 border border-stone-700">
+                        <Camera className="w-7 h-7" />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-stone-200">Webcam Inactive</p>
+                        <p className="text-xs text-stone-400 max-w-xs">
+                          Click below to enable camera preview and capture your verification photo.
+                        </p>
+                      </div>
+                      <Button variant="primary" size="sm" onClick={startCamera} className="gap-2">
+                        <Camera className="w-4 h-4" /> Enable Camera
+                      </Button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

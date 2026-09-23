@@ -1,3 +1,4 @@
+from typing import List
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,7 +9,10 @@ from app.features.attempts.schemas import (
     SaveAnswerRequest,
     AnswerResponse,
     AttemptResponse,
-    SubmitAttemptResponse
+    SubmitAttemptResponse,
+    CreateViolationRequest,
+    ViolationResponse,
+    AttemptMonitoringResponse,
 )
 from app.features.attempts.service import AttemptService
 
@@ -50,3 +54,31 @@ async def submit_attempt(
     current_user: User = Depends(require_roles([UserRole.STUDENT]))
 ):
     return await AttemptService.submit_attempt(db, attempt_id, student_id=current_user.id)
+
+
+@router.post("/attempts/{attempt_id}/violations", response_model=ViolationResponse, status_code=status.HTTP_201_CREATED)
+async def record_violation(
+    attempt_id: str,
+    req: CreateViolationRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.STUDENT]))
+):
+    return await AttemptService.record_violation(db, attempt_id, req, student_id=current_user.id)
+
+
+@router.get("/attempts/{attempt_id}/violations", response_model=List[ViolationResponse])
+async def get_violations(
+    attempt_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    return await AttemptService.get_violations(db, attempt_id, current_user=current_user)
+
+
+@router.get("/exams/{exam_id}/attempts-monitoring", response_model=List[AttemptMonitoringResponse])
+async def get_exam_monitoring(
+    exam_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN]))
+):
+    return await AttemptService.get_exam_monitoring(db, exam_id, current_user=current_user)
