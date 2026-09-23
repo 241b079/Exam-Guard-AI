@@ -1,7 +1,8 @@
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, ConfigDict
-from app.features.attempts.models import AttemptStatus, ViolationType
+from app.features.attempts.models import AttemptStatus, ViolationType, MediaSessionStatus
+
 
 
 class SaveAnswerRequest(BaseModel):
@@ -77,6 +78,27 @@ class ViolationResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class MediaSessionResponse(BaseModel):
+    id: str
+    exam_attempt_id: str
+    student_id: str
+    status: MediaSessionStatus
+    camera_active: bool = False
+    mic_active: bool = False
+    screen_active: bool = False
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UpdateMediaStatusRequest(BaseModel):
+    status: Optional[MediaSessionStatus] = None
+    camera_active: Optional[bool] = None
+    mic_active: Optional[bool] = None
+    screen_active: Optional[bool] = None
+
+
 class AttemptMonitoringStudentInfo(BaseModel):
     id: str
     name: str
@@ -95,5 +117,6 @@ class AttemptMonitoringResponse(BaseModel):
     submitted_at: Optional[datetime] = None
     violation_count: int
     recent_violations: List[ViolationResponse] = []
+    media_session: Optional[MediaSessionResponse] = None
 
     model_config = ConfigDict(from_attributes=True)

@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, ArrowRight, Flag, Send, CheckCircle2, Shield } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Flag, Send, CheckCircle2, Shield, Camera, Mic, Monitor, Radio } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Loading } from '@/components/shared/Loading';
@@ -18,7 +18,10 @@ import {
 } from '@/features/attempts';
 import {
   useExamLockdown,
+  useExamMedia,
+  useWebRTCStudent,
   ExamLockdownOverlay,
+  ExamMediaLockOverlay,
   ExamIntegrityIndicator,
   ExamViolationToast,
 } from '@/features/proctoring';
@@ -161,6 +164,140 @@ export default function StudentExaminationPage() {
     setAnswerText(txt);
   };
 
+  // Media proctoring state
+  const [lostMediaType, setLostMediaType] = useState<'camera' | 'microphone' | 'screen' | 'connection' | null>(null);
+  const [isResumingMedia, setIsResumingMedia] = useState(false);
+  const localCamPipRef = useRef<HTMLVideoElement | null>(null);
+
+  const {
+    cameraReady,
+    micReady,
+    screenReady,
+    allMediaReady,
+    cameraStreamRef,
+    screenStreamRef,
+    requestCameraAndMic,
+    requestScreenShare,
+    stopAllStreams,
+  } = useExamMedia({
+    onCameraStopped: async () => {
+      setLostMediaType('camera');
+      if (attempt?.id) {
+        await attemptService.recordViolation(attempt.id, {
+          violation_type: 'CAMERA_STOPPED',
+          metadata: { reason: 'Webcam video track ended' },
+        }).catch(() => {});
+        await attemptService.updateMediaSession(attempt.id, {
+          camera_active: false,
+          status: 'WAITING',
+        }).catch(() => {});
+      }
+    },
+    onMicStopped: async () => {
+      setLostMediaType('microphone');
+      if (attempt?.id) {
+        await attemptService.recordViolation(attempt.id, {
+          violation_type: 'MICROPHONE_STOPPED',
+          metadata: { reason: 'Microphone audio track ended' },
+        }).catch(() => {});
+        await attemptService.updateMediaSession(attempt.id, {
+          mic_active: false,
+        }).catch(() => {});
+      }
+    },
+    onScreenStopped: async () => {
+      setLostMediaType('screen');
+      if (attempt?.id) {
+        await attemptService.recordViolation(attempt.id, {
+          violation_type: 'SCREEN_SHARE_STOPPED',
+          metadata: { reason: 'Screen sharing track ended' },
+        }).catch(() => {});
+        await attemptService.updateMediaSession(attempt.id, {
+          screen_active: false,
+          status: 'WAITING',
+        }).catch(() => {});
+      }
+    },
+  });
+
+  // Initialize media session & capture when attempt is ready
+  useEffect(() => {
+    if (attempt && attempt.status === 'IN_PROGRESS' && !isSubmitting && !isLoading) {
+      Promise.all([
+        requestCameraAndMic(),
+        requestScreenShare(),
+      ]).then(([cam, scr]) => {
+        if (cam && scr) {
+          attemptService.updateMediaSession(attempt.id, {
+            status: 'CONNECTED',
+            camera_active: true,
+            mic_active: true,
+            screen_active: true,
+          }).catch(() => {});
+        }
+      });
+    }
+  }, [attempt?.id, attempt?.status, isSubmitting, isLoading, requestCameraAndMic, requestScreenShare]);
+
+  // Hook for student WebRTC peer connection & signaling to faculty
+  const { connectionState, facultyConnected } = useWebRTCStudent({
+    examId,
+    attemptId: attempt?.id || '',
+    cameraStream: cameraStreamRef.current,
+    screenStream: screenStreamRef.current,
+    onConnectionLost: async () => {
+      if (attempt?.id) {
+        await attemptService.recordViolation(attempt.id, {
+          violation_type: 'MEDIA_CONNECTION_LOST',
+          metadata: { reason: 'WebRTC disconnected' },
+        }).catch(() => {});
+      }
+    },
+    onConnectionFailed: async () => {
+      if (attempt?.id) {
+        await attemptService.recordViolation(attempt.id, {
+          violation_type: 'MEDIA_CONNECTION_FAILED',
+          metadata: { reason: 'WebRTC connection failed' },
+        }).catch(() => {});
+      }
+    },
+  });
+
+  // Attach local camera stream to PIP preview
+  useEffect(() => {
+    if (localCamPipRef.current && cameraStreamRef.current) {
+      localCamPipRef.current.srcObject = cameraStreamRef.current;
+    }
+  }, [cameraReady, cameraStreamRef.current]);
+
+  const handleResumeMedia = async () => {
+    setIsResumingMedia(true);
+    try {
+      if (lostMediaType === 'screen') {
+        const scr = await requestScreenShare();
+        if (scr && attempt?.id) {
+          await attemptService.updateMediaSession(attempt.id, {
+            screen_active: true,
+            status: 'CONNECTED',
+          }).catch(() => {});
+          setLostMediaType(null);
+        }
+      } else if (lostMediaType === 'camera' || lostMediaType === 'microphone') {
+        const cam = await requestCameraAndMic();
+        if (cam && attempt?.id) {
+          await attemptService.updateMediaSession(attempt.id, {
+            camera_active: true,
+            mic_active: true,
+            status: 'CONNECTED',
+          }).catch(() => {});
+          setLostMediaType(null);
+        }
+      }
+    } finally {
+      setIsResumingMedia(false);
+    }
+  };
+
   const isExamActive = Boolean(
     attempt &&
     attempt.status === 'IN_PROGRESS' &&
@@ -188,6 +325,7 @@ export default function StudentExaminationPage() {
     try {
       await saveCurrentAnswer();
       await attemptService.submitAttempt(attempt.id);
+      stopAllStreams();
       await exitFullscreen();
       router.push(`/student/exams/${examId}/result`);
     } catch (err: any) {
@@ -200,13 +338,15 @@ export default function StudentExaminationPage() {
     if (!attempt || attempt.status === 'SUBMITTED') return;
     try {
       await attemptService.submitAttempt(attempt.id);
+      stopAllStreams();
       await exitFullscreen();
       router.push(`/student/exams/${examId}/result`);
     } catch {
+      stopAllStreams();
       await exitFullscreen();
       router.push(`/student/exams/${examId}/result`);
     }
-  }, [attempt, examId, router, exitFullscreen]);
+  }, [attempt, examId, router, exitFullscreen, stopAllStreams]);
 
 
   if (isLoading || isQLoading) {
@@ -245,6 +385,23 @@ export default function StudentExaminationPage() {
         </div>
 
         <div className="flex items-center gap-3 md:gap-4">
+          <div className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-full bg-[#FAF7F2] border border-[#EBE5DC] text-[11px] font-medium text-stone-600">
+            <span className="flex items-center gap-1">
+              <Camera className={`w-3.5 h-3.5 ${cameraReady ? 'text-emerald-600' : 'text-rose-500'}`} />
+              <span className={cameraReady ? 'text-emerald-700 font-bold' : 'text-rose-600'}>Cam</span>
+            </span>
+            <span className="text-stone-300">•</span>
+            <span className="flex items-center gap-1">
+              <Mic className={`w-3.5 h-3.5 ${micReady ? 'text-emerald-600' : 'text-rose-500'}`} />
+              <span className={micReady ? 'text-emerald-700 font-bold' : 'text-rose-600'}>Mic</span>
+            </span>
+            <span className="text-stone-300">•</span>
+            <span className="flex items-center gap-1">
+              <Monitor className={`w-3.5 h-3.5 ${screenReady ? 'text-emerald-600' : 'text-rose-500'}`} />
+              <span className={screenReady ? 'text-emerald-700 font-bold' : 'text-rose-600'}>Screen</span>
+            </span>
+          </div>
+
           <ExamIntegrityIndicator
             isFullscreen={isFullscreen}
             violationCount={violationCount}
@@ -383,8 +540,32 @@ export default function StudentExaminationPage() {
           )}
         </div>
 
-        {/* Right Sidebar: Question Navigator */}
-        <div className="lg:col-span-1">
+        {/* Right Sidebar: Camera PIP & Question Navigator */}
+        <div className="lg:col-span-1 space-y-4">
+          {/* Candidate Live Webcam Preview PIP */}
+          <div className="p-3 bg-white border border-[#EBE5DC] rounded-3xl shadow-warm space-y-2">
+            <div className="flex items-center justify-between text-[11px] px-1">
+              <span className="font-semibold text-stone-600 flex items-center gap-1.5">
+                <Radio className="w-3 h-3 text-emerald-600 animate-pulse" /> Proctoring Stream
+              </span>
+              <span className="text-[10px] text-stone-400">Live Preview</span>
+            </div>
+            <div className="relative aspect-video w-full rounded-2xl bg-stone-950 overflow-hidden border border-stone-800">
+              <video
+                ref={localCamPipRef}
+                autoPlay
+                playsInline
+                muted
+                className="w-full h-full object-cover"
+              />
+              {!cameraReady && (
+                <div className="absolute inset-0 flex items-center justify-center bg-stone-900/90 text-stone-400 text-xs">
+                  Camera Paused
+                </div>
+              )}
+            </div>
+          </div>
+
           <QuestionNavigator
             questions={questions}
             answers={answersMap}
@@ -412,6 +593,14 @@ export default function StudentExaminationPage() {
         isOpen={isFullscreenRequired}
         violationCount={violationCount}
         onReturnToFullscreen={requestFullscreen}
+      />
+
+      {/* Media Stopped / Stream Loss Lock Overlay */}
+      <ExamMediaLockOverlay
+        isOpen={lostMediaType !== null}
+        lostType={lostMediaType}
+        onResume={handleResumeMedia}
+        isResuming={isResumingMedia}
       />
     </div>
   );

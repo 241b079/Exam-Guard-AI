@@ -127,14 +127,38 @@ async def init_db():
     from app.features.faculty.models import FacultyProfile  # noqa
     from app.features.exams.models import Exam  # noqa
     from app.features.questions.models import Question  # noqa
-    from app.features.attempts.models import ExamAttempt, Answer, ExamViolation  # noqa
+    from app.features.attempts.models import ExamAttempt, Answer, ExamViolation, ExamMediaSession  # noqa
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        
+
+    # Ensure all enum values exist in PostgreSQL (must run with AUTOCOMMIT)
+    try:
+        async with engine.connect() as auto_conn:
+            auto_conn = await auto_conn.execution_options(isolation_level="AUTOCOMMIT")
+            from sqlalchemy import text
+            for val in [
+                "CAMERA_PERMISSION_DENIED",
+                "MICROPHONE_PERMISSION_DENIED",
+                "SCREEN_SHARE_DENIED",
+                "CAMERA_STOPPED",
+                "MICROPHONE_STOPPED",
+                "SCREEN_SHARE_STOPPED",
+                "MEDIA_CONNECTION_LOST",
+                "MEDIA_CONNECTION_FAILED",
+            ]:
+                try:
+                    await auto_conn.execute(text(f"ALTER TYPE violation_type_enum ADD VALUE IF NOT EXISTS '{val}';"))
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.warning(f"Note: enum alteration check skipped or completed: {e}")
+
+    async with engine.begin() as conn:
         # Idempotently ensure newly added columns and tables exist in PostgreSQL
         try:
             from sqlalchemy import text
+
             await conn.execute(text("ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS profile_picture_url VARCHAR(500);"))
             await conn.execute(text("ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS batch VARCHAR(10);"))
             await conn.execute(text("ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS profile_completed BOOLEAN DEFAULT FALSE;"))
@@ -156,5 +180,21 @@ async def init_db():
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_exam_violations_attempt_id ON exam_violations(exam_attempt_id);"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_exam_violations_student_id ON exam_violations(student_id);"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_exam_violations_type ON exam_violations(violation_type);"))
+
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS exam_media_sessions (
+                    id VARCHAR(36) PRIMARY KEY,
+                    exam_attempt_id VARCHAR(36) UNIQUE NOT NULL REFERENCES exam_attempts(id) ON DELETE CASCADE,
+                    student_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    status VARCHAR(50) NOT NULL DEFAULT 'WAITING',
+                    camera_active BOOLEAN NOT NULL DEFAULT FALSE,
+                    mic_active BOOLEAN NOT NULL DEFAULT FALSE,
+                    screen_active BOOLEAN NOT NULL DEFAULT FALSE,
+                    created_at TIMESTAMPTZ NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL
+                );
+            """))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_exam_media_sessions_attempt_id ON exam_media_sessions(exam_attempt_id);"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_exam_media_sessions_student_id ON exam_media_sessions(student_id);"))
         except Exception as e:
             logger.warning(f"Note: Column migration check skipped or completed: {e}")

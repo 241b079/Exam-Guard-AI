@@ -69,6 +69,7 @@ class ExamAttempt(Base):
     student = relationship("User", lazy="selectin")
     answers = relationship("Answer", back_populates="attempt", cascade="all, delete-orphan", lazy="selectin")
     violations = relationship("ExamViolation", back_populates="attempt", cascade="all, delete-orphan", lazy="selectin")
+    media_session = relationship("ExamMediaSession", back_populates="attempt", uselist=False, cascade="all, delete-orphan", lazy="selectin")
 
 
 class ViolationType(str, enum.Enum):
@@ -79,6 +80,69 @@ class ViolationType(str, enum.Enum):
     CUT_ATTEMPT = "CUT_ATTEMPT"
     PAGE_HIDDEN = "PAGE_HIDDEN"
     WINDOW_BLUR = "WINDOW_BLUR"
+    CAMERA_PERMISSION_DENIED = "CAMERA_PERMISSION_DENIED"
+    MICROPHONE_PERMISSION_DENIED = "MICROPHONE_PERMISSION_DENIED"
+    SCREEN_SHARE_DENIED = "SCREEN_SHARE_DENIED"
+    CAMERA_STOPPED = "CAMERA_STOPPED"
+    MICROPHONE_STOPPED = "MICROPHONE_STOPPED"
+    SCREEN_SHARE_STOPPED = "SCREEN_SHARE_STOPPED"
+    MEDIA_CONNECTION_LOST = "MEDIA_CONNECTION_LOST"
+    MEDIA_CONNECTION_FAILED = "MEDIA_CONNECTION_FAILED"
+
+
+class MediaSessionStatus(str, enum.Enum):
+    WAITING = "WAITING"
+    MEDIA_READY = "MEDIA_READY"
+    CONNECTED = "CONNECTED"
+    DISCONNECTED = "DISCONNECTED"
+    ENDED = "ENDED"
+
+
+class ExamMediaSession(Base):
+    __tablename__ = "exam_media_sessions"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4())
+    )
+    exam_attempt_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("exam_attempts.id", ondelete="CASCADE"),
+        unique=True,
+        nullable=False,
+        index=True
+    )
+    student_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    status: Mapped[MediaSessionStatus] = mapped_column(
+        SQLEnum(MediaSessionStatus, name="media_session_status_enum"),
+        nullable=False,
+        default=MediaSessionStatus.WAITING
+    )
+    camera_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    mic_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    screen_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False
+    )
+
+    # Relationships
+    attempt = relationship("ExamAttempt", back_populates="media_session")
+    student = relationship("User", lazy="selectin")
+
 
 
 class ExamViolation(Base):

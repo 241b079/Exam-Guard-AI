@@ -10,6 +10,7 @@ import { Card } from '@/components/ui/Card';
 import { Exam, examService } from '@/features/exams';
 import { attemptService } from '@/features/attempts';
 import { IdentityVerificationStep, identityService } from '@/features/identity';
+import { ExamMediaSetupStep } from '@/features/proctoring';
 import { Loading } from '@/components/shared/Loading';
 
 export default function StudentExamInstructionsPage() {
@@ -22,8 +23,8 @@ export default function StudentExamInstructionsPage() {
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Step 1: Instructions, Step 2: Identity Verification
-  const [activeStep, setActiveStep] = useState<'instructions' | 'verification'>('instructions');
+  // Step 1: Instructions, Step 2: Identity Verification, Step 3: Media Setup
+  const [activeStep, setActiveStep] = useState<'instructions' | 'verification' | 'media-setup'>('instructions');
   const [isVerified, setIsVerified] = useState(false);
 
   useEffect(() => {
@@ -152,6 +153,18 @@ export default function StudentExamInstructionsPage() {
               {isVerified && <UserCheck className="w-3.5 h-3.5 text-emerald-600" />}
               2. Identity Check {isVerified && '(Verified)'}
             </button>
+            <span className="text-stone-300">/</span>
+            <button
+              onClick={() => isVerified && setActiveStep('media-setup')}
+              disabled={!isVerified}
+              className={`px-3 py-1 rounded-full font-semibold transition-all ${
+                activeStep === 'media-setup'
+                  ? 'bg-[#C25E1A] text-white shadow-sm'
+                  : 'bg-[#FAF7F2] text-stone-600 border border-[#EBE5DC] disabled:opacity-50'
+              }`}
+            >
+              3. Media Setup
+            </button>
           </div>
         </div>
 
@@ -234,9 +247,22 @@ export default function StudentExamInstructionsPage() {
               examId={examId}
               onVerified={() => {
                 setIsVerified(true);
-                handleStartExam();
+                setActiveStep('media-setup');
               }}
               onCancel={() => setActiveStep('instructions')}
+            />
+          </div>
+        )}
+
+        {/* STEP 3: MEDIA SETUP & MONITORING PERMISSIONS */}
+        {activeStep === 'media-setup' && (
+          <div className="space-y-6">
+            <ExamMediaSetupStep
+              examId={examId}
+              onContinue={() => {
+                handleStartExam();
+              }}
+              onBack={() => setActiveStep('verification')}
             />
           </div>
         )}

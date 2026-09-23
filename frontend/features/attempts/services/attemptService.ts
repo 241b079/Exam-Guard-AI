@@ -7,12 +7,27 @@ import {
   ExamViolation,
   CreateViolationPayload,
   AttemptMonitoringResponse,
+  MediaSessionResponse,
+  UpdateMediaStatusRequest,
 } from '../types';
 
 export const attemptService = {
   async startOrResumeAttempt(examId: string): Promise<ExamAttempt> {
     return fetchApi<ExamAttempt>(`/api/v1/exams/${examId}/attempts`, {
       method: 'POST',
+    });
+  },
+
+  async getOrCreateMediaSession(attemptId: string): Promise<MediaSessionResponse> {
+    return fetchApi<MediaSessionResponse>(`/api/v1/attempts/${attemptId}/media-session`, {
+      method: 'POST',
+    });
+  },
+
+  async updateMediaSession(attemptId: string, payload: UpdateMediaStatusRequest): Promise<MediaSessionResponse> {
+    return fetchApi<MediaSessionResponse>(`/api/v1/attempts/${attemptId}/media-session`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
     });
   },
 

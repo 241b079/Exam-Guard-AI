@@ -7,7 +7,43 @@ export type ViolationType =
   | 'PASTE_ATTEMPT'
   | 'CUT_ATTEMPT'
   | 'PAGE_HIDDEN'
-  | 'WINDOW_BLUR';
+  | 'WINDOW_BLUR'
+  | 'CAMERA_PERMISSION_DENIED'
+  | 'MICROPHONE_PERMISSION_DENIED'
+  | 'SCREEN_SHARE_DENIED'
+  | 'CAMERA_STOPPED'
+  | 'MICROPHONE_STOPPED'
+  | 'SCREEN_SHARE_STOPPED'
+  | 'MEDIA_CONNECTION_LOST'
+  | 'MEDIA_CONNECTION_FAILED';
+
+export type MediaSessionStatus =
+  | 'WAITING'
+  | 'REQUESTING_MEDIA'
+  | 'MEDIA_READY'
+  | 'SCREEN_SHARE_READY'
+  | 'CONNECTED'
+  | 'DISCONNECTED'
+  | 'ENDED';
+
+export interface MediaSessionResponse {
+  id: string;
+  exam_attempt_id: string;
+  student_id: string;
+  status: MediaSessionStatus;
+  camera_active: boolean;
+  mic_active: boolean;
+  screen_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpdateMediaStatusRequest {
+  status?: MediaSessionStatus;
+  camera_active?: boolean;
+  mic_active?: boolean;
+  screen_active?: boolean;
+}
 
 export interface Answer {
   id: string;
@@ -92,4 +128,5 @@ export interface AttemptMonitoringResponse {
   submitted_at?: string;
   violation_count: number;
   recent_violations: ExamViolation[];
+  media_session?: MediaSessionResponse | null;
 }

@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
 import { Exam, examService } from '@/features/exams';
 import { attemptService, AttemptMonitoringResponse } from '@/features/attempts';
+import { useWebRTCFaculty, FacultyLiveMonitorCard } from '@/features/proctoring';
 import { Loading } from '@/components/shared/Loading';
 
 export default function FacultyExamDetailPage() {
@@ -24,6 +25,9 @@ export default function FacultyExamDetailPage() {
 
   const [monitoringData, setMonitoringData] = useState<AttemptMonitoringResponse[]>([]);
   const [isLoadingMonitoring, setIsLoadingMonitoring] = useState(false);
+
+  // WebRTC Live Monitoring for Students
+  const { studentStreams, isWsConnected, refresh: refreshSignaling } = useWebRTCFaculty({ examId });
 
 
   const fetchExam = async () => {
@@ -219,17 +223,26 @@ export default function FacultyExamDetailPage() {
 
         {/* Candidate Integrity & Attempt Monitoring Section */}
         <div className="space-y-4 pt-6 border-t border-[#EBE5DC]">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
               <ShieldCheck className="w-5 h-5 text-[#C25E1A]" />
               <h2 className="text-lg font-bold font-serif text-stone-900">
-                Candidate Integrity & Attempt Monitoring
+                Candidate Integrity & Live Media Monitoring
               </h2>
+              {isWsConnected && (
+                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Signaling Connected
+                </span>
+              )}
             </div>
             <Button
               variant="outline"
               size="sm"
-              onClick={fetchMonitoring}
+              onClick={() => {
+                fetchMonitoring();
+                refreshSignaling();
+              }}
               isLoading={isLoadingMonitoring}
               className="gap-1.5 text-xs"
             >
@@ -242,56 +255,13 @@ export default function FacultyExamDetailPage() {
               No candidate attempts recorded for this exam yet.
             </Card>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {monitoringData.map((att) => (
-                <Card key={att.attempt_id} className="p-5 space-y-4 border border-[#EBE5DC]">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h3 className="font-bold text-stone-900 text-sm">{att.student.name}</h3>
-                      <p className="text-xs text-stone-500">
-                        {att.student.roll_number ? `ID: ${att.student.roll_number} • ` : ''}
-                        {att.student.email}
-                      </p>
-                    </div>
-                    <Badge variant={att.status === 'SUBMITTED' ? 'success' : 'faculty'}>
-                      {att.status}
-                    </Badge>
-                  </div>
-
-                  <div className="flex items-center justify-between text-xs py-2 px-3 bg-[#FAF7F2] rounded-xl border border-[#EBE5DC]">
-                    <span className="text-stone-600 font-medium">Integrity Violations:</span>
-                    <span
-                      className={`font-bold px-2 py-0.5 rounded-full ${
-                        att.violation_count > 0 ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'
-                      }`}
-                    >
-                      {att.violation_count} {att.violation_count === 1 ? 'Violation' : 'Violations'}
-                    </span>
-                  </div>
-
-                  {att.recent_violations && att.recent_violations.length > 0 && (
-                    <div className="space-y-1.5 pt-1">
-                      <span className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block">
-                        Recent Logged Events:
-                      </span>
-                      <div className="space-y-1 max-h-36 overflow-y-auto text-xs">
-                        {att.recent_violations.map((v) => (
-                          <div
-                            key={v.id}
-                            className="flex items-center justify-between py-1 px-2.5 rounded-lg bg-stone-50 border border-stone-200 text-stone-700"
-                          >
-                            <span className="font-mono font-semibold text-rose-700 text-[11px]">
-                              {v.violation_type}
-                            </span>
-                            <span className="text-[10px] text-stone-400">
-                              {new Date(v.timestamp).toLocaleTimeString()}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </Card>
+                <FacultyLiveMonitorCard
+                  key={att.attempt_id}
+                  monitoring={att}
+                  mediaTracks={studentStreams[att.student.id]}
+                />
               ))}
             </div>
           )}

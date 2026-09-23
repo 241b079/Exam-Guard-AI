@@ -5,7 +5,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.features.attempts.models import ExamAttempt, Answer, AttemptStatus, ExamViolation, ViolationType
+from app.features.attempts.models import (
+    ExamAttempt,
+    Answer,
+    AttemptStatus,
+    ExamViolation,
+    ViolationType,
+    ExamMediaSession,
+    MediaSessionStatus,
+)
 from app.features.attempts.schemas import (
     SaveAnswerRequest,
     AnswerResponse,
@@ -15,7 +23,10 @@ from app.features.attempts.schemas import (
     ViolationResponse,
     AttemptMonitoringResponse,
     AttemptMonitoringStudentInfo,
+    MediaSessionResponse,
+    UpdateMediaStatusRequest,
 )
+
 from app.features.users.models import User, UserRole
 from app.features.exams.models import Exam, NegativeMarkingType
 from app.features.exams.service import ExamService
@@ -362,7 +373,8 @@ class AttemptService:
             .where(ExamAttempt.exam_id == exam_id)
             .options(
                 selectinload(ExamAttempt.student).selectinload(User.student_profile),
-                selectinload(ExamAttempt.violations)
+                selectinload(ExamAttempt.violations),
+                selectinload(ExamAttempt.media_session)
             )
             .order_by(ExamAttempt.started_at.desc())
         )
@@ -382,6 +394,7 @@ class AttemptService:
             # Sort violations descending
             sorted_violations = sorted(att.violations or [], key=lambda v: v.created_at, reverse=True)
             recent_v_responses = [ViolationResponse.model_validate(v) for v in sorted_violations[:10]]
+            media_resp = MediaSessionResponse.model_validate(att.media_session) if att.media_session else None
 
             monitoring_data.append(
                 AttemptMonitoringResponse(
@@ -392,7 +405,91 @@ class AttemptService:
                     started_at=att.started_at,
                     submitted_at=att.submitted_at,
                     violation_count=len(att.violations or []),
-                    recent_violations=recent_v_responses
+                    recent_violations=recent_v_responses,
+                    media_session=media_resp
                 )
             )
         return monitoring_data
+
+    @staticmethod
+    async def get_or_create_media_session(
+        db: AsyncSession,
+        attempt_id: str,
+        student_id: str
+    ) -> MediaSessionResponse:
+        att_res = await db.execute(
+            select(ExamAttempt)
+            .where(ExamAttempt.id == attempt_id)
+            .options(selectinload(ExamAttempt.media_session))
+        )
+        attempt = att_res.scalar_one_or_none()
+        if not attempt:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attempt not found")
+        if attempt.student_id != student_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized for this attempt")
+
+        if attempt.media_session:
+            return MediaSessionResponse.model_validate(attempt.media_session)
+
+        now = datetime.now(timezone.utc)
+        media_session = ExamMediaSession(
+            exam_attempt_id=attempt_id,
+            student_id=student_id,
+            status=MediaSessionStatus.WAITING,
+            camera_active=False,
+            mic_active=False,
+            screen_active=False,
+            created_at=now,
+            updated_at=now
+        )
+        db.add(media_session)
+        await db.commit()
+        await db.refresh(media_session)
+        return MediaSessionResponse.model_validate(media_session)
+
+    @staticmethod
+    async def update_media_session(
+        db: AsyncSession,
+        attempt_id: str,
+        req: UpdateMediaStatusRequest,
+        student_id: str
+    ) -> MediaSessionResponse:
+        att_res = await db.execute(
+            select(ExamAttempt)
+            .where(ExamAttempt.id == attempt_id)
+            .options(selectinload(ExamAttempt.media_session))
+        )
+        attempt = att_res.scalar_one_or_none()
+        if not attempt:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attempt not found")
+        if attempt.student_id != student_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized for this attempt")
+
+        now = datetime.now(timezone.utc)
+        media_session = attempt.media_session
+        if not media_session:
+            media_session = ExamMediaSession(
+                exam_attempt_id=attempt_id,
+                student_id=student_id,
+                status=req.status or MediaSessionStatus.WAITING,
+                camera_active=req.camera_active if req.camera_active is not None else False,
+                mic_active=req.mic_active if req.mic_active is not None else False,
+                screen_active=req.screen_active if req.screen_active is not None else False,
+                created_at=now,
+                updated_at=now
+            )
+            db.add(media_session)
+        else:
+            if req.status is not None:
+                media_session.status = req.status
+            if req.camera_active is not None:
+                media_session.camera_active = req.camera_active
+            if req.mic_active is not None:
+                media_session.mic_active = req.mic_active
+            if req.screen_active is not None:
+                media_session.screen_active = req.screen_active
+            media_session.updated_at = now
+
+        await db.commit()
+        await db.refresh(media_session)
+        return MediaSessionResponse.model_validate(media_session)
