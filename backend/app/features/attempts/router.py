@@ -1,5 +1,5 @@
-from typing import List
-from fastapi import APIRouter, Depends, status, WebSocket, WebSocketDisconnect
+from typing import List, Optional
+from fastapi import APIRouter, Depends, status, WebSocket, WebSocketDisconnect, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,7 +9,7 @@ from app.core.security import decode_token
 from app.features.auth.dependencies import get_current_user, require_roles
 from app.features.users.models import User, UserRole
 from app.features.exams.service import ExamService
-from app.features.attempts.models import ExamAttempt
+from app.features.attempts.models import ExamAttempt, AttemptStatus
 from app.features.attempts.schemas import (
     SaveAnswerRequest,
     AnswerResponse,
@@ -115,8 +115,8 @@ async def update_media_session(
 async def exam_webrtc_signaling_ws(
     websocket: WebSocket,
     exam_id: str,
-    attempt_id: str,
-    token: str,
+    token: str = Query(...),
+    attempt_id: Optional[str] = Query(None),
 ):
     # Verify token
     try:
@@ -128,26 +128,38 @@ async def exam_webrtc_signaling_ws(
         return
 
     async with AsyncSessionLocal() as db:
-
         if user_role == UserRole.STUDENT:
             # Student must own the attempt and exam_id must match
-            result = await db.execute(
-                select(ExamAttempt).where(ExamAttempt.id == attempt_id)
-            )
-            attempt = result.scalar_one_or_none()
+            if attempt_id:
+                result = await db.execute(
+                    select(ExamAttempt).where(ExamAttempt.id == attempt_id)
+                )
+                attempt = result.scalar_one_or_none()
+            else:
+                result = await db.execute(
+                    select(ExamAttempt).where(
+                        ExamAttempt.exam_id == exam_id,
+                        ExamAttempt.student_id == user_id,
+                        ExamAttempt.status == AttemptStatus.IN_PROGRESS,
+                    ).order_by(ExamAttempt.started_at.desc())
+                )
+                attempt = result.scalars().first()
+
             if not attempt or attempt.student_id != user_id or attempt.exam_id != exam_id:
                 await websocket.close(code=4403, reason="Unauthorized student access")
                 return
 
-            await signaling_manager.connect_student(attempt_id, websocket)
+            client_id = await signaling_manager.connect_exam_student(
+                exam_id, user_id, attempt.id, websocket
+            )
             try:
                 while True:
                     data = await websocket.receive_json()
-                    await signaling_manager.forward_to_faculty(attempt_id, data)
+                    await signaling_manager.route_message(client_id, data)
                     if data.get("type") == "media_status":
                         await AttemptService.update_media_session(
                             db,
-                            attempt_id,
+                            attempt.id,
                             UpdateMediaStatusRequest(
                                 camera_active=data.get("camera"),
                                 mic_active=data.get("mic"),
@@ -156,9 +168,9 @@ async def exam_webrtc_signaling_ws(
                             student_id=user_id
                         )
             except WebSocketDisconnect:
-                await signaling_manager.disconnect(attempt_id, websocket)
+                await signaling_manager.disconnect_client(client_id)
             except Exception:
-                await signaling_manager.disconnect(attempt_id, websocket)
+                await signaling_manager.disconnect_client(client_id)
 
         elif user_role in [UserRole.FACULTY, UserRole.ADMIN]:
             # Faculty must be creator of the exam (or admin)
@@ -170,14 +182,14 @@ async def exam_webrtc_signaling_ws(
                 await websocket.close(code=4403, reason="Unauthorized faculty access")
                 return
 
-            await signaling_manager.connect_faculty(attempt_id, websocket)
+            client_id = await signaling_manager.connect_exam_faculty(exam_id, websocket)
             try:
                 while True:
                     data = await websocket.receive_json()
-                    await signaling_manager.forward_to_student(attempt_id, data)
+                    await signaling_manager.route_message(client_id, data)
             except WebSocketDisconnect:
-                await signaling_manager.disconnect(attempt_id, websocket)
+                await signaling_manager.disconnect_client(client_id)
             except Exception:
-                await signaling_manager.disconnect(attempt_id, websocket)
+                await signaling_manager.disconnect_client(client_id)
         else:
             await websocket.close(code=4403, reason="Unauthorized role")

@@ -1,3 +1,5 @@
+'use client';
+
 import { useState, useRef, useCallback, useEffect } from 'react';
 
 const ICE_SERVERS: RTCConfiguration = {
@@ -46,8 +48,9 @@ export function useWebRTCStudent({
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
     const wsProto = apiUrl.startsWith('https') ? 'wss:' : 'ws:';
     const host = apiUrl.replace(/^https?:\/\//, '');
-    return `${wsProto}//${host}/api/v1/exams/${examId}/ws?token=${token || ''}`;
-  }, [examId]);
+    const attemptQuery = attemptId ? `&attempt_id=${encodeURIComponent(attemptId)}` : '';
+    return `${wsProto}//${host}/api/v1/exams/${examId}/ws?token=${token || ''}${attemptQuery}`;
+  }, [examId, attemptId]);
 
   /**
    * Helper to attach all local media tracks to a peer connection
@@ -265,6 +268,21 @@ export function useWebRTCStudent({
       ws.onopen = () => {
         if (!isMountedRef.current) return;
         setConnectionState('connecting');
+
+        // Immediately report media active status
+        const camTrack = cameraStream?.getVideoTracks()[0];
+        const micTrack = cameraStream?.getAudioTracks()[0];
+        const scrTrack = screenStream?.getVideoTracks()[0];
+        try {
+          ws.send(
+            JSON.stringify({
+              type: 'media_status',
+              camera: Boolean(camTrack && camTrack.readyState === 'live'),
+              mic: Boolean(micTrack && micTrack.readyState === 'live'),
+              screen: Boolean(scrTrack && scrTrack.readyState === 'live'),
+            })
+          );
+        } catch {}
       };
 
       ws.onmessage = handleSignalingMessage;
@@ -289,13 +307,29 @@ export function useWebRTCStudent({
     } catch (err) {
       console.error('Failed to establish WebSocket connection:', err);
     }
-  }, [examId, getWsUrl, handleSignalingMessage]);
+  }, [examId, getWsUrl, handleSignalingMessage, cameraStream, screenStream]);
 
   // Update active tracks if cameraStream or screenStream changes
   useEffect(() => {
     peerConnectionsRef.current.forEach((pc) => {
       attachTracksToPeer(pc);
     });
+
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      const camTrack = cameraStream?.getVideoTracks()[0];
+      const micTrack = cameraStream?.getAudioTracks()[0];
+      const scrTrack = screenStream?.getVideoTracks()[0];
+      try {
+        wsRef.current.send(
+          JSON.stringify({
+            type: 'media_status',
+            camera: Boolean(camTrack && camTrack.readyState === 'live'),
+            mic: Boolean(micTrack && micTrack.readyState === 'live'),
+            screen: Boolean(scrTrack && scrTrack.readyState === 'live'),
+          })
+        );
+      } catch {}
+    }
   }, [cameraStream, screenStream, attachTracksToPeer]);
 
   // Establish signaling connection

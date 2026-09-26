@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Camera,
@@ -36,24 +38,39 @@ export function FacultyLiveMonitorCard({
 
   // Attach camera stream
   useEffect(() => {
-    if (cameraVideoRef.current && mediaTracks?.cameraStream) {
-      cameraVideoRef.current.srcObject = mediaTracks.cameraStream;
+    const video = cameraVideoRef.current;
+    if (video && mediaTracks?.cameraStream) {
+      video.muted = true;
+      video.playsInline = true;
+      if (video.srcObject !== mediaTracks.cameraStream) {
+        video.srcObject = mediaTracks.cameraStream;
+      }
+      video.play().catch(() => {});
     }
   }, [mediaTracks?.cameraStream, activeTab]);
 
   // Attach screen stream
   useEffect(() => {
-    if (screenVideoRef.current && mediaTracks?.screenStream) {
-      screenVideoRef.current.srcObject = mediaTracks.screenStream;
+    const video = screenVideoRef.current;
+    if (video && mediaTracks?.screenStream) {
+      video.muted = true;
+      video.playsInline = true;
+      if (video.srcObject !== mediaTracks.screenStream) {
+        video.srcObject = mediaTracks.screenStream;
+      }
+      video.play().catch(() => {});
     }
   }, [mediaTracks?.screenStream, activeTab]);
 
   // Attach audio stream
   useEffect(() => {
-    if (audioRef.current && mediaTracks?.audioStream) {
-      audioRef.current.srcObject = mediaTracks.audioStream;
-      audioRef.current.muted = isAudioMuted;
-      audioRef.current.play().catch(() => {
+    const audio = audioRef.current;
+    if (audio && mediaTracks?.audioStream) {
+      if (audio.srcObject !== mediaTracks.audioStream) {
+        audio.srcObject = mediaTracks.audioStream;
+      }
+      audio.muted = isAudioMuted;
+      audio.play().catch(() => {
         setAudioPlaybackError(true);
       });
     }
@@ -70,12 +87,33 @@ export function FacultyLiveMonitorCard({
     }
   };
 
-  const connectionState = mediaTracks?.connectionState || 'disconnected';
-  const hasCamera = Boolean(mediaTracks?.hasCamera && mediaTracks?.cameraStream);
-  const hasMic = Boolean(mediaTracks?.hasMic);
-  const hasScreen = Boolean(mediaTracks?.hasScreen && mediaTracks?.screenStream);
-
   const isExamSubmitted = monitoring.status === 'SUBMITTED';
+
+  const isMediaSessionConnected =
+    monitoring.media_session?.status === 'CONNECTED' ||
+    monitoring.media_session?.status === 'MEDIA_READY' ||
+    monitoring.media_session?.status === 'SCREEN_SHARE_READY';
+
+  const connectionState =
+    mediaTracks?.connectionState ||
+    (isExamSubmitted
+      ? 'disconnected'
+      : isMediaSessionConnected
+      ? 'connected'
+      : 'connecting');
+
+  const hasLiveCameraStream = Boolean(mediaTracks?.hasCamera && mediaTracks?.cameraStream);
+  const hasLiveScreenStream = Boolean(mediaTracks?.hasScreen && mediaTracks?.screenStream);
+
+  const hasCamera = Boolean(
+    hasLiveCameraStream || monitoring.media_session?.camera_active
+  );
+  const hasMic = Boolean(
+    mediaTracks?.hasMic || monitoring.media_session?.mic_active
+  );
+  const hasScreen = Boolean(
+    hasLiveScreenStream || monitoring.media_session?.screen_active
+  );
 
   return (
     <Card className="p-5 space-y-4 bg-white border border-[#EBE5DC] rounded-3xl shadow-warm flex flex-col justify-between">
@@ -121,7 +159,13 @@ export function FacultyLiveMonitorCard({
           autoPlay
           playsInline
           muted
-          className={`w-full h-full object-cover ${activeTab === 'camera' && hasCamera ? 'block' : 'hidden'}`}
+          onLoadedMetadata={(e) => {
+            const el = e.currentTarget;
+            el.muted = true;
+            el.playsInline = true;
+            el.play().catch(() => {});
+          }}
+          className={`w-full h-full object-cover ${activeTab === 'camera' && hasLiveCameraStream ? 'block' : 'hidden'}`}
         />
 
         {/* Screen View */}
@@ -130,16 +174,24 @@ export function FacultyLiveMonitorCard({
           autoPlay
           playsInline
           muted
-          className={`w-full h-full object-contain ${activeTab === 'screen' && hasScreen ? 'block' : 'hidden'}`}
+          onLoadedMetadata={(e) => {
+            const el = e.currentTarget;
+            el.muted = true;
+            el.playsInline = true;
+            el.play().catch(() => {});
+          }}
+          className={`w-full h-full object-contain ${activeTab === 'screen' && hasLiveScreenStream ? 'block' : 'hidden'}`}
         />
 
         {/* Placeholders when video unavailable */}
-        {activeTab === 'camera' && !hasCamera && (
+        {activeTab === 'camera' && !hasLiveCameraStream && (
           <div className="text-center p-4 space-y-2 text-stone-500">
             <Camera className="w-8 h-8 mx-auto opacity-50 text-stone-400" />
             <span className="text-xs font-medium block">
               {isExamSubmitted
                 ? 'Exam completed — stream closed'
+                : monitoring.media_session?.camera_active
+                ? 'Camera feed connected'
                 : connectionState === 'connecting'
                 ? 'Connecting to webcam stream...'
                 : 'Camera feed offline'}
@@ -147,12 +199,14 @@ export function FacultyLiveMonitorCard({
           </div>
         )}
 
-        {activeTab === 'screen' && !hasScreen && (
+        {activeTab === 'screen' && !hasLiveScreenStream && (
           <div className="text-center p-4 space-y-2 text-stone-500">
             <Monitor className="w-8 h-8 mx-auto opacity-50 text-stone-400" />
             <span className="text-xs font-medium block">
               {isExamSubmitted
                 ? 'Exam completed — screen share closed'
+                : monitoring.media_session?.screen_active
+                ? 'Screen share active'
                 : connectionState === 'connecting'
                 ? 'Waiting for screen share track...'
                 : 'Screen share stopped or offline'}

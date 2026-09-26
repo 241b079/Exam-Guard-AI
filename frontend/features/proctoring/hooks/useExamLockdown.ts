@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ViolationType } from '@/features/attempts';
 import { attemptService } from '@/features/attempts/services/attemptService';
+import { examMediaManager } from '../services/examMediaManager';
 
 export interface UseExamLockdownOptions {
   attemptId?: string;
@@ -180,6 +181,11 @@ export function useExamLockdown({
     const handleFullscreenChange = () => {
       const isFs = checkFullscreenState();
       if (!isFs && !isSubmittingOrEndedRef.current) {
+        // If native screen picker is active, Chrome exits fullscreen to display system picker.
+        // This is a proctoring setup action, not an exam violation.
+        if (examMediaManager.isRequestingScreen()) {
+          return;
+        }
         recordViolation('FULLSCREEN_EXIT', {
           reason: 'Browser fullscreen exited',
         });
@@ -256,6 +262,7 @@ export function useExamLockdown({
     // 5. Visibility Change (Tab Switch Detection)
     const handleVisibilityChange = () => {
       if (isSubmittingOrEndedRef.current) return;
+      if (examMediaManager.isRequestingScreen()) return;
       if (document.visibilityState === 'hidden') {
         recordViolation('PAGE_HIDDEN', {
           visibilityState: document.visibilityState,
@@ -266,6 +273,7 @@ export function useExamLockdown({
     // 6. Window Blur & Focus Detection
     const handleBlur = () => {
       if (isSubmittingOrEndedRef.current) return;
+      if (examMediaManager.isRequestingScreen()) return;
       recordViolation('WINDOW_BLUR');
     };
 
@@ -314,7 +322,7 @@ export function useExamLockdown({
 
   return {
     isFullscreen,
-    isFullscreenRequired: isActive && !isFullscreen,
+    isFullscreenRequired: isActive && !isFullscreen && !examMediaManager.isRequestingScreen(),
     violationCount,
     activeWarning,
     requestFullscreen,

@@ -109,3 +109,44 @@ test('Lockdown: keyboard restrictions preserve normal typing and accessibility k
   assert.deepEqual(checkRestrictedKey({ key: 'ArrowDown' }), { blocked: false, violation: null });
   assert.deepEqual(checkRestrictedKey({ key: 'ArrowUp' }), { blocked: false, violation: null });
 });
+
+test('Lockdown: suppresses FULLSCREEN_EXIT and WINDOW_BLUR violations during screen sharing selection prompt', () => {
+  let isRequestingScreen = false;
+  const violationsRecorded = [];
+
+  function handleFullscreenExit() {
+    if (isRequestingScreen) return;
+    violationsRecorded.push('FULLSCREEN_EXIT');
+  }
+
+  function handleBlur() {
+    if (isRequestingScreen) return;
+    violationsRecorded.push('WINDOW_BLUR');
+  }
+
+  // Case 1: Browser exits fullscreen while screen sharing prompt is active -> MUST be suppressed
+  isRequestingScreen = true;
+  handleFullscreenExit();
+  handleBlur();
+  assert.equal(violationsRecorded.length, 0);
+
+  // Case 2: Once prompt completes or in normal exam flow, fullscreen exit triggers violation
+  isRequestingScreen = false;
+  handleFullscreenExit();
+  assert.deepEqual(violationsRecorded, ['FULLSCREEN_EXIT']);
+});
+
+test('Lockdown: isFullscreenRequired overlay is dismissed once fullscreen is restored', () => {
+  const getIsFullscreenRequired = (isActive, isFullscreen, isRequestingScreen) => {
+    return Boolean(isActive && !isFullscreen && !isRequestingScreen);
+  };
+
+  // Exam is active, screen prompt is open -> overlay suppressed so prompt is interactable
+  assert.equal(getIsFullscreenRequired(true, false, true), false);
+
+  // Exam is active, screen shared, but still windowed -> overlay prompts return to fullscreen
+  assert.equal(getIsFullscreenRequired(true, false, false), true);
+
+  // Fullscreen restored -> overlay closed
+  assert.equal(getIsFullscreenRequired(true, true, false), false);
+});

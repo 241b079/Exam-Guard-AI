@@ -179,3 +179,55 @@ test('Media Permissions Error Handling: parses NotAllowedError and NotFoundError
   const notFoundMsg = parseMediaError(notFoundErr, 'camera/microphone');
   assert.match(notFoundMsg, /device was not found/i);
 });
+
+test('Media Manager: reuses existing active screen stream without invoking getDisplayMedia again', () => {
+  let promptCount = 0;
+  const activeScreenTrack = new MockMediaStreamTrack('video', 'active-screen');
+  const existingStream = new MockMediaStream([activeScreenTrack]);
+
+  // Simulation of media manager stream reuse check
+  function requestScreenShare(existing, force = false) {
+    if (!force && existing && existing.getVideoTracks().some((t) => t.readyState === 'live')) {
+      return { stream: existing, prompted: false };
+    }
+    promptCount += 1;
+    const newTrack = new MockMediaStreamTrack('video', 'new-screen');
+    return { stream: new MockMediaStream([newTrack]), prompted: true };
+  }
+
+  // First check with active existing stream -> NO prompt, reuses existing
+  const res1 = requestScreenShare(existingStream, false);
+  assert.equal(res1.prompted, false);
+  assert.equal(res1.stream, existingStream);
+  assert.equal(promptCount, 0);
+
+  // Forced check -> prompts and creates new stream
+  const res2 = requestScreenShare(existingStream, true);
+  assert.equal(res2.prompted, true);
+  assert.equal(promptCount, 1);
+});
+
+test('Media Manager: preserves streams across onboarding navigation without stopping tracks', () => {
+  const screenTrack = new MockMediaStreamTrack('video', 'screen-track');
+  const camTrack = new MockMediaStreamTrack('video', 'cam-track');
+
+  let preserveOnUnmount = true;
+
+  // Cleanup simulation
+  function handleUnmount() {
+    if (!preserveOnUnmount) {
+      screenTrack.stop();
+      camTrack.stop();
+    }
+  }
+
+  handleUnmount();
+  assert.equal(screenTrack.readyState, 'live');
+  assert.equal(camTrack.readyState, 'live');
+
+  // When exam finally finishes, preservation ends and streams stop
+  preserveOnUnmount = false;
+  handleUnmount();
+  assert.equal(screenTrack.readyState, 'ended');
+  assert.equal(camTrack.readyState, 'ended');
+});

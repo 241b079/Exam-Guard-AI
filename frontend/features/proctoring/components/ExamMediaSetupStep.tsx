@@ -1,8 +1,11 @@
+'use client';
+
 import React, { useEffect, useRef } from 'react';
 import { Camera, Mic, Monitor, CheckCircle, XCircle, AlertTriangle, ShieldCheck, ArrowRight, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { useExamMedia } from '../hooks/useExamMedia';
+import { examMediaManager } from '../services/examMediaManager';
 
 interface ExamMediaSetupStepProps {
   examId: string;
@@ -19,23 +22,46 @@ export function ExamMediaSetupStep({ examId, onContinue, onBack }: ExamMediaSetu
     error,
     isCompatible,
     compatibilityError,
+    cameraStream,
     cameraStreamRef,
     screenStreamRef,
     requestCameraAndMic,
     requestScreenShare,
-  } = useExamMedia();
+  } = useExamMedia({ preserveOnUnmount: true });
 
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
 
-  // Attach local camera stream to preview video element
+  // Attach local camera stream to preview video element and start playback
   useEffect(() => {
-    if (previewVideoRef.current && cameraStreamRef.current) {
-      previewVideoRef.current.srcObject = cameraStreamRef.current;
+    const video = previewVideoRef.current;
+    const stream = cameraStream || cameraStreamRef.current;
+    if (!video || !stream) return;
+
+    if (video.srcObject !== stream) {
+      video.srcObject = stream;
     }
-  }, [cameraReady, cameraStreamRef]);
+    video.muted = true;
+    video.defaultMuted = true;
+    video.playsInline = true;
+
+    const playVideo = () => {
+      video.play().catch((err) => {
+        console.warn('Video preview play prevented:', err);
+      });
+    };
+
+    video.onloadedmetadata = playVideo;
+    playVideo();
+
+    return () => {
+      video.onloadedmetadata = null;
+    };
+  }, [cameraStream, cameraReady]);
 
   const handleContinue = () => {
     if (allMediaReady && cameraStreamRef.current && screenStreamRef.current) {
+      examMediaManager.setPreserveOnUnmount(true);
+      examMediaManager.setActiveStreams(cameraStreamRef.current, screenStreamRef.current);
       onContinue(cameraStreamRef.current, screenStreamRef.current);
     }
   };
@@ -147,7 +173,7 @@ export function ExamMediaSetupStep({ examId, onContinue, onBack }: ExamMediaSetu
           <Button
             variant={cameraReady && micReady ? 'secondary' : 'primary'}
             size="sm"
-            onClick={requestCameraAndMic}
+            onClick={() => requestCameraAndMic(true)}
             className="w-full gap-2 text-xs"
           >
             {cameraReady && micReady ? 'Re-check Camera & Mic' : 'Allow Camera & Microphone'}
@@ -203,7 +229,7 @@ export function ExamMediaSetupStep({ examId, onContinue, onBack }: ExamMediaSetu
           <Button
             variant={screenReady ? 'secondary' : 'primary'}
             size="sm"
-            onClick={requestScreenShare}
+            onClick={() => requestScreenShare(true)}
             className="w-full gap-2 text-xs"
           >
             {screenReady ? 'Re-select Screen Share' : 'Share Entire Screen'}

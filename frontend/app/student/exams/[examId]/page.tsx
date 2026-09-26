@@ -168,12 +168,36 @@ export default function StudentExaminationPage() {
   const [lostMediaType, setLostMediaType] = useState<'camera' | 'microphone' | 'screen' | 'connection' | null>(null);
   const [isResumingMedia, setIsResumingMedia] = useState(false);
   const localCamPipRef = useRef<HTMLVideoElement | null>(null);
+  const mediaInitializedRef = useRef<boolean>(false);
+
+  const isExamActive = Boolean(
+    attempt &&
+    attempt.status === 'IN_PROGRESS' &&
+    !isSubmitting &&
+    !isLoading &&
+    !isQLoading
+  );
+
+  const {
+    isFullscreen,
+    isFullscreenRequired,
+    violationCount,
+    activeWarning,
+    requestFullscreen,
+    exitFullscreen,
+  } = useExamLockdown({
+    attemptId: attempt?.id,
+    isActive: isExamActive,
+    initialViolationCount: attempt?.violation_count || 0,
+  });
 
   const {
     cameraReady,
     micReady,
     screenReady,
     allMediaReady,
+    cameraStream,
+    screenStream,
     cameraStreamRef,
     screenStreamRef,
     requestCameraAndMic,
@@ -220,14 +244,15 @@ export default function StudentExaminationPage() {
     },
   });
 
-  // Initialize media session & capture when attempt is ready
+  // Initialize media session & capture when attempt is ready (guarded against duplicate prompts)
   useEffect(() => {
-    if (attempt && attempt.status === 'IN_PROGRESS' && !isSubmitting && !isLoading) {
+    if (attempt && attempt.status === 'IN_PROGRESS' && !isSubmitting && !isLoading && !mediaInitializedRef.current) {
+      mediaInitializedRef.current = true;
       Promise.all([
         requestCameraAndMic(),
         requestScreenShare(),
-      ]).then(([cam, scr]) => {
-        if (cam && scr) {
+      ]).then(async ([cam, scr]) => {
+        if (cam && scr && attempt.id) {
           attemptService.updateMediaSession(attempt.id, {
             status: 'CONNECTED',
             camera_active: true,
@@ -235,16 +260,22 @@ export default function StudentExaminationPage() {
             screen_active: true,
           }).catch(() => {});
         }
+        // Auto-restore fullscreen if windowed after screen capture prompt
+        const doc = typeof document !== 'undefined' ? (document as any) : null;
+        const isFs = Boolean(doc?.fullscreenElement || doc?.webkitFullscreenElement || doc?.mozFullScreenElement || doc?.msFullscreenElement);
+        if (!isFs) {
+          await requestFullscreen().catch(() => {});
+        }
       });
     }
-  }, [attempt?.id, attempt?.status, isSubmitting, isLoading, requestCameraAndMic, requestScreenShare]);
+  }, [attempt?.id, attempt?.status, isSubmitting, isLoading, requestCameraAndMic, requestScreenShare, requestFullscreen]);
 
   // Hook for student WebRTC peer connection & signaling to faculty
   const { connectionState, facultyConnected } = useWebRTCStudent({
     examId,
     attemptId: attempt?.id || '',
-    cameraStream: cameraStreamRef.current,
-    screenStream: screenStreamRef.current,
+    cameraStream: cameraStream || cameraStreamRef.current,
+    screenStream: screenStream || screenStreamRef.current,
     onConnectionLost: async () => {
       if (attempt?.id) {
         await attemptService.recordViolation(attempt.id, {
@@ -263,27 +294,48 @@ export default function StudentExaminationPage() {
     },
   });
 
-  // Attach local camera stream to PIP preview
+  // Attach local camera stream to PIP preview and ensure live playback
   useEffect(() => {
-    if (localCamPipRef.current && cameraStreamRef.current) {
-      localCamPipRef.current.srcObject = cameraStreamRef.current;
+    const video = localCamPipRef.current;
+    const stream = cameraStream || cameraStreamRef.current;
+    if (!video || !stream) return;
+
+    if (video.srcObject !== stream) {
+      video.srcObject = stream;
     }
-  }, [cameraReady, cameraStreamRef.current]);
+    video.muted = true;
+    video.defaultMuted = true;
+    video.playsInline = true;
+
+    const playVideo = () => {
+      video.play().catch((err) => {
+        console.warn('Local preview video play prevented:', err);
+      });
+    };
+
+    video.onloadedmetadata = playVideo;
+    playVideo();
+
+    return () => {
+      video.onloadedmetadata = null;
+    };
+  }, [cameraStream, cameraReady]);
 
   const handleResumeMedia = async () => {
     setIsResumingMedia(true);
     try {
       if (lostMediaType === 'screen') {
-        const scr = await requestScreenShare();
+        const scr = await requestScreenShare(true);
         if (scr && attempt?.id) {
           await attemptService.updateMediaSession(attempt.id, {
             screen_active: true,
             status: 'CONNECTED',
           }).catch(() => {});
           setLostMediaType(null);
+          await requestFullscreen().catch(() => {});
         }
       } else if (lostMediaType === 'camera' || lostMediaType === 'microphone') {
-        const cam = await requestCameraAndMic();
+        const cam = await requestCameraAndMic(true);
         if (cam && attempt?.id) {
           await attemptService.updateMediaSession(attempt.id, {
             camera_active: true,
@@ -297,27 +349,6 @@ export default function StudentExaminationPage() {
       setIsResumingMedia(false);
     }
   };
-
-  const isExamActive = Boolean(
-    attempt &&
-    attempt.status === 'IN_PROGRESS' &&
-    !isSubmitting &&
-    !isLoading &&
-    !isQLoading
-  );
-
-  const {
-    isFullscreen,
-    isFullscreenRequired,
-    violationCount,
-    activeWarning,
-    requestFullscreen,
-    exitFullscreen,
-  } = useExamLockdown({
-    attemptId: attempt?.id,
-    isActive: isExamActive,
-    initialViolationCount: attempt?.violation_count || 0,
-  });
 
   const handleFinalSubmit = async () => {
     if (!attempt) return;

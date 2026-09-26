@@ -6,3 +6,4 @@ export * from './components/ExamLockdownOverlay';
 export * from './components/ExamMediaSetupStep';
 export * from './components/ExamMediaLockOverlay';
 export * from './components/FacultyLiveMonitorCard';
+export * from './services/examMediaManager';

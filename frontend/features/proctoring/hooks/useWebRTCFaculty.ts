@@ -1,3 +1,5 @@
+'use client';
+
 import { useState, useRef, useCallback, useEffect } from 'react';
 
 const ICE_SERVERS: RTCConfiguration = {
