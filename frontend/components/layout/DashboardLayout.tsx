@@ -1,6 +1,7 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 import { useAuth } from '@/features/auth/hooks/useAuth';
@@ -12,7 +13,14 @@ interface DashboardLayoutProps {
 }
 
 export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, title }) => {
+  const router = useRouter();
   const { user, isLoading } = useAuth();
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.replace('/login');
+    }
+  }, [isLoading, user, router]);
 
   if (isLoading) {
     return (
@@ -23,7 +31,11 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, titl
   }
 
   if (!user) {
-    return null;
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-[#FAF7F2]">
+        <Loading message="Redirecting to login..." />
+      </div>
+    );
   }
 
   return (

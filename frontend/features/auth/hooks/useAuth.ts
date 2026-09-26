@@ -25,9 +25,17 @@ export function useAuth() {
           document.cookie = `user_role=${fetchedUser.role}; path=/; max-age=604800; SameSite=Lax`;
         }
       })
-      .catch(() => {
-        // Token invalid or missing
-        setUser(null);
+      .catch((err) => {
+        const msg = String(err?.message || '');
+        if (msg.includes('401') || msg.includes('403') || msg.includes('token') || msg.includes('Unauthorized')) {
+          setUser(null);
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('user');
+            localStorage.removeItem('access_token');
+            document.cookie = 'user_role=; path=/; max-age=0';
+            document.cookie = 'auth_token=; path=/; max-age=0';
+          }
+        }
       })
       .finally(() => {
         setIsLoading(false);
