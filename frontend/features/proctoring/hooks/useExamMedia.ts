@@ -90,12 +90,7 @@ export function useExamMedia(options: UseExamMediaOptions = {}) {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setIsCompatible(false);
       setCompatibilityError(
-        'Your browser does not support webcam/microphone capture. Please use a modern browser such as Chrome, Firefox, or Edge.'
-      );
-    } else if (!navigator.mediaDevices.getDisplayMedia) {
-      setIsCompatible(false);
-      setCompatibilityError(
-        'Your browser does not support screen sharing. Please use a supported modern desktop browser.'
+        'Your browser does not support webcam/microphone capture. Please use a modern browser such as Chrome, Safari, Firefox, or Edge.'
       );
     } else if (!window.RTCPeerConnection) {
       setIsCompatible(false);
@@ -230,6 +225,11 @@ export function useExamMedia(options: UseExamMediaOptions = {}) {
       }
     }
 
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      setError('Screen sharing is not supported by your current browser or mobile operating system.');
+      return null;
+    }
+
     examMediaManager.setIsRequestingScreen(true);
     try {
       if (screenStreamRef.current) {
@@ -304,21 +304,25 @@ export function useExamMedia(options: UseExamMediaOptions = {}) {
     };
   }, [stopAllStreams]);
 
-  return {
-    cameraReady,
-    micReady,
-    screenReady,
-    allMediaReady: cameraReady && micReady && screenReady,
-    cameraStream,
-    screenStream,
-    error,
-    setError,
-    isCompatible,
-    compatibilityError,
-    cameraStreamRef,
-    screenStreamRef,
-    requestCameraAndMic,
-    requestScreenShare,
-    stopAllStreams,
-  };
-}
+    const hasScreenShareSupport = typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getDisplayMedia);
+    const allMediaReady = cameraReady && micReady && (hasScreenShareSupport ? screenReady : true);
+
+    return {
+      cameraReady,
+      micReady,
+      screenReady,
+      allMediaReady,
+      hasScreenShareSupport,
+      cameraStream,
+      screenStream,
+      error,
+      setError,
+      isCompatible,
+      compatibilityError,
+      cameraStreamRef,
+      screenStreamRef,
+      requestCameraAndMic,
+      requestScreenShare,
+      stopAllStreams,
+    };
+  }

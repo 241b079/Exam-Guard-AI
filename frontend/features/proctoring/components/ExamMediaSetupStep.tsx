@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef } from 'react';
-import { Camera, Mic, Monitor, CheckCircle, XCircle, AlertTriangle, ShieldCheck, ArrowRight, ArrowLeft } from 'lucide-react';
+import { Camera, Mic, Monitor, CheckCircle, XCircle, AlertTriangle, ShieldCheck, ArrowRight, ArrowLeft, Smartphone } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { useExamMedia } from '../hooks/useExamMedia';
@@ -9,7 +9,7 @@ import { examMediaManager } from '../services/examMediaManager';
 
 interface ExamMediaSetupStepProps {
   examId: string;
-  onContinue: (cameraStream: MediaStream, screenStream: MediaStream) => void;
+  onContinue: (cameraStream: MediaStream, screenStream: MediaStream | null) => void;
   onBack: () => void;
 }
 
@@ -19,6 +19,7 @@ export function ExamMediaSetupStep({ examId, onContinue, onBack }: ExamMediaSetu
     micReady,
     screenReady,
     allMediaReady,
+    hasScreenShareSupport,
     error,
     isCompatible,
     compatibilityError,
@@ -59,10 +60,10 @@ export function ExamMediaSetupStep({ examId, onContinue, onBack }: ExamMediaSetu
   }, [cameraStream, cameraReady]);
 
   const handleContinue = () => {
-    if (allMediaReady && cameraStreamRef.current && screenStreamRef.current) {
+    if (allMediaReady && cameraStreamRef.current) {
       examMediaManager.setPreserveOnUnmount(true);
-      examMediaManager.setActiveStreams(cameraStreamRef.current, screenStreamRef.current);
-      onContinue(cameraStreamRef.current, screenStreamRef.current);
+      examMediaManager.setActiveStreams(cameraStreamRef.current, screenStreamRef.current || null);
+      onContinue(cameraStreamRef.current, screenStreamRef.current || null);
     }
   };
 
@@ -184,18 +185,29 @@ export function ExamMediaSetupStep({ examId, onContinue, onBack }: ExamMediaSetu
         <Card className="p-6 space-y-5 bg-white border border-[#EBE5DC] rounded-3xl shadow-warm flex flex-col justify-between">
           <div className="space-y-4">
             <h3 className="font-serif font-bold text-stone-900 text-base flex items-center gap-2 border-b border-[#EBE5DC] pb-3">
-              <Monitor className="w-4 h-4 text-[#C25E1A]" /> Entire Desktop Screen Share
+              <Monitor className="w-4 h-4 text-[#C25E1A]" /> {hasScreenShareSupport ? 'Entire Desktop Screen Share' : 'Screen Share Status'}
             </h3>
 
             {/* Instruction Notice */}
-            <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 space-y-2 text-xs text-amber-900">
-              <p className="font-bold">Instructions for Screen Sharing:</p>
-              <ul className="space-y-1.5 list-disc list-inside">
-                <li>Share your <strong>Entire Screen / Screen</strong> when prompted.</li>
-                <li className="text-rose-700 font-medium">Do not share an individual Tab or Window.</li>
-                <li>Keep screen sharing active throughout the exam.</li>
-              </ul>
-            </div>
+            {!hasScreenShareSupport ? (
+              <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 space-y-2 text-xs text-amber-900">
+                <p className="font-bold flex items-center gap-1.5">
+                  <Smartphone className="w-4 h-4 text-amber-700" /> Mobile Browser Detected
+                </p>
+                <p>
+                  Screen sharing is not supported by mobile browser operating systems. Your webcam and microphone streams will be live monitored by faculty.
+                </p>
+              </div>
+            ) : (
+              <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 space-y-2 text-xs text-amber-900">
+                <p className="font-bold">Instructions for Screen Sharing:</p>
+                <ul className="space-y-1.5 list-disc list-inside">
+                  <li>Share your <strong>Entire Screen / Screen</strong> when prompted.</li>
+                  <li className="text-rose-700 font-medium">Do not share an individual Tab or Window.</li>
+                  <li>Keep screen sharing active throughout the exam.</li>
+                </ul>
+              </div>
+            )}
 
             {/* Screen Share Status */}
             <div className="space-y-2.5 pt-1">
@@ -203,7 +215,11 @@ export function ExamMediaSetupStep({ examId, onContinue, onBack }: ExamMediaSetu
                 <span className="font-semibold text-stone-700 flex items-center gap-2">
                   <Monitor className="w-4 h-4 text-stone-500" /> Screen Share:
                 </span>
-                {screenReady ? (
+                {!hasScreenShareSupport ? (
+                  <span className="text-stone-600 font-medium flex items-center gap-1.5 bg-stone-100 px-2 py-0.5 rounded-full border border-stone-200">
+                    Not applicable (Mobile)
+                  </span>
+                ) : screenReady ? (
                   <span className="text-emerald-700 font-bold flex items-center gap-1.5 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
                     <CheckCircle className="w-3.5 h-3.5" /> Entire Screen Shared
                   </span>
@@ -226,14 +242,16 @@ export function ExamMediaSetupStep({ examId, onContinue, onBack }: ExamMediaSetu
             </div>
           </div>
 
-          <Button
-            variant={screenReady ? 'secondary' : 'primary'}
-            size="sm"
-            onClick={() => requestScreenShare(true)}
-            className="w-full gap-2 text-xs"
-          >
-            {screenReady ? 'Re-select Screen Share' : 'Share Entire Screen'}
-          </Button>
+          {hasScreenShareSupport && (
+            <Button
+              variant={screenReady ? 'secondary' : 'primary'}
+              size="sm"
+              onClick={() => requestScreenShare(true)}
+              className="w-full gap-2 text-xs"
+            >
+              {screenReady ? 'Re-select Screen Share' : 'Share Entire Screen'}
+            </Button>
+          )}
         </Card>
       </div>
 

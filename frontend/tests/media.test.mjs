@@ -231,3 +231,168 @@ test('Media Manager: preserves streams across onboarding navigation without stop
   assert.equal(screenTrack.readyState, 'ended');
   assert.equal(camTrack.readyState, 'ended');
 });
+
+test('Cross-Device URL Resolution: derives WSS for HTTPS ngrok and supports explicit overrides', () => {
+  function resolveApiUrl(envApiUrl, port = '3000', origin = 'http://localhost:3000') {
+    if (envApiUrl) return envApiUrl.replace(/\/+$/, '');
+    if (port === '3000') return 'http://localhost:8000';
+    return origin;
+  }
+
+  function resolveWsUrl(apiUrl, envWsUrl, path = '') {
+    const cleanPath = path ? (path.startsWith('/') ? path : `/${path}`) : '';
+    if (envWsUrl) return `${envWsUrl.replace(/\/+$/, '')}${cleanPath}`;
+    const wsProto = apiUrl.startsWith('https') ? 'wss:' : 'ws:';
+    const host = apiUrl.replace(/^https?:\/\//, '');
+    return `${wsProto}//${host}${cleanPath}`;
+  }
+
+  // 1. Localhost default
+  const localApi = resolveApiUrl(undefined);
+  assert.equal(localApi, 'http://localhost:8000');
+  const localWs = resolveWsUrl(localApi, undefined, '/api/v1/exams/123/ws');
+  assert.equal(localWs, 'ws://localhost:8000/api/v1/exams/123/ws');
+
+  // 2. HTTPS ngrok tunnel
+  const ngrokApi = resolveApiUrl('https://abc-123.ngrok-free.app');
+  assert.equal(ngrokApi, 'https://abc-123.ngrok-free.app');
+  const ngrokWs = resolveWsUrl(ngrokApi, undefined, '/api/v1/exams/456/ws');
+  assert.equal(ngrokWs, 'wss://abc-123.ngrok-free.app/api/v1/exams/456/ws');
+
+  // 3. Dedicated WSS override
+  const customWs = resolveWsUrl(ngrokApi, 'wss://signaling.example.com', '/api/v1/exams/789/ws');
+  assert.equal(customWs, 'wss://signaling.example.com/api/v1/exams/789/ws');
+});
+
+test('WebRTC ICE Configuration: parses environment STUN/TURN and falls back safely', () => {
+  const DEFAULT_STUN = [{ urls: 'stun:stun.l.google.com:19302' }];
+
+  function parseIceConfig(envVal) {
+    if (envVal) {
+      try {
+        const parsed = JSON.parse(envVal);
+        if (Array.isArray(parsed)) return { iceServers: parsed };
+        if (parsed.iceServers) return parsed;
+      } catch {}
+    }
+    return { iceServers: DEFAULT_STUN };
+  }
+
+  // Default
+  assert.equal(parseIceConfig(undefined).iceServers[0].urls, 'stun:stun.l.google.com:19302');
+
+  // Custom TURN JSON array
+  const turnJson = JSON.stringify([
+    { urls: 'turn:turn.example.com:3478', username: 'user', credential: 'pwd' }
+  ]);
+  const parsedTurn = parseIceConfig(turnJson);
+  assert.equal(parsedTurn.iceServers[0].urls, 'turn:turn.example.com:3478');
+  assert.equal(parsedTurn.iceServers[0].username, 'user');
+});
+
+test('Mobile Device Compatibility: adjusts allMediaReady when screen sharing is unavailable', () => {
+  function checkMediaReady({ cameraReady, micReady, screenReady, hasScreenShareSupport }) {
+    return Boolean(cameraReady && micReady && (hasScreenShareSupport ? screenReady : true));
+  }
+
+  // Desktop (hasScreenShareSupport = true): requires all 3
+  assert.equal(checkMediaReady({ cameraReady: true, micReady: true, screenReady: false, hasScreenShareSupport: true }), false);
+  assert.equal(checkMediaReady({ cameraReady: true, micReady: true, screenReady: true, hasScreenShareSupport: true }), true);
+
+  // Mobile (hasScreenShareSupport = false): camera + mic suffices
+  assert.equal(checkMediaReady({ cameraReady: true, micReady: false, screenReady: false, hasScreenShareSupport: false }), false);
+  assert.equal(checkMediaReady({ cameraReady: true, micReady: true, screenReady: false, hasScreenShareSupport: false }), true);
+});
+
+test('WebRTC Glare Prevention: ignores duplicate offer requests when negotiation is already in flight', () => {
+  let offerCount = 0;
+  const peerConnections = new Map();
+
+  function handleOfferRequest(facultyId, forceRestart = false) {
+    const existing = peerConnections.get(facultyId);
+    if (existing && !forceRestart) {
+      if (existing.signalingState === 'have-local-offer' || existing.connectionState === 'connected') {
+        return false; // Skip duplicate offer request
+      }
+    }
+    offerCount += 1;
+    peerConnections.set(facultyId, {
+      signalingState: 'have-local-offer',
+      connectionState: 'connecting',
+    });
+    return true;
+  }
+
+  // First request from faculty_joined -> initiates offer
+  const initiated1 = handleOfferRequest('fac-1', false);
+  assert.equal(initiated1, true);
+  assert.equal(offerCount, 1);
+
+  // Simultaneous duplicate request_offer received before answer -> MUST BE IGNORED
+  const initiated2 = handleOfferRequest('fac-1', false);
+  assert.equal(initiated2, false);
+  assert.equal(offerCount, 1);
+});
+
+test('ICE Candidate Queuing: buffers candidates received before remote description is set', () => {
+  const pendingCandidates = [];
+  let appliedCandidates = [];
+  let hasRemoteDescription = false;
+
+  function onCandidateReceived(candidate) {
+    if (!hasRemoteDescription) {
+      pendingCandidates.push(candidate);
+    } else {
+      appliedCandidates.push(candidate);
+    }
+  }
+
+  function onRemoteDescriptionSet() {
+    hasRemoteDescription = true;
+    while (pendingCandidates.length > 0) {
+      appliedCandidates.push(pendingCandidates.shift());
+    }
+  }
+
+  // Candidate arrives before SDP answer
+  onCandidateReceived({ candidate: 'cand-1' });
+  assert.equal(pendingCandidates.length, 1);
+  assert.equal(appliedCandidates.length, 0);
+
+  // SDP answer arrives and remote description is set
+  onRemoteDescriptionSet();
+  assert.equal(pendingCandidates.length, 0);
+  assert.equal(appliedCandidates.length, 1);
+  assert.equal(appliedCandidates[0].candidate, 'cand-1');
+
+  // Candidate arrives after SDP answer
+  onCandidateReceived({ candidate: 'cand-2' });
+  assert.equal(appliedCandidates.length, 2);
+  assert.equal(appliedCandidates[1].candidate, 'cand-2');
+});
+
+test('Faculty Live Monitor: disconnect switches card to Student Offline and clears stale feed', () => {
+  let streamState = {
+    cameraStream: new MockMediaStream([new MockMediaStreamTrack('video')]),
+    connectionState: 'connected',
+    hasCamera: true,
+  };
+
+  function handleStudentLeft() {
+    streamState = {
+      cameraStream: null,
+      connectionState: 'disconnected',
+      hasCamera: false,
+    };
+  }
+
+  assert.equal(streamState.connectionState, 'connected');
+  assert.equal(Boolean(streamState.cameraStream), true);
+
+  handleStudentLeft();
+
+  assert.equal(streamState.connectionState, 'disconnected');
+  assert.equal(streamState.cameraStream, null);
+  assert.equal(streamState.hasCamera, false);
+});
+

@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import List, Union, Optional
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = Field(..., description="Redis connection string")
     
     CORS_ORIGINS: Union[str, List[str]] = "http://localhost:3000"
+    CORS_ORIGIN_REGEX: Optional[str] = r"^https?://.*\.ngrok(-free)?\.app$"
     
     # Face verification settings
     FACE_VERIFICATION_THRESHOLD: float = 0.363

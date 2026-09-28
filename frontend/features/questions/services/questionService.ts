@@ -1,4 +1,4 @@
-import { fetchApi } from '@/lib/api';
+import { fetchApi, getApiUrl } from '@/lib/api';
 import {
   Question,
   CreateQuestionPayload,
@@ -35,10 +35,10 @@ export const questionService = {
     const formData = new FormData();
     formData.append('file', file);
 
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    const apiUrl = getApiUrl();
     const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
 
-    const response = await fetch(`${API_URL}/api/v1/exams/${examId}/questions/import/preview`, {
+    const response = await fetch(`${apiUrl}/api/v1/exams/${examId}/questions/import/preview`, {
       method: 'POST',
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: formData,

@@ -252,12 +252,12 @@ export default function StudentExaminationPage() {
         requestCameraAndMic(),
         requestScreenShare(),
       ]).then(async ([cam, scr]) => {
-        if (cam && scr && attempt.id) {
+        if (cam && attempt.id) {
           attemptService.updateMediaSession(attempt.id, {
             status: 'CONNECTED',
             camera_active: true,
             mic_active: true,
-            screen_active: true,
+            screen_active: Boolean(scr),
           }).catch(() => {});
         }
         // Auto-restore fullscreen if windowed after screen capture prompt
@@ -289,6 +289,14 @@ export default function StudentExaminationPage() {
         await attemptService.recordViolation(attempt.id, {
           violation_type: 'MEDIA_CONNECTION_FAILED',
           metadata: { reason: 'WebRTC connection failed' },
+        }).catch(() => {});
+      }
+    },
+    onSignalingLost: async () => {
+      if (attempt?.id) {
+        await attemptService.recordViolation(attempt.id, {
+          violation_type: 'MEDIA_CONNECTION_LOST',
+          metadata: { reason: 'Signaling WebSocket connection dropped' },
         }).catch(() => {});
       }
     },

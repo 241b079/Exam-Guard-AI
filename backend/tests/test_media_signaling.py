@@ -130,3 +130,159 @@ async def test_media_session_lifecycle_and_security():
         assert att_item["media_session"] is not None
         assert att_item["media_session"]["status"] == "MEDIA_READY"
         assert att_item["violation_count"] >= 3
+
+
+@pytest.mark.asyncio
+async def test_websocket_signaling_authorization_and_exchange():
+    from fastapi.testclient import TestClient
+    from starlette.websockets import WebSocketDisconnect
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        # 1. Register Faculty A (owner) and Faculty B (intruder)
+        facA_email = f"fac_a_{uuid.uuid4().hex[:8]}@univ.edu"
+        await ac.post("/api/v1/auth/register", json={
+            "name": "Prof A", "email": facA_email, "password": "Password123!", "role": "FACULTY"
+        })
+        facA_login = (await ac.post("/api/v1/auth/login", json={"email": facA_email, "password": "Password123!"})).json()
+        facA_token = facA_login["access_token"]
+        facA_headers = {"Authorization": f"Bearer {facA_token}"}
+
+        facB_email = f"fac_b_{uuid.uuid4().hex[:8]}@univ.edu"
+        await ac.post("/api/v1/auth/register", json={
+            "name": "Prof B", "email": facB_email, "password": "Password123!", "role": "FACULTY"
+        })
+        facB_login = (await ac.post("/api/v1/auth/login", json={"email": facB_email, "password": "Password123!"})).json()
+        facB_token = facB_login["access_token"]
+
+        # 2. Register Student 1 (legitimate) and Student 2 (intruder)
+        stu1_email = f"stu_a_{uuid.uuid4().hex[:8]}@univ.edu"
+        await ac.post("/api/v1/auth/register", json={
+            "name": "Student A", "email": stu1_email, "password": "Password123!", "role": "STUDENT"
+        })
+        stu1_login = (await ac.post("/api/v1/auth/login", json={"email": stu1_email, "password": "Password123!"})).json()
+        stu1_token = stu1_login["access_token"]
+        stu1_headers = {"Authorization": f"Bearer {stu1_token}"}
+
+        stu2_email = f"stu_b_{uuid.uuid4().hex[:8]}@univ.edu"
+        await ac.post("/api/v1/auth/register", json={
+            "name": "Student B", "email": stu2_email, "password": "Password123!", "role": "STUDENT"
+        })
+        stu2_login = (await ac.post("/api/v1/auth/login", json={"email": stu2_email, "password": "Password123!"})).json()
+        stu2_token = stu2_login["access_token"]
+
+        # 3. Faculty A creates & publishes exam
+        exam_res = await ac.post("/api/v1/exams", json={
+            "title": "WebRTC Live Exam",
+            "description": "Cross-device signaling test",
+            "duration_minutes": 45,
+            "negative_marking": "NONE",
+            "auto_submit": True,
+            "display_countdown": True,
+            "assignment_type": "ALL_STUDENTS",
+            "availability_type": "ALWAYS"
+        }, headers=facA_headers)
+        exam_id = exam_res.json()["id"]
+
+        await ac.post(f"/api/v1/exams/{exam_id}/questions", json={
+            "question_type": "MCQ",
+            "question_text": "What protocol secures WebRTC media?",
+            "options": ["SRTP", "HTTP", "Telnet", "FTP"],
+            "correct_answer": "SRTP",
+            "marks": 5.0
+        }, headers=facA_headers)
+
+        await ac.post(f"/api/v1/exams/{exam_id}/publish", headers=facA_headers)
+
+        # 4. Student 1 starts attempt
+        att_res = await ac.post(f"/api/v1/exams/{exam_id}/attempts", headers=stu1_headers)
+        attempt_id = att_res.json()["id"]
+
+    # 5. Use TestClient to verify WebSocket Authentication & Authorization
+    with TestClient(app) as client:
+        # A. Invalid token -> rejects connection
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with client.websocket_connect(f"/api/v1/exams/{exam_id}/ws?token=invalid_token"):
+                pass
+        assert exc_info.value.code == 4403
+
+        # B. Faculty B attempts to monitor Faculty A's exam -> 4403 Unauthorized
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with client.websocket_connect(f"/api/v1/exams/{exam_id}/ws?token={facB_token}"):
+                pass
+        assert exc_info.value.code == 4403
+
+        # C. Student 2 attempts to hijack Student 1's attempt -> 4403 Unauthorized
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with client.websocket_connect(f"/api/v1/exams/{exam_id}/ws?token={stu2_token}&attempt_id={attempt_id}"):
+                pass
+        assert exc_info.value.code == 4403
+
+        # D. Authorized Faculty A connects to monitor exam room
+        with client.websocket_connect(f"/api/v1/exams/{exam_id}/ws?token={facA_token}") as fac_ws:
+            fac_conn_msg = fac_ws.receive_json()
+            assert fac_conn_msg["type"] == "connected"
+            fac_client_id = fac_conn_msg["client_id"]
+            assert fac_client_id.startswith("fac_")
+
+            # E. Authorized Student 1 connects to exam attempt
+            with client.websocket_connect(f"/api/v1/exams/{exam_id}/ws?token={stu1_token}&attempt_id={attempt_id}") as stu_ws:
+                stu_conn_msg = stu_ws.receive_json()
+                assert stu_conn_msg["type"] == "connected"
+                stu_client_id = stu_conn_msg["client_id"]
+                assert stu_client_id.startswith("stu_")
+
+                # Student receives notice of connected faculty
+                stu_fac_joined = stu_ws.receive_json()
+                assert stu_fac_joined["type"] == "faculty_joined"
+                assert stu_fac_joined["faculty_client_id"] == fac_client_id
+
+                # Faculty receives notice of new student joining
+                fac_stu_joined = fac_ws.receive_json()
+                assert fac_stu_joined["type"] == "student_joined"
+                assert fac_stu_joined["client_id"] == stu_client_id
+                assert fac_stu_joined["attempt_id"] == attempt_id
+
+                # F. Student sends SDP offer targeted to Faculty
+                stu_ws.send_json({
+                    "type": "offer",
+                    "target_client_id": fac_client_id,
+                    "sdp": "v=0\r\no=mock_student_sdp",
+                    "stream_map": {"cameraTrackId": "cam-1", "micTrackId": "mic-1", "screenTrackId": None}
+                })
+
+                fac_offer = fac_ws.receive_json()
+                assert fac_offer["type"] == "offer"
+                assert fac_offer["sdp"] == "v=0\r\no=mock_student_sdp"
+                assert fac_offer["sender_client_id"] == stu_client_id
+                assert fac_offer["stream_map"]["cameraTrackId"] == "cam-1"
+
+                # G. Faculty sends SDP answer back to Student
+                fac_ws.send_json({
+                    "type": "answer",
+                    "target_client_id": stu_client_id,
+                    "sdp": "v=0\r\no=mock_faculty_answer_sdp"
+                })
+
+                stu_answer = stu_ws.receive_json()
+                assert stu_answer["type"] == "answer"
+                assert stu_answer["sdp"] == "v=0\r\no=mock_faculty_answer_sdp"
+                assert stu_answer["sender_client_id"] == fac_client_id
+
+                # H. Student sends ICE candidate
+                stu_ws.send_json({
+                    "type": "ice_candidate",
+                    "target_client_id": fac_client_id,
+                    "candidate": {"candidate": "candidate:mock 1 UDP ...", "sdpMid": "0"}
+                })
+
+                fac_ice = fac_ws.receive_json()
+                assert fac_ice["type"] == "ice_candidate"
+                assert fac_ice["candidate"]["candidate"] == "candidate:mock 1 UDP ..."
+                assert fac_ice["sender_client_id"] == stu_client_id
+
+            # I. When Student disconnects, Faculty receives student_left notification
+            fac_stu_left = fac_ws.receive_json()
+            assert fac_stu_left["type"] == "student_left"
+            assert fac_stu_left["client_id"] == stu_client_id
+            assert fac_stu_left["attempt_id"] == attempt_id
+

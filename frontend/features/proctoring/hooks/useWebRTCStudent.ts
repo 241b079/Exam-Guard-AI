@@ -1,13 +1,8 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
-
-const ICE_SERVERS: RTCConfiguration = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-  ],
-};
+import { getWsUrl } from '@/lib/api';
+import { getIceConfiguration } from '../config/webrtc';
 
 export type WebRTCConnectionState =
   | 'idle'
@@ -24,6 +19,7 @@ export interface UseWebRTCStudentOptions {
   screenStream: MediaStream | null;
   onConnectionLost?: () => void;
   onConnectionFailed?: () => void;
+  onSignalingLost?: () => void;
 }
 
 export function useWebRTCStudent({
@@ -33,84 +29,148 @@ export function useWebRTCStudent({
   screenStream,
   onConnectionLost,
   onConnectionFailed,
+  onSignalingLost,
 }: UseWebRTCStudentOptions) {
   const [connectionState, setConnectionState] = useState<WebRTCConnectionState>('idle');
   const [facultyConnected, setFacultyConnected] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+  const inFlightOffersRef = useRef<Set<string>>(new Set());
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef(true);
 
-  const getWsUrl = useCallback(() => {
+  // Keep references to media streams and callbacks stable
+  const cameraStreamRef = useRef<MediaStream | null>(cameraStream);
+  const screenStreamRef = useRef<MediaStream | null>(screenStream);
+  const onConnectionLostRef = useRef(onConnectionLost);
+  const onConnectionFailedRef = useRef(onConnectionFailed);
+  const onSignalingLostRef = useRef(onSignalingLost);
+
+  useEffect(() => {
+    cameraStreamRef.current = cameraStream;
+    screenStreamRef.current = screenStream;
+    onConnectionLostRef.current = onConnectionLost;
+    onConnectionFailedRef.current = onConnectionFailed;
+    onSignalingLostRef.current = onSignalingLost;
+  }, [cameraStream, screenStream, onConnectionLost, onConnectionFailed, onSignalingLost]);
+
+  const getSignalingWsUrl = useCallback(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-    const wsProto = apiUrl.startsWith('https') ? 'wss:' : 'ws:';
-    const host = apiUrl.replace(/^https?:\/\//, '');
     const attemptQuery = attemptId ? `&attempt_id=${encodeURIComponent(attemptId)}` : '';
-    return `${wsProto}//${host}/api/v1/exams/${examId}/ws?token=${token || ''}${attemptQuery}`;
+    return getWsUrl(`/api/v1/exams/${examId}/ws?token=${token || ''}${attemptQuery}`);
   }, [examId, attemptId]);
 
   /**
-   * Helper to attach all local media tracks to a peer connection
+   * Attach/sync tracks to an RTCPeerConnection
    */
-  const attachTracksToPeer = useCallback(
-    (pc: RTCPeerConnection) => {
-      const senders = pc.getSenders();
-      const sendersMap = new Set(senders.map((s) => s.track?.id).filter(Boolean));
+  const syncTracksToPeer = useCallback((pc: RTCPeerConnection) => {
+    const senders = pc.getSenders();
+    const currentCam = cameraStreamRef.current;
+    const currentScr = screenStreamRef.current;
 
-      if (cameraStream) {
-        cameraStream.getTracks().forEach((track) => {
-          if (!sendersMap.has(track.id)) {
-            pc.addTrack(track, cameraStream);
+    // Attach camera video and audio
+    if (currentCam) {
+      currentCam.getTracks().forEach((track) => {
+        const existingSender = senders.find(
+          (s) => s.track?.kind === track.kind && s.track?.id === track.id
+        );
+        if (!existingSender) {
+          const kindSender = senders.find((s) => s.track && s.track.kind === track.kind);
+          if (kindSender && kindSender.track?.id !== track.id) {
+            kindSender.replaceTrack(track).catch(() => {});
+          } else if (!kindSender) {
+            try {
+              pc.addTrack(track, currentCam);
+            } catch {}
           }
-        });
-      }
+        }
+      });
+    }
 
-      if (screenStream) {
-        screenStream.getTracks().forEach((track) => {
-          if (!sendersMap.has(track.id)) {
-            pc.addTrack(track, screenStream);
-          }
-        });
-      }
-    },
-    [cameraStream, screenStream]
-  );
+    // Attach screen share video
+    if (currentScr) {
+      currentScr.getVideoTracks().forEach((track) => {
+        const existingSender = senders.find((s) => s.track?.id === track.id);
+        if (!existingSender) {
+          try {
+            pc.addTrack(track, currentScr);
+          } catch {}
+        }
+      });
+    }
+  }, []);
 
   /**
-   * Build stream map so faculty can distinguish camera, mic, and screen tracks
+   * Disambiguation map for faculty monitor
    */
   const getStreamMap = useCallback(() => {
-    const cameraVideoTrack = cameraStream?.getVideoTracks()[0];
-    const cameraAudioTrack = cameraStream?.getAudioTracks()[0];
-    const screenVideoTrack = screenStream?.getVideoTracks()[0];
+    const currentCam = cameraStreamRef.current;
+    const currentScr = screenStreamRef.current;
+    const cameraVideoTrack = currentCam?.getVideoTracks()[0];
+    const cameraAudioTrack = currentCam?.getAudioTracks()[0];
+    const screenVideoTrack = currentScr?.getVideoTracks()[0];
 
     return {
       cameraTrackId: cameraVideoTrack?.id || null,
       micTrackId: cameraAudioTrack?.id || null,
       screenTrackId: screenVideoTrack?.id || null,
     };
-  }, [cameraStream, screenStream]);
+  }, []);
+
+  /**
+   * Helper to send current media state over WebSocket
+   */
+  const sendMediaStatus = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      const currentCam = cameraStreamRef.current;
+      const currentScr = screenStreamRef.current;
+      const camTrack = currentCam?.getVideoTracks()[0];
+      const micTrack = currentCam?.getAudioTracks()[0];
+      const scrTrack = currentScr?.getVideoTracks()[0];
+
+      try {
+        wsRef.current.send(
+          JSON.stringify({
+            type: 'media_status',
+            camera: Boolean(camTrack && camTrack.readyState === 'live'),
+            mic: Boolean(micTrack && micTrack.readyState === 'live'),
+            screen: Boolean(scrTrack && scrTrack.readyState === 'live'),
+          })
+        );
+      } catch {}
+    }
+  }, []);
 
   /**
    * Initiate WebRTC offer to an authorized faculty client
    */
   const createOfferForFaculty = useCallback(
-    async (facultyClientId: string) => {
+    async (facultyClientId: string, forceRestart: boolean = false) => {
       if (typeof window === 'undefined' || !window.RTCPeerConnection) return;
 
-      // Close existing pc for this client if any
       const existing = peerConnectionsRef.current.get(facultyClientId);
-      if (existing) {
+      // Prevent glare: if offer negotiation is already in progress, avoid duplicate offers
+      if (existing && !forceRestart) {
+        if (existing.signalingState === 'have-local-offer') {
+          return;
+        }
+        if (existing.connectionState === 'connected') {
+          return;
+        }
+        existing.close();
+      } else if (existing) {
         existing.close();
       }
 
-      const pc = new RTCPeerConnection(ICE_SERVERS);
+      inFlightOffersRef.current.add(facultyClientId);
+      const pc = new RTCPeerConnection(getIceConfiguration());
       peerConnectionsRef.current.set(facultyClientId, pc);
+      pendingIceCandidatesRef.current.set(facultyClientId, []);
 
-      attachTracksToPeer(pc);
+      syncTracksToPeer(pc);
 
       // ICE candidate handler
       pc.onicecandidate = (event) => {
@@ -134,22 +194,24 @@ export function useWebRTCStudent({
           setConnectionState('connected');
           setFacultyConnected(true);
           reconnectAttemptsRef.current = 0;
+          inFlightOffersRef.current.delete(facultyClientId);
         } else if (state === 'connecting') {
           setConnectionState('connecting');
         } else if (state === 'disconnected') {
           setConnectionState('disconnected');
-          if (onConnectionLost) onConnectionLost();
+          inFlightOffersRef.current.delete(facultyClientId);
+          if (onConnectionLostRef.current) onConnectionLostRef.current();
         } else if (state === 'failed') {
           setConnectionState('failed');
+          inFlightOffersRef.current.delete(facultyClientId);
           if (reconnectAttemptsRef.current < 3) {
             reconnectAttemptsRef.current += 1;
             setConnectionState('reconnecting');
-            // Try renegotiation
             setTimeout(() => {
-              if (isMountedRef.current) createOfferForFaculty(facultyClientId);
+              if (isMountedRef.current) createOfferForFaculty(facultyClientId, true);
             }, 2000 * reconnectAttemptsRef.current);
           } else {
-            if (onConnectionFailed) onConnectionFailed();
+            if (onConnectionFailedRef.current) onConnectionFailedRef.current();
           }
         }
       };
@@ -169,10 +231,11 @@ export function useWebRTCStudent({
           );
         }
       } catch (err) {
+        inFlightOffersRef.current.delete(facultyClientId);
         console.error('Failed to create WebRTC offer for faculty:', err);
       }
     },
-    [attachTracksToPeer, getStreamMap, onConnectionLost, onConnectionFailed]
+    [syncTracksToPeer, getStreamMap]
   );
 
   /**
@@ -186,10 +249,10 @@ export function useWebRTCStudent({
         switch (msg.type) {
           case 'connected':
             setConnectionState('connecting');
+            sendMediaStatus();
             break;
 
           case 'faculty_joined':
-            // Faculty is present and waiting for student stream
             if (msg.faculty_client_id) {
               await createOfferForFaculty(msg.faculty_client_id);
             }
@@ -202,25 +265,50 @@ export function useWebRTCStudent({
             break;
 
           case 'answer': {
-            const pc = peerConnectionsRef.current.get(msg.sender_client_id);
+            const facultyClientId = msg.sender_client_id;
+            const pc = peerConnectionsRef.current.get(facultyClientId);
             if (pc && msg.sdp) {
-              await pc.setRemoteDescription(
-                new RTCSessionDescription({
-                  type: 'answer',
-                  sdp: msg.sdp,
-                })
-              );
+              try {
+                await pc.setRemoteDescription(
+                  new RTCSessionDescription({
+                    type: 'answer',
+                    sdp: msg.sdp,
+                  })
+                );
+                inFlightOffersRef.current.delete(facultyClientId);
+
+                // Drain any buffered ICE candidates received before answer
+                const pending = pendingIceCandidatesRef.current.get(facultyClientId) || [];
+                for (const candidate of pending) {
+                  try {
+                    await pc.addIceCandidate(new RTCIceCandidate(candidate));
+                  } catch (e) {
+                    console.warn('Failed to apply queued ICE candidate:', e);
+                  }
+                }
+                pendingIceCandidatesRef.current.delete(facultyClientId);
+              } catch (err) {
+                console.error('Failed to set remote answer description:', err);
+              }
             }
             break;
           }
 
           case 'ice_candidate': {
-            const pc = peerConnectionsRef.current.get(msg.sender_client_id);
+            const facultyClientId = msg.sender_client_id;
+            const pc = peerConnectionsRef.current.get(facultyClientId);
             if (pc && msg.candidate) {
               try {
-                await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+                if (!pc.remoteDescription) {
+                  // Buffer candidate until remoteDescription is set
+                  const existing = pendingIceCandidatesRef.current.get(facultyClientId) || [];
+                  existing.push(msg.candidate);
+                  pendingIceCandidatesRef.current.set(facultyClientId, existing);
+                } else {
+                  await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+                }
               } catch (e) {
-                console.warn('Could not add remote ICE candidate:', e);
+                console.warn('Could not add ICE candidate on student:', e);
               }
             }
             break;
@@ -233,9 +321,10 @@ export function useWebRTCStudent({
                 pc.close();
                 peerConnectionsRef.current.delete(msg.faculty_client_id);
               }
-              if (peerConnectionsRef.current.size === 0) {
-                setFacultyConnected(false);
-              }
+              pendingIceCandidatesRef.current.delete(msg.faculty_client_id);
+              inFlightOffersRef.current.delete(msg.faculty_client_id);
+              setFacultyConnected(false);
+              setConnectionState('idle');
             }
             break;
 
@@ -243,10 +332,10 @@ export function useWebRTCStudent({
             break;
         }
       } catch (err) {
-        console.error('Error handling signaling message:', err);
+        console.error('Student signaling message processing error:', err);
       }
     },
-    [createOfferForFaculty]
+    [createOfferForFaculty, sendMediaStatus]
   );
 
   /**
@@ -261,28 +350,14 @@ export function useWebRTCStudent({
     }
 
     try {
-      const url = getWsUrl();
+      const url = getSignalingWsUrl();
       const ws = new WebSocket(url);
       wsRef.current = ws;
 
       ws.onopen = () => {
         if (!isMountedRef.current) return;
         setConnectionState('connecting');
-
-        // Immediately report media active status
-        const camTrack = cameraStream?.getVideoTracks()[0];
-        const micTrack = cameraStream?.getAudioTracks()[0];
-        const scrTrack = screenStream?.getVideoTracks()[0];
-        try {
-          ws.send(
-            JSON.stringify({
-              type: 'media_status',
-              camera: Boolean(camTrack && camTrack.readyState === 'live'),
-              mic: Boolean(micTrack && micTrack.readyState === 'live'),
-              screen: Boolean(scrTrack && scrTrack.readyState === 'live'),
-            })
-          );
-        } catch {}
+        sendMediaStatus();
       };
 
       ws.onmessage = handleSignalingMessage;
@@ -293,7 +368,7 @@ export function useWebRTCStudent({
 
       ws.onclose = () => {
         if (!isMountedRef.current) return;
-        // If not deliberately closed, attempt reconnection
+        // If not deliberately closed, attempt bounded reconnection
         if (reconnectAttemptsRef.current < 3) {
           reconnectAttemptsRef.current += 1;
           setConnectionState('reconnecting');
@@ -302,37 +377,23 @@ export function useWebRTCStudent({
           }, 3000);
         } else {
           setConnectionState('disconnected');
+          if (onSignalingLostRef.current) onSignalingLostRef.current();
         }
       };
     } catch (err) {
       console.error('Failed to establish WebSocket connection:', err);
     }
-  }, [examId, getWsUrl, handleSignalingMessage, cameraStream, screenStream]);
+  }, [examId, getSignalingWsUrl, handleSignalingMessage, sendMediaStatus]);
 
-  // Update active tracks if cameraStream or screenStream changes
+  // Sync tracks and notify faculty when cameraStream or screenStream is updated
   useEffect(() => {
     peerConnectionsRef.current.forEach((pc) => {
-      attachTracksToPeer(pc);
+      syncTracksToPeer(pc);
     });
+    sendMediaStatus();
+  }, [cameraStream, screenStream, syncTracksToPeer, sendMediaStatus]);
 
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      const camTrack = cameraStream?.getVideoTracks()[0];
-      const micTrack = cameraStream?.getAudioTracks()[0];
-      const scrTrack = screenStream?.getVideoTracks()[0];
-      try {
-        wsRef.current.send(
-          JSON.stringify({
-            type: 'media_status',
-            camera: Boolean(camTrack && camTrack.readyState === 'live'),
-            mic: Boolean(micTrack && micTrack.readyState === 'live'),
-            screen: Boolean(scrTrack && scrTrack.readyState === 'live'),
-          })
-        );
-      } catch {}
-    }
-  }, [cameraStream, screenStream, attachTracksToPeer]);
-
-  // Establish signaling connection
+  // Establish signaling connection once on mount or when examId changes
   useEffect(() => {
     isMountedRef.current = true;
     connectSignaling();
@@ -346,6 +407,8 @@ export function useWebRTCStudent({
       }
       peerConnectionsRef.current.forEach((pc) => pc.close());
       peerConnectionsRef.current.clear();
+      pendingIceCandidatesRef.current.clear();
+      inFlightOffersRef.current.clear();
     };
   }, [connectSignaling]);
 

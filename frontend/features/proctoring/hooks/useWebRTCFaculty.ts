@@ -1,13 +1,8 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
-
-const ICE_SERVERS: RTCConfiguration = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-  ],
-};
+import { getWsUrl } from '@/lib/api';
+import { getIceConfiguration } from '../config/webrtc';
 
 export interface StudentMediaTracks {
   cameraStream: MediaStream | null;
@@ -30,40 +25,41 @@ export function useWebRTCFaculty({ examId }: UseWebRTCFacultyOptions) {
 
   const wsRef = useRef<WebSocket | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const streamMapRef = useRef<Map<string, Record<string, string | null>>>(new Map());
   const streamsStoreRef = useRef<Record<string, StudentMediaTracks>>({});
   const isMountedRef = useRef(true);
 
-  const getWsUrl = useCallback(() => {
+  const getFacultyWsUrl = useCallback(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-    const wsProto = apiUrl.startsWith('https') ? 'wss:' : 'ws:';
-    const host = apiUrl.replace(/^https?:\/\//, '');
-    return `${wsProto}//${host}/api/v1/exams/${examId}/ws?token=${token || ''}`;
+    return getWsUrl(`/api/v1/exams/${examId}/ws?token=${token || ''}`);
   }, [examId]);
 
-  const updateStudentState = useCallback((studentId: string, updater: (prev: StudentMediaTracks) => StudentMediaTracks) => {
-    setStudentStreams((prev) => {
-      const current = prev[studentId] || {
-        cameraStream: null,
-        screenStream: null,
-        audioStream: null,
-        connectionState: 'connecting',
-        hasCamera: false,
-        hasMic: false,
-        hasScreen: false,
-      };
-      const updated = updater(current);
-      streamsStoreRef.current[studentId] = updated;
-      return {
-        ...prev,
-        [studentId]: updated,
-      };
-    });
-  }, []);
+  const updateStudentState = useCallback(
+    (studentId: string, updater: (prev: StudentMediaTracks) => StudentMediaTracks) => {
+      setStudentStreams((prev) => {
+        const current = prev[studentId] || {
+          cameraStream: null,
+          screenStream: null,
+          audioStream: null,
+          connectionState: 'connecting',
+          hasCamera: false,
+          hasMic: false,
+          hasScreen: false,
+        };
+        const updated = updater(current);
+        streamsStoreRef.current[studentId] = updated;
+        return {
+          ...prev,
+          [studentId]: updated,
+        };
+      });
+    },
+    []
+  );
 
   /**
-   * Request an offer from a specific student (or all active students)
+   * Request an offer from a specific student client
    */
   const requestOfferFromStudent = useCallback((targetClientId: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -80,7 +76,12 @@ export function useWebRTCFaculty({ examId }: UseWebRTCFacultyOptions) {
    * Handle WebRTC SDP Offer from a student
    */
   const handleStudentOffer = useCallback(
-    async (studentClientId: string, studentId: string, sdp: string, streamMap: Record<string, string | null>) => {
+    async (
+      studentClientId: string,
+      studentId: string,
+      sdp: string,
+      streamMap: Record<string, string | null>
+    ) => {
       if (typeof window === 'undefined' || !window.RTCPeerConnection) return;
 
       // Store student track mapping metadata
@@ -92,8 +93,9 @@ export function useWebRTCFaculty({ examId }: UseWebRTCFacultyOptions) {
         existing.close();
       }
 
-      const pc = new RTCPeerConnection(ICE_SERVERS);
+      const pc = new RTCPeerConnection(getIceConfiguration());
       peerConnectionsRef.current.set(studentId, pc);
+      pendingIceCandidatesRef.current.set(studentId, []);
 
       // Prepare streams containers
       const camStream = new MediaStream();
@@ -201,6 +203,17 @@ export function useWebRTCFaculty({ examId }: UseWebRTCFacultyOptions) {
             })
           );
         }
+
+        // Drain any pending buffered ICE candidates
+        const pending = pendingIceCandidatesRef.current.get(studentId) || [];
+        for (const candidate of pending) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+          } catch (e) {
+            console.warn(`Could not add queued ICE candidate on faculty for student ${studentId}:`, e);
+          }
+        }
+        pendingIceCandidatesRef.current.delete(studentId);
       } catch (err) {
         console.error(`Failed to negotiate WebRTC with student ${studentId}:`, err);
       }
@@ -231,15 +244,27 @@ export function useWebRTCFaculty({ examId }: UseWebRTCFacultyOptions) {
           case 'student_joined':
             if (msg.student_id) {
               setActiveStudentIds((prev) => Array.from(new Set([...prev, msg.student_id])));
-              if (msg.client_id) {
-                requestOfferFromStudent(msg.client_id);
+              const existing = peerConnectionsRef.current.get(msg.student_id);
+              if (
+                !existing ||
+                existing.connectionState === 'disconnected' ||
+                existing.connectionState === 'failed'
+              ) {
+                if (msg.client_id) {
+                  requestOfferFromStudent(msg.client_id);
+                }
               }
             }
             break;
 
           case 'offer':
             if (msg.sender_client_id && msg.student_id && msg.sdp) {
-              await handleStudentOffer(msg.sender_client_id, msg.student_id, msg.sdp, msg.stream_map);
+              await handleStudentOffer(
+                msg.sender_client_id,
+                msg.student_id,
+                msg.sdp,
+                msg.stream_map
+              );
             }
             break;
 
@@ -247,10 +272,28 @@ export function useWebRTCFaculty({ examId }: UseWebRTCFacultyOptions) {
             const pc = peerConnectionsRef.current.get(msg.student_id);
             if (pc && msg.candidate) {
               try {
-                await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+                if (!pc.remoteDescription) {
+                  const existing = pendingIceCandidatesRef.current.get(msg.student_id) || [];
+                  existing.push(msg.candidate);
+                  pendingIceCandidatesRef.current.set(msg.student_id, existing);
+                } else {
+                  await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+                }
               } catch (e) {
                 console.warn('Could not add ICE candidate on faculty:', e);
               }
+            }
+            break;
+          }
+
+          case 'media_status': {
+            if (msg.student_id) {
+              updateStudentState(msg.student_id, (prev) => ({
+                ...prev,
+                hasCamera: typeof msg.camera === 'boolean' ? msg.camera : prev.hasCamera,
+                hasMic: typeof msg.mic === 'boolean' ? msg.mic : prev.hasMic,
+                hasScreen: typeof msg.screen === 'boolean' ? msg.screen : prev.hasScreen,
+              }));
             }
             break;
           }
@@ -263,11 +306,17 @@ export function useWebRTCFaculty({ examId }: UseWebRTCFacultyOptions) {
                 pc.close();
                 peerConnectionsRef.current.delete(msg.student_id);
               }
-              setStudentStreams((prev) => {
-                const next = { ...prev };
-                delete next[msg.student_id];
-                return next;
-              });
+              pendingIceCandidatesRef.current.delete(msg.student_id);
+              updateStudentState(msg.student_id, (prev) => ({
+                ...prev,
+                connectionState: 'disconnected',
+                hasCamera: false,
+                hasMic: false,
+                hasScreen: false,
+                cameraStream: null,
+                screenStream: null,
+                audioStream: null,
+              }));
             }
             break;
 
@@ -278,7 +327,7 @@ export function useWebRTCFaculty({ examId }: UseWebRTCFacultyOptions) {
         console.error('Faculty signaling message error:', err);
       }
     },
-    [handleStudentOffer, requestOfferFromStudent]
+    [handleStudentOffer, requestOfferFromStudent, updateStudentState]
   );
 
   /**
@@ -293,7 +342,7 @@ export function useWebRTCFaculty({ examId }: UseWebRTCFacultyOptions) {
     }
 
     try {
-      const url = getWsUrl();
+      const url = getFacultyWsUrl();
       const ws = new WebSocket(url);
       wsRef.current = ws;
 
@@ -311,7 +360,7 @@ export function useWebRTCFaculty({ examId }: UseWebRTCFacultyOptions) {
     } catch (err) {
       console.error('Failed to establish faculty WebSocket connection:', err);
     }
-  }, [examId, getWsUrl, handleSignalingMessage]);
+  }, [examId, getFacultyWsUrl, handleSignalingMessage]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -325,6 +374,7 @@ export function useWebRTCFaculty({ examId }: UseWebRTCFacultyOptions) {
       }
       peerConnectionsRef.current.forEach((pc) => pc.close());
       peerConnectionsRef.current.clear();
+      pendingIceCandidatesRef.current.clear();
     };
   }, [connectSignaling]);
 

@@ -39,26 +39,34 @@ export function FacultyLiveMonitorCard({
   // Attach camera stream
   useEffect(() => {
     const video = cameraVideoRef.current;
-    if (video && mediaTracks?.cameraStream) {
-      video.muted = true;
-      video.playsInline = true;
-      if (video.srcObject !== mediaTracks.cameraStream) {
-        video.srcObject = mediaTracks.cameraStream;
+    if (video) {
+      if (mediaTracks?.cameraStream) {
+        video.muted = true;
+        video.playsInline = true;
+        if (video.srcObject !== mediaTracks.cameraStream) {
+          video.srcObject = mediaTracks.cameraStream;
+        }
+        video.play().catch(() => {});
+      } else {
+        video.srcObject = null;
       }
-      video.play().catch(() => {});
     }
   }, [mediaTracks?.cameraStream, activeTab]);
 
   // Attach screen stream
   useEffect(() => {
     const video = screenVideoRef.current;
-    if (video && mediaTracks?.screenStream) {
-      video.muted = true;
-      video.playsInline = true;
-      if (video.srcObject !== mediaTracks.screenStream) {
-        video.srcObject = mediaTracks.screenStream;
+    if (video) {
+      if (mediaTracks?.screenStream) {
+        video.muted = true;
+        video.playsInline = true;
+        if (video.srcObject !== mediaTracks.screenStream) {
+          video.srcObject = mediaTracks.screenStream;
+        }
+        video.play().catch(() => {});
+      } else {
+        video.srcObject = null;
       }
-      video.play().catch(() => {});
     }
   }, [mediaTracks?.screenStream, activeTab]);
 
@@ -125,11 +133,15 @@ export function FacultyLiveMonitorCard({
         <div className="space-y-0.5">
           <div className="flex items-center gap-2">
             <h3 className="font-bold text-stone-900 text-sm">{monitoring.student.name}</h3>
-            {connectionState === 'connected' && !isExamSubmitted && (
+            {connectionState === 'connected' && !isExamSubmitted ? (
               <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
                 <Radio className="w-3 h-3 text-emerald-600 animate-pulse" /> LIVE
               </span>
-            )}
+            ) : !isExamSubmitted ? (
+              <span className="flex items-center gap-1 text-[10px] font-bold text-stone-600 bg-stone-100 px-2 py-0.5 rounded-full border border-stone-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-stone-400" /> Student Offline
+              </span>
+            ) : null}
           </div>
           <p className="text-xs text-stone-500">
             {monitoring.student.roll_number ? `ID: ${monitoring.student.roll_number} • ` : ''}
@@ -190,8 +202,8 @@ export function FacultyLiveMonitorCard({
             <span className="text-xs font-medium block">
               {isExamSubmitted
                 ? 'Exam completed — stream closed'
-                : monitoring.media_session?.camera_active
-                ? 'Camera feed connected'
+                : connectionState === 'disconnected' || connectionState === 'failed'
+                ? 'Student Offline'
                 : connectionState === 'connecting'
                 ? 'Connecting to webcam stream...'
                 : 'Camera feed offline'}
@@ -205,11 +217,11 @@ export function FacultyLiveMonitorCard({
             <span className="text-xs font-medium block">
               {isExamSubmitted
                 ? 'Exam completed — screen share closed'
-                : monitoring.media_session?.screen_active
-                ? 'Screen share active'
+                : connectionState === 'disconnected' || connectionState === 'failed'
+                ? 'Student Offline'
                 : connectionState === 'connecting'
                 ? 'Waiting for screen share track...'
-                : 'Screen share stopped or offline'}
+                : 'Screen share offline or mobile device'}
             </span>
           </div>
         )}

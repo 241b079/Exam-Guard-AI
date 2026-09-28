@@ -7,3 +7,4 @@ export * from './components/ExamMediaSetupStep';
 export * from './components/ExamMediaLockOverlay';
 export * from './components/FacultyLiveMonitorCard';
 export * from './services/examMediaManager';
+export * from './config/webrtc';
