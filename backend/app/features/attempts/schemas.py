@@ -160,3 +160,114 @@ class AttemptMonitoringResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
+class GradebookStudentInfo(BaseModel):
+    id: str
+    name: str
+    email: str
+    roll_number: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GradebookEntry(BaseModel):
+    attempt_id: str
+    exam_id: str
+    exam_title: str
+    student: GradebookStudentInfo
+    attempt_number: int = 1
+    status: AttemptStatus
+    started_at: datetime
+    submitted_at: Optional[datetime] = None
+    total_score: float
+    max_possible_score: float
+    percentage: float
+    evaluation_status: str  # "EVALUATED" | "NEEDS_GRADING"
+    short_answer_count: int = 0
+    evaluated_short_answer_count: int = 0
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ExamGradebookResponse(BaseModel):
+    exam_id: str
+    exam_title: str
+    total_marks: float
+    total_submissions: int
+    entries: List[GradebookEntry] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class StudentCompletedResultItem(BaseModel):
+    attempt_id: str
+    exam_id: str
+    exam_title: str
+    attempt_number: int = 1
+    started_at: datetime
+    submitted_at: Optional[datetime] = None
+    total_score: float
+    max_possible_score: float
+    percentage: float
+    status: AttemptStatus
+    evaluation_status: str  # "EVALUATED" | "NEEDS_GRADING"
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AttemptReviewQuestionItem(BaseModel):
+    question_id: str
+    question_type: str  # "MCQ" | "SHORT_ANSWER"
+    question_text: str
+    options: Optional[List[str]] = None
+    correct_answer: Optional[str] = None
+    max_marks: float
+    negative_marks: float = 0.0
+    explanation: Optional[str] = None
+    order_index: int = 0
+    answer_id: Optional[str] = None
+    selected_option: Optional[str] = None
+    answer_text: Optional[str] = None
+    is_correct: Optional[bool] = None
+    marks_awarded: Optional[float] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AttemptReviewResponse(BaseModel):
+    attempt_id: str
+    exam_id: str
+    exam_title: str
+    student: GradebookStudentInfo
+    attempt_number: int = 1
+    status: AttemptStatus
+    started_at: datetime
+    submitted_at: Optional[datetime] = None
+    total_score: float
+    max_possible_score: float
+    percentage: float
+    evaluation_status: str
+    total_questions: int
+    attempted_questions: int
+    correct_mcq_count: int
+    questions: List[AttemptReviewQuestionItem] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ManualGradeRequest(BaseModel):
+    marks_awarded: float
+    feedback: Optional[str] = None
+
+
+class ManualGradeResponse(BaseModel):
+    attempt_id: str
+    answer_id: str
+    question_id: str
+    marks_awarded: float
+    attempt_total_score: float
+    attempt_max_score: float
+    evaluation_status: str
+    message: str
+
+

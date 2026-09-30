@@ -17,6 +17,8 @@ export default function StudentDashboardPage() {
   const { exams } = useExams();
   const [activeExam, setActiveExam] = useState<StudentActiveExamSummary | null>(null);
   const [timeLeft, setTimeLeft] = useState<number>(0);
+  const [completedResults, setCompletedResults] = useState<any[]>([]);
+  const [isLoadingResults, setIsLoadingResults] = useState(false);
 
   useEffect(() => {
     attemptService.getStudentActiveExam()
@@ -27,6 +29,12 @@ export default function StudentDashboardPage() {
         }
       })
       .catch(() => {});
+
+    setIsLoadingResults(true);
+    attemptService.getStudentResults()
+      .then((res) => setCompletedResults(res))
+      .catch(() => {})
+      .finally(() => setIsLoadingResults(false));
   }, []);
 
   useEffect(() => {
@@ -165,15 +173,52 @@ export default function StudentDashboardPage() {
           </Card>
 
           {/* Section 3: Recent Results */}
-          <Card className="space-y-4 bg-white border-[#EBE5DC]">
-            <div className="flex items-center gap-3 pb-3 border-b border-[#EBE5DC]">
-              <div className="p-2 rounded-xl bg-[#F3E8FF] text-[#6B21A8] border border-[#E9D5FF]">
-                <Award className="w-5 h-5" />
+          <Card className="space-y-4 flex flex-col justify-between bg-white border-[#EBE5DC]">
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 pb-3 border-b border-[#EBE5DC]">
+                <div className="p-2 rounded-xl bg-[#F3E8FF] text-[#6B21A8] border border-[#E9D5FF]">
+                  <Award className="w-5 h-5" />
+                </div>
+                <h3 className="text-base font-bold font-serif text-stone-900">Recent Results</h3>
               </div>
-              <h3 className="text-base font-bold font-serif text-stone-900">Recent Results</h3>
+
+              {isLoadingResults ? (
+                <p className="text-xs text-stone-500 italic">Loading past score reports...</p>
+              ) : completedResults.length === 0 ? (
+                <p className="text-xs text-stone-500 italic">No completed exams yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {completedResults.slice(0, 3).map((res) => (
+                    <div key={res.attempt_id} className="p-3 bg-[#FAF7F2] rounded-2xl border border-[#EBE5DC] flex justify-between items-center text-xs">
+                      <div className="space-y-0.5">
+                        <h4 className="font-bold text-stone-900 truncate max-w-[140px]">{res.exam_title}</h4>
+                        <div className="flex items-center gap-2 text-[10px] text-stone-500">
+                          <span className="font-semibold text-stone-900">{res.total_score} / {res.max_possible_score}</span>
+                          <span>({res.percentage}%)</span>
+                          <span>•</span>
+                          <span className={res.evaluation_status === 'EVALUATED' ? 'text-emerald-700 font-semibold' : 'text-amber-700'}>
+                            {res.evaluation_status === 'EVALUATED' ? 'Graded' : 'Pending'}
+                          </span>
+                        </div>
+                      </div>
+                      <Link href={`/student/exams/${res.exam_id}/result?attemptId=${res.attempt_id}`}>
+                        <Button variant="outline" size="sm" className="text-[11px] py-1 px-2.5">
+                          View
+                        </Button>
+                      </Link>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            <EmptyState title="Grades & Transcripts" badge="Phase 3 Feature" />
+
+            {completedResults.length > 0 && (
+              <span className="text-[11px] text-stone-400 block pt-1">
+                Showing {Math.min(3, completedResults.length)} of {completedResults.length} completed
+              </span>
+            )}
           </Card>
+
         </div>
 
         {/* Profile Card */}

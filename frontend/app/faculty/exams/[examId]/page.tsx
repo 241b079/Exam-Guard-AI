@@ -3,13 +3,19 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { FileText, Edit, HelpCircle, Upload, Send, Trash2, ArrowLeft, ShieldCheck, ShieldAlert, RefreshCw, AlertTriangle } from 'lucide-react';
+import { FileText, Edit, HelpCircle, Upload, Send, Trash2, ArrowLeft, ShieldCheck, ShieldAlert, RefreshCw, AlertTriangle, Award, CheckCircle, Check, X, PenTool } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
 import { Exam, examService, ReexamPermissionResponse } from '@/features/exams';
-import { attemptService, AttemptMonitoringResponse } from '@/features/attempts';
+import {
+  attemptService,
+  AttemptMonitoringResponse,
+  ExamGradebookResponse,
+  GradebookEntry,
+  AttemptReviewResponse,
+} from '@/features/attempts';
 import { useWebRTCFaculty, FacultyLiveMonitorCard } from '@/features/proctoring';
 import { Loading } from '@/components/shared/Loading';
 import { Input } from '@/components/ui/Input';
@@ -26,6 +32,15 @@ export default function FacultyExamDetailPage() {
 
   const [monitoringData, setMonitoringData] = useState<AttemptMonitoringResponse[]>([]);
   const [isLoadingMonitoring, setIsLoadingMonitoring] = useState(false);
+
+  // Gradebook & manual grading state (Bugs 1 & 3)
+  const [gradebook, setGradebook] = useState<ExamGradebookResponse | null>(null);
+  const [isLoadingGradebook, setIsLoadingGradebook] = useState(false);
+  const [selectedAttemptId, setSelectedAttemptId] = useState<string | null>(null);
+  const [attemptReview, setAttemptReview] = useState<AttemptReviewResponse | null>(null);
+  const [isLoadingReview, setIsLoadingReview] = useState(false);
+  const [marksInputs, setMarksInputs] = useState<Record<string, number>>({});
+  const [savingAnswerId, setSavingAnswerId] = useState<string | null>(null);
 
   // Re-examination permissions state (Loops 14, 29)
   const [permissions, setPermissions] = useState<ReexamPermissionResponse[]>([]);
@@ -72,6 +87,84 @@ export default function FacultyExamDetailPage() {
     }
   };
 
+  const fetchGradebook = async () => {
+    setIsLoadingGradebook(true);
+    try {
+      const data = await attemptService.getExamGradebook(examId);
+      setGradebook(data);
+    } catch {
+      // Non-critical if fails
+    } finally {
+      setIsLoadingGradebook(false);
+    }
+  };
+
+  const openReviewModal = async (attemptId: string) => {
+    setSelectedAttemptId(attemptId);
+    setIsLoadingReview(true);
+    try {
+      const data = await attemptService.getAttemptReview(attemptId);
+      setAttemptReview(data);
+      const initialMarks: Record<string, number> = {};
+      data.questions.forEach((q: any) => {
+        if (q.answer_id) {
+          initialMarks[q.answer_id] = q.marks_awarded ?? 0;
+        }
+      });
+      setMarksInputs(initialMarks);
+    } catch (err: any) {
+      alert(err.message || 'Failed to load attempt review');
+      setSelectedAttemptId(null);
+    } finally {
+      setIsLoadingReview(false);
+    }
+  };
+
+  const handleSaveGrade = async (answerId: string, maxMarks: number) => {
+    const rawVal = marksInputs[answerId];
+    if (rawVal === undefined || isNaN(rawVal)) {
+      alert('Please enter a valid numeric mark.');
+      return;
+    }
+    if (rawVal < 0) {
+      alert('Marks cannot be negative.');
+      return;
+    }
+    if (rawVal > maxMarks) {
+      alert(`Marks cannot exceed the question maximum of ${maxMarks} marks.`);
+      return;
+    }
+
+    setSavingAnswerId(answerId);
+    try {
+      const resp = await attemptService.gradeShortAnswer(selectedAttemptId!, answerId, {
+        marks_awarded: rawVal,
+      });
+
+      // Update current attempt review in modal
+      if (attemptReview) {
+        setAttemptReview({
+          ...attemptReview,
+          total_score: resp.attempt_total_score,
+          evaluation_status: resp.evaluation_status,
+          questions: attemptReview.questions.map((q) =>
+            q.answer_id === answerId
+              ? { ...q, marks_awarded: resp.marks_awarded, is_correct: resp.marks_awarded > 0 }
+              : q
+          ),
+        });
+      }
+
+      // Refresh gradebook table
+      await fetchGradebook();
+      alert('Grade saved and candidate total score recalculated successfully!');
+    } catch (err: any) {
+      alert(err.message || 'Failed to save grade');
+    } finally {
+      setSavingAnswerId(null);
+    }
+  };
+
   const handleGrantReexam = async () => {
     if (grantScope === 'SELECTED' && selectedStudentIds.length === 0) {
       alert('Please select at least one student to grant re-examination.');
@@ -100,6 +193,7 @@ export default function FacultyExamDetailPage() {
       fetchExam();
       fetchMonitoring();
       fetchPermissions();
+      fetchGradebook();
     }
   }, [examId]);
 
@@ -427,6 +521,322 @@ export default function FacultyExamDetailPage() {
                 </Button>
                 <Button variant="primary" size="sm" onClick={handleGrantReexam} isLoading={isGranting}>
                   Grant Permission
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Candidate Results & Gradebook Section (Bug 1 & Bug 3) */}
+        <div className="p-6 bg-white rounded-3xl border border-[#EBE5DC] shadow-warm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-bold font-serif text-stone-900 flex items-center gap-2">
+                <Award className="w-5 h-5 text-[#C25E1A]" />
+                Candidate Submissions & Gradebook
+              </h2>
+              <p className="text-xs text-stone-500">
+                View submitted candidate exam results, auto-graded MCQ scores, and manually grade descriptive/short-answer questions.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchGradebook}
+              isLoading={isLoadingGradebook}
+              className="text-xs gap-1.5"
+            >
+              <RefreshCw className="w-3.5 h-3.5" /> Refresh Gradebook
+            </Button>
+          </div>
+
+          {isLoadingGradebook && !gradebook ? (
+            <div className="py-6 text-center text-xs text-stone-500">Loading student grades...</div>
+          ) : !gradebook || gradebook.entries.length === 0 ? (
+            <div className="p-6 text-center rounded-2xl bg-[#FAF7F2] border border-[#EBE5DC] text-xs text-stone-500 italic">
+              No student submissions recorded for this exam yet.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Summary Metrics */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div className="p-3 rounded-2xl bg-[#FAF7F2] border border-[#EBE5DC]">
+                  <span className="text-stone-500 block">Total Submissions</span>
+                  <span className="text-lg font-bold font-serif text-stone-900">{gradebook.total_submissions}</span>
+                </div>
+                <div className="p-3 rounded-2xl bg-[#FAF7F2] border border-[#EBE5DC]">
+                  <span className="text-stone-500 block">Total Exam Marks</span>
+                  <span className="text-lg font-bold font-serif text-[#C25E1A]">{gradebook.total_marks}</span>
+                </div>
+                <div className="p-3 rounded-2xl bg-[#FAF7F2] border border-[#EBE5DC]">
+                  <span className="text-stone-500 block">Fully Evaluated</span>
+                  <span className="text-lg font-bold font-serif text-emerald-800">
+                    {gradebook.entries.filter((e) => e.evaluation_status === 'EVALUATED').length} / {gradebook.entries.length}
+                  </span>
+                </div>
+                <div className="p-3 rounded-2xl bg-[#FAF7F2] border border-[#EBE5DC]">
+                  <span className="text-stone-500 block">Needs Grading</span>
+                  <span className="text-lg font-bold font-serif text-amber-800">
+                    {gradebook.entries.filter((e) => e.evaluation_status !== 'EVALUATED').length}
+                  </span>
+                </div>
+              </div>
+
+              {/* Submissions Table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left text-stone-700">
+                  <thead className="bg-[#FAF7F2] text-stone-500 font-semibold border-b border-[#EBE5DC]">
+                    <tr>
+                      <th className="py-2.5 px-3">Candidate</th>
+                      <th className="py-2.5 px-3">Roll ID</th>
+                      <th className="py-2.5 px-3">Attempt</th>
+                      <th className="py-2.5 px-3">Submitted At</th>
+                      <th className="py-2.5 px-3">Score</th>
+                      <th className="py-2.5 px-3">Percentage</th>
+                      <th className="py-2.5 px-3">Status</th>
+                      <th className="py-2.5 px-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#EBE5DC]">
+                    {gradebook.entries.map((entry) => (
+                      <tr key={entry.attempt_id} className="hover:bg-[#FAF7F2]/50 transition-colors">
+                        <td className="py-2.5 px-3 font-medium text-stone-900">
+                          <div>{entry.student.name}</div>
+                          <div className="text-[10px] text-stone-500">{entry.student.email}</div>
+                        </td>
+                        <td className="py-2.5 px-3 text-stone-600 font-mono text-[11px]">
+                          {entry.student.roll_number || '—'}
+                        </td>
+                        <td className="py-2.5 px-3 text-stone-600">#{entry.attempt_number}</td>
+                        <td className="py-2.5 px-3 text-stone-500">
+                          {entry.submitted_at ? new Date(entry.submitted_at).toLocaleString() : 'In Progress'}
+                        </td>
+                        <td className="py-2.5 px-3 font-bold text-stone-900">
+                          {entry.total_score} <span className="font-normal text-stone-400">/ {entry.max_possible_score}</span>
+                        </td>
+                        <td className="py-2.5 px-3 font-semibold text-stone-900">{entry.percentage}%</td>
+                        <td className="py-2.5 px-3">
+                          <Badge variant={entry.evaluation_status === 'EVALUATED' ? 'success' : 'student'}>
+                            {entry.evaluation_status === 'EVALUATED' ? 'Evaluated' : 'Needs Grading'}
+                          </Badge>
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            onClick={() => openReviewModal(entry.attempt_id)}
+                            className="text-[11px] py-1 px-3 gap-1 shadow-warm-sm"
+                          >
+                            <PenTool className="w-3 h-3" /> Review & Grade
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Candidate Assessment Review & Manual Grading Modal (Bug 3) */}
+        {selectedAttemptId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/60 backdrop-blur-xs p-4 overflow-y-auto">
+            <div className="bg-white rounded-3xl p-6 border border-[#EBE5DC] shadow-warm max-w-3xl w-full space-y-5 max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between pb-3 border-b border-[#EBE5DC]">
+                <div className="flex items-center gap-2">
+                  <Award className="w-5 h-5 text-[#C25E1A]" />
+                  <h3 className="font-bold font-serif text-stone-900 text-base">
+                    Candidate Attempt Review & Manual Grading
+                  </h3>
+                </div>
+                <button
+                  onClick={() => {
+                    setSelectedAttemptId(null);
+                    setAttemptReview(null);
+                  }}
+                  className="text-stone-400 hover:text-stone-700 text-sm font-bold p-1"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {isLoadingReview || !attemptReview ? (
+                <div className="py-12">
+                  <Loading message="Loading candidate answers and response records..." />
+                </div>
+              ) : (
+                <div className="space-y-5 text-xs">
+                  {/* Candidate Overview Card */}
+                  <div className="p-4 rounded-2xl bg-[#FAF7F2] border border-[#EBE5DC] grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div>
+                      <span className="text-stone-500 uppercase text-[10px] block font-semibold">Candidate</span>
+                      <strong className="text-stone-900 text-sm block">{attemptReview.student.name}</strong>
+                      <span className="text-stone-500 text-[10px]">{attemptReview.student.email}</span>
+                    </div>
+                    <div>
+                      <span className="text-stone-500 uppercase text-[10px] block font-semibold">Submission</span>
+                      <span className="text-stone-900 font-medium block">Attempt #{attemptReview.attempt_number}</span>
+                      <span className="text-stone-500 text-[10px]">
+                        {attemptReview.submitted_at ? new Date(attemptReview.submitted_at).toLocaleTimeString() : '—'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-stone-500 uppercase text-[10px] block font-semibold">Total Score</span>
+                      <span className="text-base font-bold font-serif text-[#C25E1A] block">
+                        {attemptReview.total_score} / {attemptReview.max_possible_score}
+                      </span>
+                      <span className="text-stone-500 text-[10px]">({attemptReview.percentage}%)</span>
+                    </div>
+                    <div>
+                      <span className="text-stone-500 uppercase text-[10px] block font-semibold">Grading Status</span>
+                      <div className="pt-1">
+                        <Badge variant={attemptReview.evaluation_status === 'EVALUATED' ? 'success' : 'student'}>
+                          {attemptReview.evaluation_status === 'EVALUATED' ? 'Evaluated' : 'Needs Review'}
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Question Responses & Grading */}
+                  <div className="space-y-4">
+                    <h4 className="font-bold font-serif text-stone-900 text-sm pb-1 border-b border-[#EBE5DC]">
+                      Question Responses ({attemptReview.questions.length})
+                    </h4>
+
+                    {attemptReview.questions.map((q, idx) => {
+                      const isMCQ = q.question_type === 'MCQ';
+                      const isShort = q.question_type === 'SHORT_ANSWER';
+                      const answerId = q.answer_id;
+
+                      return (
+                        <div
+                          key={q.question_id}
+                          className="p-4 bg-white rounded-2xl border border-[#EBE5DC] shadow-warm-sm space-y-3"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-center gap-2">
+                              <span className="w-5 h-5 rounded-full bg-[#FAF7F2] border border-[#EBE5DC] text-stone-700 text-[10px] font-bold flex items-center justify-center">
+                                {idx + 1}
+                              </span>
+                              <Badge variant="outline" className="text-[10px]">
+                                {isMCQ ? 'MCQ (Auto-Graded)' : 'Short Answer / Descriptive'}
+                              </Badge>
+                            </div>
+                            <span className="text-xs font-semibold text-stone-600">
+                              Max Marks: {q.max_marks}
+                            </span>
+                          </div>
+
+                          <p className="text-xs font-semibold text-stone-900">{q.question_text}</p>
+
+                          {/* MCQ Response Review */}
+                          {isMCQ && (
+                            <div className="space-y-1.5 p-3 rounded-xl bg-[#FAF7F2] border border-[#EBE5DC]">
+                              <div className="flex justify-between items-center text-xs">
+                                <span className="text-stone-600">Candidate Selected:</span>
+                                <span
+                                  className={`font-semibold flex items-center gap-1 ${
+                                    q.is_correct ? 'text-emerald-800' : 'text-rose-700'
+                                  }`}
+                                >
+                                  {q.is_correct ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />}
+                                  {q.selected_option || 'None (Not attempted)'}
+                                </span>
+                              </div>
+                              {q.correct_answer && (
+                                <div className="flex justify-between items-center text-xs text-stone-500">
+                                  <span>Correct Answer:</span>
+                                  <span className="font-medium text-stone-800">{q.correct_answer}</span>
+                                </div>
+                              )}
+                              <div className="flex justify-between items-center text-xs pt-1 border-t border-[#EBE5DC]">
+                                <span className="text-stone-500">Auto-Awarded Score:</span>
+                                <strong className="text-stone-900">{q.marks_awarded ?? 0} / {q.max_marks}</strong>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Short Answer Response & Manual Grading Form */}
+                          {isShort && (
+                            <div className="space-y-3 p-3.5 rounded-xl bg-[#FAF7F2] border border-[#EBE5DC]">
+                              <div>
+                                <span className="text-stone-600 font-semibold block text-[11px]">
+                                  Candidate's Written Answer:
+                                </span>
+                                <div className="mt-1 p-3 bg-white rounded-xl border border-[#EBE5DC] text-stone-800 whitespace-pre-wrap leading-relaxed">
+                                  {q.answer_text && q.answer_text.trim() ? (
+                                    q.answer_text
+                                  ) : (
+                                    <span className="text-stone-400 italic">No written answer submitted.</span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {q.correct_answer && (
+                                <div className="p-2.5 rounded-lg bg-emerald-50/70 border border-emerald-200 text-[11px] text-emerald-900">
+                                  <strong>Expected Answer / Key Points:</strong> {q.correct_answer}
+                                </div>
+                              )}
+
+                              {answerId ? (
+                                <div className="pt-2 border-t border-[#EBE5DC] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                  <div className="flex items-center gap-2">
+                                    <label className="font-semibold text-stone-800 text-xs">
+                                      Award Marks (0 – {q.max_marks}):
+                                    </label>
+                                    <input
+                                      type="number"
+                                      step="0.25"
+                                      min={0}
+                                      max={q.max_marks}
+                                      value={marksInputs[answerId] ?? ''}
+                                      onChange={(e) => {
+                                        const val = parseFloat(e.target.value);
+                                        setMarksInputs({
+                                          ...marksInputs,
+                                          [answerId]: isNaN(val) ? 0 : val,
+                                        });
+                                      }}
+                                      className="w-20 px-2.5 py-1.5 text-xs bg-white rounded-lg border border-[#EBE5DC] font-semibold text-stone-900 focus:outline-none focus:ring-1 focus:ring-[#C25E1A]"
+                                    />
+                                    <span className="text-stone-400 text-xs">/ {q.max_marks}</span>
+                                  </div>
+
+                                  <Button
+                                    variant="primary"
+                                    size="sm"
+                                    onClick={() => handleSaveGrade(answerId, q.max_marks)}
+                                    isLoading={savingAnswerId === answerId}
+                                    className="gap-1.5 text-xs bg-[#C25E1A] hover:bg-[#A94F13]"
+                                  >
+                                    <PenTool className="w-3.5 h-3.5" /> Save Grade
+                                  </Button>
+                                </div>
+                              ) : (
+                                <div className="text-stone-400 italic text-[11px]">
+                                  No answer record available to grade.
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end pt-3 border-t border-[#EBE5DC]">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setSelectedAttemptId(null);
+                    setAttemptReview(null);
+                  }}
+                >
+                  Close Review
                 </Button>
               </div>
             </div>

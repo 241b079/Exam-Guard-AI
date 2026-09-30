@@ -169,3 +169,102 @@ export interface AttemptMonitoringResponse {
   rejoin_count?: number;
   max_rejoins?: number;
 }
+
+export interface GradebookStudentInfo {
+  id: string;
+  name: string;
+  email: string;
+  roll_number?: string;
+}
+
+export interface GradebookEntry {
+  attempt_id: string;
+  exam_id: string;
+  exam_title: string;
+  student: GradebookStudentInfo;
+  attempt_number: number;
+  status: AttemptStatus;
+  started_at: string;
+  submitted_at?: string;
+  total_score: number;
+  max_possible_score: number;
+  percentage: number;
+  evaluation_status: 'EVALUATED' | 'NEEDS_GRADING' | string;
+  short_answer_count: number;
+  evaluated_short_answer_count: number;
+}
+
+export interface ExamGradebookResponse {
+  exam_id: string;
+  exam_title: string;
+  total_marks: number;
+  total_submissions: number;
+  entries: GradebookEntry[];
+}
+
+export interface StudentCompletedResultItem {
+  attempt_id: string;
+  exam_id: string;
+  exam_title: string;
+  attempt_number: number;
+  started_at: string;
+  submitted_at?: string;
+  total_score: number;
+  max_possible_score: number;
+  percentage: number;
+  status: AttemptStatus;
+  evaluation_status: string;
+}
+
+export interface AttemptReviewQuestionItem {
+  question_id: string;
+  question_type: 'MCQ' | 'SHORT_ANSWER';
+  question_text: string;
+  options?: string[];
+  correct_answer?: string;
+  max_marks: number;
+  negative_marks: number;
+  explanation?: string;
+  order_index: number;
+  answer_id?: string;
+  selected_option?: string;
+  answer_text?: string;
+  is_correct?: boolean;
+  marks_awarded?: number;
+}
+
+export interface AttemptReviewResponse {
+  attempt_id: string;
+  exam_id: string;
+  exam_title: string;
+  student: GradebookStudentInfo;
+  attempt_number: number;
+  status: AttemptStatus;
+  started_at: string;
+  submitted_at?: string;
+  total_score: number;
+  max_possible_score: number;
+  percentage: number;
+  evaluation_status: string;
+  total_questions: number;
+  attempted_questions: number;
+  correct_mcq_count: number;
+  questions: AttemptReviewQuestionItem[];
+}
+
+export interface ManualGradeRequest {
+  marks_awarded: number;
+  feedback?: string;
+}
+
+export interface ManualGradeResponse {
+  attempt_id: string;
+  answer_id: string;
+  question_id: string;
+  marks_awarded: number;
+  attempt_total_score: number;
+  attempt_max_score: number;
+  evaluation_status: string;
+  message: string;
+}
+

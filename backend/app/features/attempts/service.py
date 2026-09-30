@@ -29,6 +29,14 @@ from app.features.attempts.schemas import (
     StartOrResumeAttemptRequest,
     StudentActiveExamSummary,
     StudentExamStatusResponse,
+    GradebookStudentInfo,
+    GradebookEntry,
+    ExamGradebookResponse,
+    StudentCompletedResultItem,
+    AttemptReviewQuestionItem,
+    AttemptReviewResponse,
+    ManualGradeRequest,
+    ManualGradeResponse,
 )
 
 from app.features.users.models import User, UserRole
@@ -852,3 +860,393 @@ class AttemptService:
         await db.commit()
         await db.refresh(media_session)
         return MediaSessionResponse.model_validate(media_session)
+
+    @staticmethod
+    def _calc_evaluation(attempt: ExamAttempt) -> tuple[str, int, int]:
+        exam = attempt.exam
+        questions = exam.questions if exam and hasattr(exam, "questions") else []
+        sa_questions = [q for q in questions if q.question_type == QuestionType.SHORT_ANSWER]
+        sa_q_ids = {q.id for q in sa_questions}
+        sa_count = len(sa_questions)
+        if sa_count == 0:
+            return "EVALUATED", 0, 0
+        evaluated_sa = 0
+        for a in (attempt.answers or []):
+            if a.question_id in sa_q_ids and a.marks_awarded is not None:
+                evaluated_sa += 1
+        eval_status = "EVALUATED" if evaluated_sa >= sa_count else "NEEDS_GRADING"
+        return eval_status, sa_count, evaluated_sa
+
+    @staticmethod
+    def _calc_percentage(score: Optional[float], max_score: Optional[float]) -> float:
+        if not max_score or max_score <= 0:
+            return 0.0
+        return round(((score or 0.0) / max_score) * 100, 2)
+
+    @staticmethod
+    async def get_exam_gradebook(
+        db: AsyncSession,
+        exam_id: str,
+        current_user: User
+    ) -> ExamGradebookResponse:
+        exam = await ExamService.get_by_id(db, exam_id)
+        if not exam:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exam not found")
+        if current_user.role == UserRole.FACULTY and exam.created_by_id != current_user.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to view results for this exam")
+
+        result = await db.execute(
+            select(ExamAttempt)
+            .where(
+                ExamAttempt.exam_id == exam_id,
+                ExamAttempt.status.in_([AttemptStatus.SUBMITTED, AttemptStatus.EXPIRED])
+            )
+            .options(
+                selectinload(ExamAttempt.student).selectinload(User.student_profile),
+                selectinload(ExamAttempt.exam).selectinload(Exam.questions),
+                selectinload(ExamAttempt.answers)
+            )
+            .order_by(ExamAttempt.submitted_at.desc())
+        )
+        attempts = result.scalars().all()
+
+        entries: List[GradebookEntry] = []
+        for att in attempts:
+            eval_status, sa_count, eval_sa = AttemptService._calc_evaluation(att)
+            st = att.student
+            roll = st.student_profile.student_id if st and st.student_profile else None
+            student_info = GradebookStudentInfo(
+                id=st.id if st else att.student_id,
+                name=st.name if st else "Student",
+                email=st.email if st else "",
+                roll_number=roll
+            )
+            entries.append(
+                GradebookEntry(
+                    attempt_id=att.id,
+                    exam_id=att.exam_id,
+                    exam_title=exam.title,
+                    student=student_info,
+                    attempt_number=att.attempt_number or 1,
+                    status=att.status,
+                    started_at=att.started_at,
+                    submitted_at=att.submitted_at,
+                    total_score=att.total_score or 0.0,
+                    max_possible_score=att.max_possible_score or exam.total_marks or 0.0,
+                    percentage=AttemptService._calc_percentage(att.total_score, att.max_possible_score or exam.total_marks),
+                    evaluation_status=eval_status,
+                    short_answer_count=sa_count,
+                    evaluated_short_answer_count=eval_sa
+                )
+            )
+
+        return ExamGradebookResponse(
+            exam_id=exam.id,
+            exam_title=exam.title,
+            total_marks=exam.total_marks or 0.0,
+            total_submissions=len(entries),
+            entries=entries
+        )
+
+    @staticmethod
+    async def get_faculty_recent_results(
+        db: AsyncSession,
+        current_user: User,
+        limit: int = 15
+    ) -> List[GradebookEntry]:
+        query = select(ExamAttempt).join(Exam, ExamAttempt.exam_id == Exam.id).where(
+            ExamAttempt.status.in_([AttemptStatus.SUBMITTED, AttemptStatus.EXPIRED])
+        )
+        if current_user.role == UserRole.FACULTY:
+            query = query.where(Exam.created_by_id == current_user.id)
+
+        query = query.options(
+            selectinload(ExamAttempt.student).selectinload(User.student_profile),
+            selectinload(ExamAttempt.exam).selectinload(Exam.questions),
+            selectinload(ExamAttempt.answers)
+        ).order_by(ExamAttempt.submitted_at.desc()).limit(limit)
+
+        result = await db.execute(query)
+        attempts = result.scalars().all()
+
+        entries: List[GradebookEntry] = []
+        for att in attempts:
+            eval_status, sa_count, eval_sa = AttemptService._calc_evaluation(att)
+            st = att.student
+            roll = st.student_profile.student_id if st and st.student_profile else None
+            student_info = GradebookStudentInfo(
+                id=st.id if st else att.student_id,
+                name=st.name if st else "Student",
+                email=st.email if st else "",
+                roll_number=roll
+            )
+            entries.append(
+                GradebookEntry(
+                    attempt_id=att.id,
+                    exam_id=att.exam_id,
+                    exam_title=att.exam.title if att.exam else "Exam",
+                    student=student_info,
+                    attempt_number=att.attempt_number or 1,
+                    status=att.status,
+                    started_at=att.started_at,
+                    submitted_at=att.submitted_at,
+                    total_score=att.total_score or 0.0,
+                    max_possible_score=att.max_possible_score or (att.exam.total_marks if att.exam else 0.0),
+                    percentage=AttemptService._calc_percentage(att.total_score, att.max_possible_score or (att.exam.total_marks if att.exam else 0.0)),
+                    evaluation_status=eval_status,
+                    short_answer_count=sa_count,
+                    evaluated_short_answer_count=eval_sa
+                )
+            )
+        return entries
+
+    @staticmethod
+    async def get_student_results(
+        db: AsyncSession,
+        student_id: str
+    ) -> List[StudentCompletedResultItem]:
+        result = await db.execute(
+            select(ExamAttempt)
+            .where(
+                ExamAttempt.student_id == student_id,
+                ExamAttempt.status.in_([AttemptStatus.SUBMITTED, AttemptStatus.EXPIRED])
+            )
+            .options(
+                selectinload(ExamAttempt.exam).selectinload(Exam.questions),
+                selectinload(ExamAttempt.answers)
+            )
+            .order_by(ExamAttempt.submitted_at.desc())
+        )
+        attempts = result.scalars().all()
+
+        items: List[StudentCompletedResultItem] = []
+        for att in attempts:
+            eval_status, _, _ = AttemptService._calc_evaluation(att)
+            max_marks = att.max_possible_score or (att.exam.total_marks if att.exam else 0.0)
+            items.append(
+                StudentCompletedResultItem(
+                    attempt_id=att.id,
+                    exam_id=att.exam_id,
+                    exam_title=att.exam.title if att.exam else "Exam",
+                    attempt_number=att.attempt_number or 1,
+                    started_at=att.started_at,
+                    submitted_at=att.submitted_at,
+                    total_score=att.total_score or 0.0,
+                    max_possible_score=max_marks,
+                    percentage=AttemptService._calc_percentage(att.total_score, max_marks),
+                    status=att.status,
+                    evaluation_status=eval_status
+                )
+            )
+        return items
+
+    @staticmethod
+    async def get_attempt_review(
+        db: AsyncSession,
+        attempt_id: str,
+        current_user: User
+    ) -> AttemptReviewResponse:
+        result = await db.execute(
+            select(ExamAttempt)
+            .where(ExamAttempt.id == attempt_id)
+            .options(
+                selectinload(ExamAttempt.student).selectinload(User.student_profile),
+                selectinload(ExamAttempt.exam).selectinload(Exam.questions),
+                selectinload(ExamAttempt.answers).selectinload(Answer.question)
+            )
+        )
+        attempt = result.scalar_one_or_none()
+        if not attempt:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attempt not found")
+
+        # Authorization: Student must own attempt; Faculty must own exam; Admin allowed
+        if current_user.role == UserRole.STUDENT and attempt.student_id != current_user.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this student result")
+        if current_user.role == UserRole.FACULTY and attempt.exam.created_by_id != current_user.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access results for this exam")
+
+        exam = attempt.exam
+        questions = sorted(exam.questions or [], key=lambda q: q.order_index)
+        answers_by_q = {a.question_id: a for a in (attempt.answers or [])}
+
+        eval_status, _, _ = AttemptService._calc_evaluation(attempt)
+        max_marks = attempt.max_possible_score or exam.total_marks or sum(q.marks for q in questions)
+
+        q_items: List[AttemptReviewQuestionItem] = []
+        attempted_count = 0
+        correct_mcq_count = 0
+
+        for q in questions:
+            ans = answers_by_q.get(q.id)
+            has_answered = False
+            if ans:
+                if q.question_type == QuestionType.MCQ and ans.selected_option and ans.selected_option.strip():
+                    has_answered = True
+                elif q.question_type == QuestionType.SHORT_ANSWER and ans.answer_text and ans.answer_text.strip():
+                    has_answered = True
+                if ans.is_correct and q.question_type == QuestionType.MCQ:
+                    correct_mcq_count += 1
+
+            if has_answered:
+                attempted_count += 1
+
+            q_items.append(
+                AttemptReviewQuestionItem(
+                    question_id=q.id,
+                    question_type=q.question_type.value if hasattr(q.question_type, "value") else str(q.question_type),
+                    question_text=q.question_text,
+                    options=q.options,
+                    correct_answer=q.correct_answer,
+                    max_marks=q.marks,
+                    negative_marks=q.negative_marks or 0.0,
+                    explanation=q.explanation,
+                    order_index=q.order_index or 0,
+                    answer_id=ans.id if ans else None,
+                    selected_option=ans.selected_option if ans else None,
+                    answer_text=ans.answer_text if ans else None,
+                    is_correct=ans.is_correct if ans else None,
+                    marks_awarded=ans.marks_awarded if ans else None
+                )
+            )
+
+        st = attempt.student
+        roll = st.student_profile.student_id if st and st.student_profile else None
+        student_info = GradebookStudentInfo(
+            id=st.id if st else attempt.student_id,
+            name=st.name if st else "Student",
+            email=st.email if st else "",
+            roll_number=roll
+        )
+
+        return AttemptReviewResponse(
+            attempt_id=attempt.id,
+            exam_id=attempt.exam_id,
+            exam_title=exam.title,
+            student=student_info,
+            attempt_number=attempt.attempt_number or 1,
+            status=attempt.status,
+            started_at=attempt.started_at,
+            submitted_at=attempt.submitted_at,
+            total_score=attempt.total_score or 0.0,
+            max_possible_score=max_marks,
+            percentage=AttemptService._calc_percentage(attempt.total_score, max_marks),
+            evaluation_status=eval_status,
+            total_questions=len(questions),
+            attempted_questions=attempted_count,
+            correct_mcq_count=correct_mcq_count,
+            questions=q_items
+        )
+
+    @staticmethod
+    async def get_my_exam_result(
+        db: AsyncSession,
+        exam_id: str,
+        student_id: str,
+        attempt_id: Optional[str] = None
+    ) -> AttemptReviewResponse:
+        query = select(ExamAttempt).where(
+            ExamAttempt.exam_id == exam_id,
+            ExamAttempt.student_id == student_id
+        )
+        if attempt_id:
+            query = query.where(ExamAttempt.id == attempt_id)
+        else:
+            query = query.where(ExamAttempt.status.in_([AttemptStatus.SUBMITTED, AttemptStatus.EXPIRED])).order_by(ExamAttempt.submitted_at.desc(), ExamAttempt.started_at.desc())
+
+        result = await db.execute(query)
+        attempt = result.scalars().first()
+        if not attempt:
+            # If no submitted attempt found, check if there is an in-progress attempt to report gracefully
+            in_prog_res = await db.execute(
+                select(ExamAttempt).where(
+                    ExamAttempt.exam_id == exam_id,
+                    ExamAttempt.student_id == student_id
+                ).order_by(ExamAttempt.started_at.desc())
+            )
+            attempt = in_prog_res.scalars().first()
+            if not attempt:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No exam attempt found for this exam")
+
+        # Create a mock user object to pass authorization
+        user_res = await db.execute(select(User).where(User.id == student_id))
+        user = user_res.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found")
+
+        return await AttemptService.get_attempt_review(db, attempt.id, current_user=user)
+
+    @staticmethod
+    async def grade_short_answer(
+        db: AsyncSession,
+        attempt_id: str,
+        answer_id: str,
+        req: ManualGradeRequest,
+        current_user: User
+    ) -> ManualGradeResponse:
+        # Load attempt with exam and answers
+        result = await db.execute(
+            select(ExamAttempt)
+            .where(ExamAttempt.id == attempt_id)
+            .options(
+                selectinload(ExamAttempt.exam).selectinload(Exam.questions),
+                selectinload(ExamAttempt.answers).selectinload(Answer.question)
+            )
+        )
+        attempt = result.scalar_one_or_none()
+        if not attempt:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attempt not found")
+
+        if current_user.role == UserRole.FACULTY and attempt.exam.created_by_id != current_user.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to grade this exam")
+
+        # Find the target answer
+        target_answer = next((a for a in (attempt.answers or []) if a.id == answer_id), None)
+        if not target_answer:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Answer record not found")
+
+        question = target_answer.question
+        if not question:
+            q_res = await db.execute(select(Question).where(Question.id == target_answer.question_id))
+            question = q_res.scalar_one_or_none()
+            if not question:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+
+        # Validation: cannot be negative, cannot exceed max marks
+        if req.marks_awarded < 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Marks awarded cannot be negative."
+            )
+        if req.marks_awarded > question.marks:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Marks awarded ({req.marks_awarded}) cannot exceed maximum marks for this question ({question.marks})."
+            )
+
+        now = datetime.now(timezone.utc)
+        target_answer.marks_awarded = req.marks_awarded
+        target_answer.is_correct = (req.marks_awarded > 0)
+        target_answer.updated_at = now
+
+        # Recalculate total attempt score: sum of all marks_awarded across all answers
+        new_total = sum(a.marks_awarded or 0.0 for a in attempt.answers)
+        attempt.total_score = max(0.0, round(new_total, 2))
+        attempt.updated_at = now
+
+        eval_status, _, _ = AttemptService._calc_evaluation(attempt)
+
+        await db.commit()
+        await db.refresh(target_answer)
+        await db.refresh(attempt)
+
+        return ManualGradeResponse(
+            attempt_id=attempt.id,
+            answer_id=target_answer.id,
+            question_id=question.id,
+            marks_awarded=target_answer.marks_awarded,
+            attempt_total_score=attempt.total_score,
+            attempt_max_score=attempt.max_possible_score or attempt.exam.total_marks or 0.0,
+            evaluation_status=eval_status,
+            message="Grade updated successfully"
+        )
+

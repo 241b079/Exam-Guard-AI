@@ -23,6 +23,12 @@ from app.features.attempts.schemas import (
     StartOrResumeAttemptRequest,
     StudentActiveExamSummary,
     StudentExamStatusResponse,
+    GradebookEntry,
+    ExamGradebookResponse,
+    StudentCompletedResultItem,
+    AttemptReviewResponse,
+    ManualGradeRequest,
+    ManualGradeResponse,
 )
 from app.features.attempts.service import AttemptService
 from app.features.proctoring.signaling import signaling_manager
@@ -149,7 +155,68 @@ async def update_media_session(
     return await AttemptService.update_media_session(db, attempt_id, req, student_id=current_user.id)
 
 
+@router.get("/student/results", response_model=List[StudentCompletedResultItem])
+async def get_student_results(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.STUDENT]))
+):
+    return await AttemptService.get_student_results(db, student_id=current_user.id)
+
+
+@router.get("/exams/{exam_id}/my-result", response_model=AttemptReviewResponse)
+async def get_my_exam_result(
+    exam_id: str,
+    attempt_id: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.STUDENT]))
+):
+    return await AttemptService.get_my_exam_result(
+        db, exam_id=exam_id, student_id=current_user.id, attempt_id=attempt_id
+    )
+
+
+@router.get("/exams/{exam_id}/gradebook", response_model=ExamGradebookResponse)
+async def get_exam_gradebook(
+    exam_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN]))
+):
+    return await AttemptService.get_exam_gradebook(db, exam_id=exam_id, current_user=current_user)
+
+
+@router.get("/faculty/results/recent", response_model=List[GradebookEntry])
+async def get_faculty_recent_results(
+    limit: int = Query(15, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN]))
+):
+    return await AttemptService.get_faculty_recent_results(db, current_user=current_user, limit=limit)
+
+
+@router.get("/attempts/{attempt_id}/review", response_model=AttemptReviewResponse)
+async def get_attempt_review(
+    attempt_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    return await AttemptService.get_attempt_review(db, attempt_id=attempt_id, current_user=current_user)
+
+
+@router.patch("/attempts/{attempt_id}/answers/{answer_id}/grade", response_model=ManualGradeResponse)
+async def grade_attempt_answer(
+    attempt_id: str,
+    answer_id: str,
+    req: ManualGradeRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN]))
+):
+    return await AttemptService.grade_short_answer(
+        db, attempt_id=attempt_id, answer_id=answer_id, req=req, current_user=current_user
+    )
+
+
 @router.websocket("/exams/{exam_id}/ws")
+
 async def exam_webrtc_signaling_ws(
     websocket: WebSocket,
     exam_id: str,

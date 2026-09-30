@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/features/auth/hooks/useAuth';
@@ -9,11 +9,22 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { useExams } from '@/features/exams';
-import { FileText, Users, Eye, BarChart3, Plus, ArrowRight } from 'lucide-react';
+import { FileText, Users, Eye, BarChart3, Plus, ArrowRight, Award, CheckCircle } from 'lucide-react';
+import { attemptService, GradebookEntry } from '@/features/attempts';
 
 export default function FacultyDashboardPage() {
   const { user } = useAuth();
   const { exams } = useExams();
+  const [recentResults, setRecentResults] = useState<GradebookEntry[]>([]);
+  const [isLoadingResults, setIsLoadingResults] = useState(false);
+
+  useEffect(() => {
+    setIsLoadingResults(true);
+    attemptService.getFacultyRecentResults(5)
+      .then((data) => setRecentResults(data))
+      .catch(() => {})
+      .finally(() => setIsLoadingResults(false));
+  }, []);
 
   if (!user) return null;
 
@@ -105,16 +116,56 @@ export default function FacultyDashboardPage() {
             <EmptyState title="Live Proctoring Feeds" badge="Phase 3 Feature" />
           </Card>
 
-          {/* Section 4: Results */}
-          <Card className="space-y-4">
-            <div className="flex items-center gap-3 pb-3 border-b border-[#EBE5DC]">
-              <div className="p-2 rounded-xl bg-[#DEF7EC] text-[#03543F] border border-[#BCF0DA]">
-                <BarChart3 className="w-4 h-4" />
+          {/* Section 4: Results & Gradebook */}
+          <Card className="space-y-4 flex flex-col justify-between">
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 pb-3 border-b border-[#EBE5DC]">
+                <div className="p-2 rounded-xl bg-[#DEF7EC] text-[#03543F] border border-[#BCF0DA]">
+                  <BarChart3 className="w-4 h-4" />
+                </div>
+                <h3 className="text-base font-bold font-serif text-stone-900">Grading & Results</h3>
               </div>
-              <h3 className="text-base font-bold font-serif text-stone-900">Results</h3>
+
+              {isLoadingResults ? (
+                <p className="text-xs text-stone-500 italic">Loading student submissions...</p>
+              ) : recentResults.length === 0 ? (
+                <p className="text-xs text-stone-500 italic">No student submissions recorded yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {recentResults.map((entry) => (
+                    <div
+                      key={entry.attempt_id}
+                      className="p-3 bg-[#FAF7F2] rounded-2xl border border-[#EBE5DC] flex justify-between items-center text-xs"
+                    >
+                      <div className="space-y-0.5 max-w-[150px]">
+                        <h4 className="font-bold text-stone-900 truncate">{entry.student.name}</h4>
+                        <p className="text-[10px] text-stone-500 truncate">{entry.exam_title}</p>
+                        <div className="flex items-center gap-1.5 text-[10px]">
+                          <span className="font-semibold text-stone-800">{entry.total_score} / {entry.max_possible_score}</span>
+                          <span>•</span>
+                          <span className={entry.evaluation_status === 'EVALUATED' ? 'text-emerald-700 font-semibold' : 'text-amber-700'}>
+                            {entry.evaluation_status === 'EVALUATED' ? 'Graded' : 'Needs Review'}
+                          </span>
+                        </div>
+                      </div>
+                      <Link href={`/faculty/exams/${entry.exam_id}`}>
+                        <Button variant="outline" size="sm" className="text-[11px] py-1 px-2.5">
+                          Gradebook
+                        </Button>
+                      </Link>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            <EmptyState title="Analytics & Reports" badge="Phase 3 Feature" />
+
+            {recentResults.length > 0 && (
+              <span className="text-[11px] text-stone-400 block pt-1">
+                Showing {recentResults.length} recent submission{recentResults.length !== 1 ? 's' : ''}
+              </span>
+            )}
           </Card>
+
         </div>
 
         {/* Profile Card */}

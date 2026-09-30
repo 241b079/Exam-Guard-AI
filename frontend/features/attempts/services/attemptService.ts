@@ -12,6 +12,12 @@ import {
   StartOrResumeAttemptRequest,
   StudentActiveExamSummary,
   StudentExamStatusResponse,
+  AttemptReviewResponse,
+  StudentCompletedResultItem,
+  ExamGradebookResponse,
+  GradebookEntry,
+  ManualGradeRequest,
+  ManualGradeResponse,
 } from '../types';
 
 export const attemptService = {
@@ -81,4 +87,39 @@ export const attemptService = {
   async getExamAttemptsMonitoring(examId: string): Promise<AttemptMonitoringResponse[]> {
     return fetchApi<AttemptMonitoringResponse[]>(`/api/v1/exams/${examId}/attempts-monitoring`);
   },
+
+  async getMyExamResult(examId: string, attemptId?: string): Promise<AttemptReviewResponse> {
+    const url = attemptId
+      ? `/api/v1/exams/${examId}/my-result?attempt_id=${encodeURIComponent(attemptId)}`
+      : `/api/v1/exams/${examId}/my-result`;
+    return fetchApi<AttemptReviewResponse>(url);
+  },
+
+  async getStudentResults(): Promise<StudentCompletedResultItem[]> {
+    return fetchApi<StudentCompletedResultItem[]>('/api/v1/student/results');
+  },
+
+  async getExamGradebook(examId: string): Promise<ExamGradebookResponse> {
+    return fetchApi<ExamGradebookResponse>(`/api/v1/exams/${examId}/gradebook`);
+  },
+
+  async getFacultyRecentResults(limit: number = 15): Promise<GradebookEntry[]> {
+    return fetchApi<GradebookEntry[]>(`/api/v1/faculty/results/recent?limit=${limit}`);
+  },
+
+  async getAttemptReview(attemptId: string): Promise<AttemptReviewResponse> {
+    return fetchApi<AttemptReviewResponse>(`/api/v1/attempts/${attemptId}/review`);
+  },
+
+  async gradeShortAnswer(
+    attemptId: string,
+    answerId: string,
+    payload: ManualGradeRequest
+  ): Promise<ManualGradeResponse> {
+    return fetchApi<ManualGradeResponse>(`/api/v1/attempts/${attemptId}/answers/${answerId}/grade`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+  },
 };
+
