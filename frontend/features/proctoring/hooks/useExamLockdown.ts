@@ -10,6 +10,7 @@ export interface UseExamLockdownOptions {
   isActive: boolean;
   initialViolationCount?: number;
   onViolationRecorded?: (type: ViolationType) => void;
+  onSendRealtimeViolation?: (type: string, metadata?: Record<string, any>) => void;
 }
 
 export interface UseExamLockdownReturn {
@@ -27,6 +28,7 @@ export function useExamLockdown({
   isActive,
   initialViolationCount = 0,
   onViolationRecorded,
+  onSendRealtimeViolation,
 }: UseExamLockdownOptions): UseExamLockdownReturn {
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [violationCount, setViolationCount] = useState<number>(initialViolationCount);
@@ -105,6 +107,16 @@ export function useExamLockdown({
       triggerWarning(warningText);
       onViolationRecorded?.(type);
 
+      // Fast-path: immediately push real-time event via WebSocket
+      try {
+        onSendRealtimeViolation?.(type, {
+          ...metadata,
+          userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+        });
+      } catch (wsErr) {
+        console.warn('Real-time WS violation dispatch error:', wsErr);
+      }
+
       try {
         await attemptService.recordViolation(attemptId, {
           violation_type: type,
@@ -119,7 +131,7 @@ export function useExamLockdown({
         console.warn('Failed to dispatch integrity violation to server:', err);
       }
     },
-    [attemptId, onViolationRecorded, triggerWarning]
+    [attemptId, onViolationRecorded, onSendRealtimeViolation, triggerWarning]
   );
 
   // Fullscreen helper

@@ -173,8 +173,10 @@ export default function StudentExaminationPage() {
   // Media proctoring state
   const [lostMediaType, setLostMediaType] = useState<'camera' | 'microphone' | 'screen' | 'connection' | null>(null);
   const [isResumingMedia, setIsResumingMedia] = useState(false);
+  const [videoNode, setVideoNode] = useState<HTMLVideoElement | null>(null);
   const localCamPipRef = useRef<HTMLVideoElement | null>(null);
   const mediaInitializedRef = useRef<boolean>(false);
+  const sendViolationRef = useRef<((type: string, meta?: any) => void) | null>(null);
 
   const isExamActive = Boolean(
     attempt &&
@@ -195,6 +197,9 @@ export default function StudentExaminationPage() {
     attemptId: attempt?.id,
     isActive: isExamActive,
     initialViolationCount: attempt?.violation_count || 0,
+    onSendRealtimeViolation: (type, meta) => {
+      sendViolationRef.current?.(type, meta);
+    },
   });
 
   const {
@@ -277,7 +282,7 @@ export default function StudentExaminationPage() {
   }, [attempt?.id, attempt?.status, isSubmitting, isLoading, requestCameraAndMic, requestScreenShare, requestFullscreen]);
 
   // Hook for student WebRTC peer connection & signaling to faculty
-  const { connectionState, facultyConnected } = useWebRTCStudent({
+  const { connectionState, facultyConnected, sendViolation } = useWebRTCStudent({
     examId,
     attemptId: attempt?.id || '',
     cameraStream: cameraStream || cameraStreamRef.current,
@@ -308,9 +313,36 @@ export default function StudentExaminationPage() {
     },
   });
 
-  // Attach local camera stream to PIP preview and ensure live playback
   useEffect(() => {
-    const video = localCamPipRef.current;
+    sendViolationRef.current = sendViolation;
+  }, [sendViolation]);
+
+  // Dedicated callback ref to immediately attach stream when <video> enters the DOM
+  const setLocalVideoRef = useCallback(
+    (node: HTMLVideoElement | null) => {
+      localCamPipRef.current = node;
+      setVideoNode(node);
+      if (!node) return;
+
+      const stream = cameraStreamRef.current || cameraStream;
+      if (stream && stream.active) {
+        if (node.srcObject !== stream) {
+          node.srcObject = stream;
+        }
+        node.muted = true;
+        node.defaultMuted = true;
+        node.playsInline = true;
+        node.play().catch((err) => {
+          console.warn('[CameraPreview] Mount play prevented:', err);
+        });
+      }
+    },
+    [cameraStream, cameraStreamRef]
+  );
+
+  // Attach local camera stream to PIP preview and ensure continuous playback
+  useEffect(() => {
+    const video = localCamPipRef.current || videoNode;
     const stream = cameraStream || cameraStreamRef.current;
     if (!video || !stream) return;
 
@@ -322,18 +354,47 @@ export default function StudentExaminationPage() {
     video.playsInline = true;
 
     const playVideo = () => {
-      video.play().catch((err) => {
-        console.warn('Local preview video play prevented:', err);
-      });
+      if (video.paused && !video.ended && stream.active) {
+        video.play().catch((err) => {
+          console.warn('[CameraPreview] Playback resume prevented:', err);
+        });
+      }
     };
 
     video.onloadedmetadata = playVideo;
+    video.oncanplay = playVideo;
     playVideo();
 
     return () => {
       video.onloadedmetadata = null;
+      video.oncanplay = null;
     };
-  }, [cameraStream, cameraReady]);
+  }, [videoNode, cameraStream, cameraReady, isLoading, isQLoading]);
+
+  // Handle window visibility / focus recovery so video preview never freezes or blanks out
+  useEffect(() => {
+    const handleFocusOrVisibility = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        const video = localCamPipRef.current || videoNode;
+        const stream = cameraStream || cameraStreamRef.current;
+        if (video && stream && stream.active) {
+          if (video.srcObject !== stream) {
+            video.srcObject = stream;
+          }
+          if (video.paused) {
+            video.play().catch(() => {});
+          }
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleFocusOrVisibility);
+    window.addEventListener('focus', handleFocusOrVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', handleFocusOrVisibility);
+      window.removeEventListener('focus', handleFocusOrVisibility);
+    };
+  }, [videoNode, cameraStream, cameraStreamRef]);
 
   const handleResumeMedia = async () => {
     setIsResumingMedia(true);
@@ -597,15 +658,21 @@ export default function StudentExaminationPage() {
             </div>
             <div className="relative aspect-video w-full rounded-2xl bg-stone-950 overflow-hidden border border-stone-800">
               <video
-                ref={localCamPipRef}
+                ref={setLocalVideoRef}
                 autoPlay
                 playsInline
                 muted
                 className="w-full h-full object-cover"
               />
               {!cameraReady && (
-                <div className="absolute inset-0 flex items-center justify-center bg-stone-900/90 text-stone-400 text-xs">
-                  Camera Paused
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-stone-900/90 text-stone-400 text-xs gap-1.5 p-2">
+                  <span>Camera Paused</span>
+                  <button
+                    onClick={() => requestCameraAndMic(true)}
+                    className="px-2 py-0.5 text-[10px] bg-stone-800 hover:bg-stone-700 text-stone-200 rounded-lg border border-stone-600 font-medium transition-colors"
+                  >
+                    Resume Camera
+                  </button>
                 </div>
               )}
             </div>

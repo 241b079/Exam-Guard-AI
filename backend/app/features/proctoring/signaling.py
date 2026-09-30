@@ -26,6 +26,11 @@ class SignalingManager:
         # client_id -> role ("student" or "faculty")
         self.client_role: Dict[str, str] = {}
 
+        # Authoritative connection tracking: (exam_id, student_id) -> active client_id
+        self.active_student_client: Dict[tuple[str, str], str] = {}
+        # Replaced client_ids to prevent asynchronous cleanup from emitting false student_left
+        self.replaced_clients: Set[str] = set()
+
     async def connect_exam_faculty(self, exam_id: str, websocket: WebSocket) -> str:
         """Register a faculty connection monitoring an entire exam room."""
         await websocket.accept()
@@ -71,12 +76,59 @@ class SignalingManager:
         return client_id
 
     async def connect_exam_student(
-        self, exam_id: str, student_id: str, attempt_id: str, websocket: WebSocket
+        self,
+        exam_id: str,
+        student_id: str,
+        attempt_id: str,
+        websocket: WebSocket,
+        metadata: Optional[Dict[str, Any]] = None
     ) -> str:
-        """Register a student connection for an active exam attempt."""
+        """Register a student connection for an active exam attempt, safely replacing stale connections."""
         await websocket.accept()
         client_id = f"stu_{uuid.uuid4().hex[:8]}"
+        meta = metadata or {}
 
+        # 1. Single Active Connection & Stale Eviction:
+        # Check if this student already has an active connection in this exam room
+        existing_key = (exam_id, student_id)
+        old_client_id = self.active_student_client.get(existing_key)
+        is_rejoin_session = meta.get("is_rejoin", False) or bool(old_client_id) or (meta.get("rejoin_count", 0) > 0)
+
+        if old_client_id and old_client_id in self.client_socket:
+            logger.info(f"Evicting stale connection {old_client_id} for student {student_id} in exam {exam_id}")
+            self.replaced_clients.add(old_client_id)
+            old_ws = self.client_socket.get(old_client_id)
+            # Remove from maps cleanly
+            if exam_id in self.exam_students:
+                self.exam_students[exam_id].pop(old_client_id, None)
+            self.client_socket.pop(old_client_id, None)
+            self.client_exam.pop(old_client_id, None)
+            self.client_role.pop(old_client_id, None)
+            if old_ws:
+                try:
+                    await old_ws.close(code=1000, reason="Replaced by new connection")
+                except Exception:
+                    pass
+
+        # Also purge any dangling entries for this student_id in exam_students[exam_id]
+        if exam_id in self.exam_students:
+            dangling = [
+                cid for cid, s in self.exam_students[exam_id].items()
+                if s.get("student_id") == student_id and cid != client_id
+            ]
+            for d_cid in dangling:
+                self.replaced_clients.add(d_cid)
+                d_info = self.exam_students[exam_id].pop(d_cid, None)
+                self.client_socket.pop(d_cid, None)
+                self.client_exam.pop(d_cid, None)
+                self.client_role.pop(d_cid, None)
+                if d_info and d_info.get("websocket"):
+                    try:
+                        await d_info["websocket"].close(code=1000, reason="Replaced by new connection")
+                    except Exception:
+                        pass
+
+        # 2. Register the new authoritative connection
         if exam_id not in self.exam_students:
             self.exam_students[exam_id] = {}
         self.exam_students[exam_id][client_id] = {
@@ -87,33 +139,47 @@ class SignalingManager:
         self.client_socket[client_id] = websocket
         self.client_exam[client_id] = exam_id
         self.client_role[client_id] = "student"
+        self.active_student_client[existing_key] = client_id
 
         # Legacy map support
         self.student_sockets[attempt_id] = websocket
 
-        # Send connected confirmation to student
+        # 3. Send connected confirmation to student with authoritative backend state
         try:
             await websocket.send_json({
                 "type": "connected",
                 "client_id": client_id,
+                "student_id": student_id,
+                "attempt_id": attempt_id,
+                "rejoin_count": meta.get("rejoin_count", 0),
+                "max_rejoins": meta.get("max_rejoins", 2),
+                "violation_count": meta.get("violation_count", 0),
             })
         except Exception as e:
             logger.warning(f"Error sending connected to student: {e}")
 
-        # Notify all faculty watching this exam that a new student joined
+        # 4. Notify all faculty watching this exam with authoritative student state
+        event_type = "student_rejoined" if is_rejoin_session else "student_joined"
         faculty_map = self.exam_faculty.get(exam_id, {})
         for fac_id, fac_ws in faculty_map.items():
             try:
                 await fac_ws.send_json({
-                    "type": "student_joined",
+                    "type": event_type,
                     "client_id": client_id,
                     "student_id": student_id,
                     "attempt_id": attempt_id,
+                    "rejoin_count": meta.get("rejoin_count", 0),
+                    "max_rejoins": meta.get("max_rejoins", 2),
+                    "violation_count": meta.get("violation_count", 0),
+                    "status": meta.get("status", "IN_PROGRESS"),
+                    "student_name": meta.get("student_name", ""),
+                    "student_email": meta.get("student_email", ""),
+                    "student_roll_number": meta.get("student_roll_number", ""),
                 })
             except Exception as e:
-                logger.warning(f"Error notifying faculty {fac_id} of student join: {e}")
+                logger.warning(f"Error notifying faculty {fac_id} of {event_type}: {e}")
 
-            # Notify the student of each connected faculty so offer can be initiated
+            # Notify the student of each connected faculty so WebRTC offer can be initiated
             try:
                 await websocket.send_json({
                     "type": "faculty_joined",
@@ -122,8 +188,38 @@ class SignalingManager:
             except Exception:
                 pass
 
-        logger.info(f"Student {client_id} ({student_id}) connected to exam {exam_id}")
+        logger.info(f"Student {client_id} ({student_id}) connected ({event_type}) to exam {exam_id}")
         return client_id
+
+    async def broadcast_violation(self, exam_id: str, violation_data: dict):
+        """Immediately broadcast a violation event to all faculty watching this exam room."""
+        faculty_map = self.exam_faculty.get(exam_id, {})
+        if not faculty_map:
+            return
+
+        msg = {
+            "type": "violation",
+            "violation": violation_data,
+            "student_id": violation_data.get("student_id"),
+            "attempt_id": violation_data.get("exam_attempt_id") or violation_data.get("attempt_id"),
+        }
+        for fac_id, fac_ws in list(faculty_map.items()):
+            try:
+                await fac_ws.send_json(msg)
+            except Exception as e:
+                logger.warning(f"Error broadcasting violation to faculty {fac_id}: {e}")
+
+    async def broadcast_student_state(self, exam_id: str, student_id: str, state_payload: dict):
+        """Broadcast state synchronization (e.g. rejoin, status update) to all faculty."""
+        faculty_map = self.exam_faculty.get(exam_id, {})
+        if not faculty_map:
+            return
+
+        for fac_id, fac_ws in list(faculty_map.items()):
+            try:
+                await fac_ws.send_json(state_payload)
+            except Exception as e:
+                logger.warning(f"Error broadcasting state sync to faculty {fac_id}: {e}")
 
     async def route_message(self, sender_client_id: str, message: dict):
         """Route signaling messages (offers, answers, ICE candidates) between peers."""
@@ -190,7 +286,16 @@ class SignalingManager:
                     pass
 
     async def disconnect_client(self, client_id: str):
-        """Clean up when a peer disconnects and inform counter-parties."""
+        """Clean up when a peer disconnects, safely handling replaced and active connections."""
+        # 1. If this client was explicitly replaced by a newer connection, ignore cleanup and suppress student_left
+        if client_id in self.replaced_clients:
+            self.replaced_clients.discard(client_id)
+            self.client_socket.pop(client_id, None)
+            self.client_exam.pop(client_id, None)
+            self.client_role.pop(client_id, None)
+            logger.info(f"Client {client_id} was replaced; suppressed student_left notification.")
+            return
+
         exam_id = self.client_exam.get(client_id)
         role = self.client_role.get(client_id)
 
@@ -204,7 +309,31 @@ class SignalingManager:
                 attempt_id = s_info["attempt_id"]
                 self.student_sockets.pop(attempt_id, None)
 
-                # Inform all faculty watching this exam
+                key = (exam_id, student_id)
+                # Check if this client is still the active connection for this student
+                if self.active_student_client.get(key) != client_id:
+                    logger.info(f"Client {client_id} for student {student_id} is no longer active; suppressed student_left.")
+                    self.client_socket.pop(client_id, None)
+                    self.client_exam.pop(client_id, None)
+                    self.client_role.pop(client_id, None)
+                    return
+
+                # Remove from active tracking since this was the authoritative connection
+                self.active_student_client.pop(key, None)
+
+                # Check if another connection exists in exam_students
+                still_connected = any(
+                    s.get("student_id") == student_id
+                    for s in self.exam_students.get(exam_id, {}).values()
+                )
+                if still_connected:
+                    logger.info(f"Student {student_id} still has another connection active; suppressed student_left.")
+                    self.client_socket.pop(client_id, None)
+                    self.client_exam.pop(client_id, None)
+                    self.client_role.pop(client_id, None)
+                    return
+
+                # Inform all faculty watching this exam that student left
                 for fac_id, fac_ws in self.exam_faculty.get(exam_id, {}).items():
                     try:
                         await fac_ws.send_json({

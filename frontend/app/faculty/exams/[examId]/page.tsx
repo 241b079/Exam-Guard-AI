@@ -50,8 +50,105 @@ export default function FacultyExamDetailPage() {
   const [extraAttempts, setExtraAttempts] = useState(1);
   const [isGranting, setIsGranting] = useState(false);
 
+  const fetchMonitoring = async () => {
+    setIsLoadingMonitoring(true);
+    try {
+      const data = await attemptService.getExamAttemptsMonitoring(examId);
+      setMonitoringData(data);
+    } catch {
+      // Ignore if user lacks permissions or network hiccup
+    } finally {
+      setIsLoadingMonitoring(false);
+    }
+  };
+
+  // Real-time synchronization handlers for Faculty Live Proctoring
+  const handleViolationReceived = React.useCallback((violation: any) => {
+    setMonitoringData((prev) => {
+      let studentFound = false;
+      const next = prev.map((item) => {
+        const matches =
+          (violation.exam_attempt_id && item.attempt_id === violation.exam_attempt_id) ||
+          (violation.attempt_id && item.attempt_id === violation.attempt_id) ||
+          (violation.student_id && item.student.id === violation.student_id);
+
+        if (matches) {
+          studentFound = true;
+          const currentRecent = item.recent_violations || [];
+          const exists = currentRecent.some((v) => v.id === violation.id);
+          if (exists) {
+            return item;
+          }
+          const updatedRecent = [
+            {
+              id: violation.id || `v_${Date.now()}`,
+              exam_attempt_id: item.attempt_id,
+              student_id: item.student.id,
+              violation_type: violation.violation_type,
+              timestamp: violation.timestamp || new Date().toISOString(),
+              metadata_json: violation.metadata_json || violation.metadata || {},
+              created_at: violation.created_at || new Date().toISOString(),
+            },
+            ...currentRecent,
+          ].slice(0, 10);
+
+          return {
+            ...item,
+            violation_count: (item.violation_count || 0) + 1,
+            recent_violations: updatedRecent,
+          };
+        }
+        return item;
+      });
+
+      if (!studentFound) {
+        fetchMonitoring();
+      }
+
+      return next;
+    });
+  }, [examId]);
+
+  const handleStudentRejoined = React.useCallback((payload: any) => {
+    setMonitoringData((prev) =>
+      prev.map((item) => {
+        const matches =
+          (payload.attempt_id && item.attempt_id === payload.attempt_id) ||
+          (payload.student_id && item.student.id === payload.student_id);
+
+        if (matches) {
+          return {
+            ...item,
+            rejoin_count: payload.rejoin_count !== undefined ? payload.rejoin_count : (item.rejoin_count || 0) + 1,
+            max_rejoins: payload.max_rejoins !== undefined ? payload.max_rejoins : (item.max_rejoins ?? 2),
+            violation_count: payload.violation_count !== undefined ? payload.violation_count : item.violation_count,
+            status: payload.status || item.status || 'IN_PROGRESS',
+          };
+        }
+        return item;
+      })
+    );
+  }, []);
+
+  const handleStudentJoined = React.useCallback((payload: any) => {
+    setMonitoringData((prev) => {
+      const exists = prev.some(
+        (item) => item.attempt_id === payload.attempt_id || item.student.id === payload.student_id
+      );
+      if (!exists) {
+        fetchMonitoring();
+      }
+      return prev;
+    });
+  }, [examId]);
+
   // WebRTC Live Monitoring for Students
-  const { studentStreams, isWsConnected, refresh: refreshSignaling } = useWebRTCFaculty({ examId });
+  const { studentStreams, isWsConnected, refresh: refreshSignaling } = useWebRTCFaculty({
+    examId,
+    onViolationReceived: handleViolationReceived,
+    onStudentRejoined: handleStudentRejoined,
+    onStudentJoined: handleStudentJoined,
+  });
 
   const fetchExam = async () => {
     setIsLoading(true);
@@ -75,17 +172,7 @@ export default function FacultyExamDetailPage() {
     }
   };
 
-  const fetchMonitoring = async () => {
-    setIsLoadingMonitoring(true);
-    try {
-      const data = await attemptService.getExamAttemptsMonitoring(examId);
-      setMonitoringData(data);
-    } catch {
-      // Ignore if user lacks permissions or network hiccup
-    } finally {
-      setIsLoadingMonitoring(false);
-    }
-  };
+
 
   const fetchGradebook = async () => {
     setIsLoadingGradebook(true);

@@ -16,9 +16,17 @@ export interface StudentMediaTracks {
 
 export interface UseWebRTCFacultyOptions {
   examId: string;
+  onViolationReceived?: (violation: any) => void;
+  onStudentRejoined?: (payload: any) => void;
+  onStudentJoined?: (payload: any) => void;
 }
 
-export function useWebRTCFaculty({ examId }: UseWebRTCFacultyOptions) {
+export function useWebRTCFaculty({
+  examId,
+  onViolationReceived,
+  onStudentRejoined,
+  onStudentJoined,
+}: UseWebRTCFacultyOptions) {
   const [studentStreams, setStudentStreams] = useState<Record<string, StudentMediaTracks>>({});
   const [activeStudentIds, setActiveStudentIds] = useState<string[]>([]);
   const [isWsConnected, setIsWsConnected] = useState(false);
@@ -29,6 +37,18 @@ export function useWebRTCFaculty({ examId }: UseWebRTCFacultyOptions) {
   const streamMapRef = useRef<Map<string, Record<string, string | null>>>(new Map());
   const streamsStoreRef = useRef<Record<string, StudentMediaTracks>>({});
   const isMountedRef = useRef(true);
+
+  // Callbacks and event deduplication refs
+  const onViolationReceivedRef = useRef(onViolationReceived);
+  const onStudentRejoinedRef = useRef(onStudentRejoined);
+  const onStudentJoinedRef = useRef(onStudentJoined);
+  const seenViolationIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    onViolationReceivedRef.current = onViolationReceived;
+    onStudentRejoinedRef.current = onStudentRejoined;
+    onStudentJoinedRef.current = onStudentJoined;
+  }, [onViolationReceived, onStudentRejoined, onStudentJoined]);
 
   const getFacultyWsUrl = useCallback(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
@@ -254,8 +274,29 @@ export function useWebRTCFaculty({ examId }: UseWebRTCFacultyOptions) {
                   requestOfferFromStudent(msg.client_id);
                 }
               }
+              onStudentJoinedRef.current?.(msg);
             }
             break;
+
+          case 'student_rejoined':
+            if (msg.student_id) {
+              setActiveStudentIds((prev) => Array.from(new Set([...prev, msg.student_id])));
+              if (msg.client_id) {
+                requestOfferFromStudent(msg.client_id);
+              }
+              onStudentRejoinedRef.current?.(msg);
+            }
+            break;
+
+          case 'violation': {
+            const v = msg.violation || msg;
+            const vId = v.id || `${msg.student_id || v.student_id}_${v.violation_type}_${v.timestamp || Date.now()}`;
+            if (!seenViolationIdsRef.current.has(vId)) {
+              seenViolationIdsRef.current.add(vId);
+              onViolationReceivedRef.current?.(v);
+            }
+            break;
+          }
 
           case 'offer':
             if (msg.sender_client_id && msg.student_id && msg.sdp) {

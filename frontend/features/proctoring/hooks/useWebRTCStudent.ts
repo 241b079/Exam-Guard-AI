@@ -145,6 +145,26 @@ export function useWebRTCStudent({
   }, []);
 
   /**
+   * Helper to send real-time violation event immediately over WebSocket
+   */
+  const sendViolation = useCallback((violationType: string, metadata: Record<string, any> = {}) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      try {
+        wsRef.current.send(
+          JSON.stringify({
+            type: 'violation',
+            violation_type: violationType,
+            metadata,
+            timestamp: new Date().toISOString(),
+          })
+        );
+      } catch (err) {
+        console.warn('Failed to dispatch violation via WebSocket:', err);
+      }
+    }
+  }, []);
+
+  /**
    * Initiate WebRTC offer to an authorized faculty client
    */
   const createOfferForFaculty = useCallback(
@@ -328,6 +348,10 @@ export function useWebRTCStudent({
             }
             break;
 
+          case 'violation_ack':
+            // Server confirmed receipt and faculty broadcast
+            break;
+
           default:
             break;
         }
@@ -416,5 +440,7 @@ export function useWebRTCStudent({
     connectionState,
     facultyConnected,
     reconnect: connectSignaling,
+    sendViolation,
+    sendMediaStatus,
   };
 }
