@@ -55,9 +55,15 @@ export default function StudentExaminationPage() {
       setIsLoading(true);
       setError(null);
       try {
+        let sessionToken = typeof window !== 'undefined' ? sessionStorage.getItem(`exam_guard_session_${examId}`) : null;
+        if (!sessionToken && typeof window !== 'undefined') {
+          sessionToken = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `sess_${Date.now()}_${Math.random()}`;
+          sessionStorage.setItem(`exam_guard_session_${examId}`, sessionToken);
+        }
+
         const [exData, attData] = await Promise.all([
           examService.getExamById(examId),
-          attemptService.startOrResumeAttempt(examId),
+          attemptService.startOrResumeAttempt(examId, { session_token: sessionToken || undefined, is_rejoin: false }),
         ]);
         setExam(exData);
         setAttempt(attData);

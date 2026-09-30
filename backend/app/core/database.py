@@ -125,7 +125,7 @@ async def init_db():
     from app.features.students.models import StudentProfile  # noqa
     from app.features.students.permission_models import ProfileEditPermission  # noqa
     from app.features.faculty.models import FacultyProfile  # noqa
-    from app.features.exams.models import Exam  # noqa
+    from app.features.exams.models import Exam, ExamReexamPermission  # noqa
     from app.features.questions.models import Question  # noqa
     from app.features.attempts.models import ExamAttempt, Answer, ExamViolation, ExamMediaSession  # noqa
 
@@ -146,11 +146,17 @@ async def init_db():
                 "SCREEN_SHARE_STOPPED",
                 "MEDIA_CONNECTION_LOST",
                 "MEDIA_CONNECTION_FAILED",
+                "STUDENT_REJOINED",
             ]:
                 try:
                     await auto_conn.execute(text(f"ALTER TYPE violation_type_enum ADD VALUE IF NOT EXISTS '{val}';"))
                 except Exception:
                     pass
+
+            try:
+                await auto_conn.execute(text("DO $$ BEGIN CREATE TYPE attempt_policy_enum AS ENUM ('ONE_ATTEMPT', 'LIMITED_ATTEMPTS', 'UNLIMITED_ATTEMPTS'); EXCEPTION WHEN duplicate_object THEN null; END $$;"))
+            except Exception:
+                pass
     except Exception as e:
         logger.warning(f"Note: enum alteration check skipped or completed: {e}")
 
@@ -166,6 +172,20 @@ async def init_db():
             await conn.execute(text("ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS identity_verified BOOLEAN DEFAULT FALSE;"))
             await conn.execute(text("ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS identity_verified_at TIMESTAMPTZ;"))
             await conn.execute(text("ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS identity_verification_score DOUBLE PRECISION;"))
+            
+            # Exam Attempt enhancements
+            await conn.execute(text("ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS attempt_number INTEGER DEFAULT 1;"))
+            await conn.execute(text("ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS deadline TIMESTAMPTZ;"))
+            await conn.execute(text("ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS rejoin_count INTEGER DEFAULT 0;"))
+            await conn.execute(text("ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS session_token VARCHAR(64);"))
+            await conn.execute(text("ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMPTZ;"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_exam_attempts_session_token ON exam_attempts(session_token);"))
+
+            # Exam policy & rejoin settings
+            await conn.execute(text("ALTER TABLE exams ADD COLUMN IF NOT EXISTS attempt_policy VARCHAR(50) DEFAULT 'ONE_ATTEMPT';"))
+            await conn.execute(text("ALTER TABLE exams ADD COLUMN IF NOT EXISTS max_attempts INTEGER DEFAULT 1;"))
+            await conn.execute(text("ALTER TABLE exams ADD COLUMN IF NOT EXISTS max_rejoins INTEGER DEFAULT 2;"))
+
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS exam_violations (
                     id VARCHAR(36) PRIMARY KEY,
@@ -196,5 +216,19 @@ async def init_db():
             """))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_exam_media_sessions_attempt_id ON exam_media_sessions(exam_attempt_id);"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_exam_media_sessions_student_id ON exam_media_sessions(student_id);"))
+
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS exam_reexam_permissions (
+                    id VARCHAR(36) PRIMARY KEY,
+                    exam_id VARCHAR(36) NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+                    student_id VARCHAR(36) REFERENCES users(id) ON DELETE CASCADE,
+                    granted_by_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    extra_attempts_allowed INTEGER NOT NULL DEFAULT 1,
+                    attempts_consumed INTEGER NOT NULL DEFAULT 0,
+                    created_at TIMESTAMPTZ NOT NULL
+                );
+            """))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_exam_reexam_permissions_exam_id ON exam_reexam_permissions(exam_id);"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_exam_reexam_permissions_student_id ON exam_reexam_permissions(student_id);"))
         except Exception as e:
             logger.warning(f"Note: Column migration check skipped or completed: {e}")

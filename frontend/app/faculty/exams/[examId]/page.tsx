@@ -8,10 +8,11 @@ import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
-import { Exam, examService } from '@/features/exams';
+import { Exam, examService, ReexamPermissionResponse } from '@/features/exams';
 import { attemptService, AttemptMonitoringResponse } from '@/features/attempts';
 import { useWebRTCFaculty, FacultyLiveMonitorCard } from '@/features/proctoring';
 import { Loading } from '@/components/shared/Loading';
+import { Input } from '@/components/ui/Input';
 
 export default function FacultyExamDetailPage() {
   const params = useParams();
@@ -26,9 +27,16 @@ export default function FacultyExamDetailPage() {
   const [monitoringData, setMonitoringData] = useState<AttemptMonitoringResponse[]>([]);
   const [isLoadingMonitoring, setIsLoadingMonitoring] = useState(false);
 
+  // Re-examination permissions state (Loops 14, 29)
+  const [permissions, setPermissions] = useState<ReexamPermissionResponse[]>([]);
+  const [showGrantModal, setShowGrantModal] = useState(false);
+  const [grantScope, setGrantScope] = useState<'SELECTED' | 'ALL'>('SELECTED');
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [extraAttempts, setExtraAttempts] = useState(1);
+  const [isGranting, setIsGranting] = useState(false);
+
   // WebRTC Live Monitoring for Students
   const { studentStreams, isWsConnected, refresh: refreshSignaling } = useWebRTCFaculty({ examId });
-
 
   const fetchExam = async () => {
     setIsLoading(true);
@@ -40,6 +48,15 @@ export default function FacultyExamDetailPage() {
       setError(err.message || 'Failed to load exam details');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchPermissions = async () => {
+    try {
+      const data = await examService.getReexamPermissions(examId);
+      setPermissions(data);
+    } catch {
+      // Non-critical if fails
     }
   };
 
@@ -55,10 +72,34 @@ export default function FacultyExamDetailPage() {
     }
   };
 
+  const handleGrantReexam = async () => {
+    if (grantScope === 'SELECTED' && selectedStudentIds.length === 0) {
+      alert('Please select at least one student to grant re-examination.');
+      return;
+    }
+    setIsGranting(true);
+    try {
+      await examService.grantReexamPermissions(examId, {
+        scope: grantScope,
+        student_ids: grantScope === 'SELECTED' ? selectedStudentIds : undefined,
+        extra_attempts: extraAttempts,
+      });
+      alert('Re-examination permission granted successfully.');
+      setShowGrantModal(false);
+      setSelectedStudentIds([]);
+      await fetchPermissions();
+    } catch (err: any) {
+      alert(err.message || 'Failed to grant re-examination');
+    } finally {
+      setIsGranting(false);
+    }
+  };
+
   useEffect(() => {
     if (examId) {
       fetchExam();
       fetchMonitoring();
+      fetchPermissions();
     }
   }, [examId]);
 
@@ -169,7 +210,7 @@ export default function FacultyExamDetailPage() {
         </div>
 
         {/* Details Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card className="space-y-3">
             <span className="text-[11px] font-semibold uppercase text-stone-500">Duration & Marks</span>
             <div className="space-y-2 text-sm text-stone-700">
@@ -219,7 +260,178 @@ export default function FacultyExamDetailPage() {
               </div>
             </div>
           </Card>
+
+          <Card className="space-y-3">
+            <span className="text-[11px] font-semibold uppercase text-stone-500">Attempt & Rejoin Policy</span>
+            <div className="space-y-2 text-sm text-stone-700">
+              <div className="flex justify-between">
+                <span>Policy:</span>
+                <strong className="text-stone-900">{exam.attempt_policy || 'ONE_ATTEMPT'}</strong>
+              </div>
+              <div className="flex justify-between">
+                <span>Max Attempts:</span>
+                <strong className="text-stone-900">{exam.max_attempts || 1}</strong>
+              </div>
+              <div className="flex justify-between">
+                <span>Max Rejoins:</span>
+                <strong className="text-amber-800">{exam.max_rejoins ?? 2} Allowed</strong>
+              </div>
+            </div>
+          </Card>
         </div>
+
+        {/* Re-examination Management Section (Loops 14, 29) */}
+        <div className="p-6 bg-white rounded-3xl border border-[#EBE5DC] shadow-warm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-bold font-serif text-stone-900 flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-[#C25E1A]" />
+                Re-examination & Additional Attempt Permissions
+              </h2>
+              <p className="text-xs text-stone-500">
+                Grant permission for specific or all students to take an additional attempt beyond the standard policy.
+              </p>
+            </div>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => setShowGrantModal(true)}
+              className="text-xs shadow-warm-sm gap-1.5"
+            >
+              + Grant Re-examination
+            </Button>
+          </div>
+
+          {permissions.length === 0 ? (
+            <p className="text-xs text-stone-500 italic py-2">
+              No additional re-examination permissions have been granted for this exam. Standard attempt policy applies.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left text-stone-700">
+                <thead className="bg-[#FAF7F2] text-stone-500 font-semibold border-b border-[#EBE5DC]">
+                  <tr>
+                    <th className="py-2.5 px-3">Student Name / Email</th>
+                    <th className="py-2.5 px-3">Student Roll ID</th>
+                    <th className="py-2.5 px-3">Extra Attempts</th>
+                    <th className="py-2.5 px-3">Consumed</th>
+                    <th className="py-2.5 px-3">Remaining</th>
+                    <th className="py-2.5 px-3">Granted At</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#EBE5DC]">
+                  {permissions.map((p) => (
+                    <tr key={p.id} className="hover:bg-[#FAF7F2]/50">
+                      <td className="py-2.5 px-3 font-medium text-stone-900">
+                        {p.student_name || p.student_email || (p.student_id ? p.student_id : 'All Students')}
+                      </td>
+                      <td className="py-2.5 px-3 text-stone-600">{p.student_roll_number || '—'}</td>
+                      <td className="py-2.5 px-3 font-semibold text-stone-900">{p.extra_attempts_allowed}</td>
+                      <td className="py-2.5 px-3 text-stone-600">{p.attempts_consumed}</td>
+                      <td className="py-2.5 px-3">
+                        <span className={`font-bold px-2 py-0.5 rounded-full ${p.remaining_attempts > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-stone-100 text-stone-600'}`}>
+                          {p.remaining_attempts}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3 text-stone-500">{new Date(p.created_at).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Grant Re-examination Modal */}
+        {showGrantModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/60 backdrop-blur-xs p-4">
+            <div className="bg-white rounded-3xl p-6 border border-[#EBE5DC] shadow-warm max-w-md w-full space-y-5">
+              <div className="flex items-center justify-between pb-3 border-b border-[#EBE5DC]">
+                <h3 className="font-bold font-serif text-stone-900 text-base">Grant Re-examination</h3>
+                <button onClick={() => setShowGrantModal(false)} className="text-stone-400 hover:text-stone-700 text-sm">✕</button>
+              </div>
+
+              <div className="space-y-4 text-xs">
+                <div className="space-y-2">
+                  <label className="font-semibold text-stone-800 block">Permission Scope</label>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-1.5 cursor-pointer font-medium">
+                      <input
+                        type="radio"
+                        checked={grantScope === 'SELECTED'}
+                        onChange={() => setGrantScope('SELECTED')}
+                        className="accent-[#C25E1A]"
+                      />
+                      Selected Candidates
+                    </label>
+                    <label className="flex items-center gap-1.5 cursor-pointer font-medium">
+                      <input
+                        type="radio"
+                        checked={grantScope === 'ALL'}
+                        onChange={() => setGrantScope('ALL')}
+                        className="accent-[#C25E1A]"
+                      />
+                      All Students
+                    </label>
+                  </div>
+                </div>
+
+                {grantScope === 'SELECTED' && (
+                  <div className="space-y-2">
+                    <label className="font-semibold text-stone-800 block">Select Students</label>
+                    <div className="max-h-48 overflow-y-auto p-2 bg-[#FAF7F2] border border-[#EBE5DC] rounded-xl space-y-1.5">
+                      {monitoringData.length === 0 ? (
+                        <p className="text-stone-400 italic p-1">No candidate records available yet.</p>
+                      ) : (
+                        monitoringData.map((att) => {
+                          const isChecked = selectedStudentIds.includes(att.student.id);
+                          return (
+                            <label key={att.student.id} className="flex items-center gap-2 p-1.5 hover:bg-white rounded cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedStudentIds([...selectedStudentIds, att.student.id]);
+                                  } else {
+                                    setSelectedStudentIds(selectedStudentIds.filter(id => id !== att.student.id));
+                                  }
+                                }}
+                                className="accent-[#C25E1A]"
+                              />
+                              <span className="font-medium text-stone-800">{att.student.name}</span>
+                              <span className="text-[10px] text-stone-500">({att.student.email})</span>
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-1.5">
+                  <label className="font-semibold text-stone-800 block">Additional Attempts to Grant</label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={extraAttempts}
+                    onChange={(e) => setExtraAttempts(Math.max(1, parseInt(e.target.value) || 1))}
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-[#EBE5DC]">
+                <Button variant="secondary" size="sm" onClick={() => setShowGrantModal(false)}>
+                  Cancel
+                </Button>
+                <Button variant="primary" size="sm" onClick={handleGrantReexam} isLoading={isGranting}>
+                  Grant Permission
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Candidate Integrity & Attempt Monitoring Section */}
         <div className="space-y-4 pt-6 border-t border-[#EBE5DC]">

@@ -9,12 +9,31 @@ import {
   AttemptMonitoringResponse,
   MediaSessionResponse,
   UpdateMediaStatusRequest,
+  StartOrResumeAttemptRequest,
+  StudentActiveExamSummary,
+  StudentExamStatusResponse,
 } from '../types';
 
 export const attemptService = {
-  async startOrResumeAttempt(examId: string): Promise<ExamAttempt> {
+  async getStudentActiveExam(): Promise<StudentActiveExamSummary | null> {
+    return fetchApi<StudentActiveExamSummary | null>('/api/v1/student/active-exam');
+  },
+
+  async getStudentExamStatus(examId: string): Promise<StudentExamStatusResponse> {
+    return fetchApi<StudentExamStatusResponse>(`/api/v1/exams/${examId}/student-status`);
+  },
+
+  async startOrResumeAttempt(examId: string, payload?: StartOrResumeAttemptRequest): Promise<ExamAttempt> {
     return fetchApi<ExamAttempt>(`/api/v1/exams/${examId}/attempts`, {
       method: 'POST',
+      body: payload ? JSON.stringify(payload) : undefined,
+    });
+  },
+
+  async rejoinAttempt(attemptId: string, payload?: StartOrResumeAttemptRequest): Promise<ExamAttempt> {
+    return fetchApi<ExamAttempt>(`/api/v1/attempts/${attemptId}/rejoin`, {
+      method: 'POST',
+      body: payload ? JSON.stringify(payload) : undefined,
     });
   },
 

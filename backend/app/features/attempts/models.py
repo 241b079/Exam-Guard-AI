@@ -1,7 +1,7 @@
 import enum
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, Text, Float, Boolean, DateTime, Enum as SQLEnum, ForeignKey, JSON
+from sqlalchemy import String, Text, Float, Boolean, DateTime, Integer, Enum as SQLEnum, ForeignKey, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -33,10 +33,19 @@ class ExamAttempt(Base):
         nullable=False,
         index=True
     )
+    attempt_number: Mapped[int] = mapped_column(
+        Integer,
+        default=1,
+        nullable=False
+    )
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         nullable=False
+    )
+    deadline: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True
     )
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[AttemptStatus] = mapped_column(
@@ -51,6 +60,11 @@ class ExamAttempt(Base):
     identity_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     identity_verified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     identity_verification_score: Mapped[float] = mapped_column(Float, nullable=True)
+
+    # Rejoin & Session Locking Tracking
+    rejoin_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    session_token: Mapped[str] = mapped_column(String(64), nullable=True, index=True)
+    last_active_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -88,6 +102,7 @@ class ViolationType(str, enum.Enum):
     SCREEN_SHARE_STOPPED = "SCREEN_SHARE_STOPPED"
     MEDIA_CONNECTION_LOST = "MEDIA_CONNECTION_LOST"
     MEDIA_CONNECTION_FAILED = "MEDIA_CONNECTION_FAILED"
+    STUDENT_REJOINED = "STUDENT_REJOINED"
 
 
 class MediaSessionStatus(str, enum.Enum):

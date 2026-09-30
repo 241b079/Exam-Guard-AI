@@ -35,4 +35,18 @@ export const examService = {
       method: 'POST',
     });
   },
+
+  async getReexamPermissions(examId: string): Promise<import('../types').ReexamPermissionResponse[]> {
+    return fetchApi<import('../types').ReexamPermissionResponse[]>(`/api/v1/exams/${examId}/reexam-permissions`);
+  },
+
+  async grantReexamPermissions(
+    examId: string,
+    payload: import('../types').GrantReexamPayload
+  ): Promise<import('../types').ReexamPermissionResponse[]> {
+    return fetchApi<import('../types').ReexamPermissionResponse[]>(`/api/v1/exams/${examId}/reexam-permissions`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
 };

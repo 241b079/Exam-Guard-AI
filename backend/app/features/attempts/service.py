@@ -1,5 +1,6 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional
+import uuid
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,18 +26,175 @@ from app.features.attempts.schemas import (
     AttemptMonitoringStudentInfo,
     MediaSessionResponse,
     UpdateMediaStatusRequest,
+    StartOrResumeAttemptRequest,
+    StudentActiveExamSummary,
+    StudentExamStatusResponse,
 )
 
 from app.features.users.models import User, UserRole
-from app.features.exams.models import Exam, NegativeMarkingType
+from app.features.exams.models import Exam, NegativeMarkingType, AssignmentType, AvailabilityType, AttemptPolicyType
 from app.features.exams.service import ExamService
 from app.features.questions.models import Question, QuestionType
 
 
-
 class AttemptService:
     @staticmethod
-    async def start_or_get_attempt(db: AsyncSession, exam_id: str, student_id: str) -> AttemptResponse:
+    def _to_response(attempt: ExamAttempt, remaining_seconds: int = 0, max_rejoins: int = 2) -> AttemptResponse:
+        answers = []
+        if hasattr(attempt, "answers") and attempt.answers:
+            answers = [AnswerResponse.model_validate(a) for a in attempt.answers]
+        
+        violations_count = 0
+        if hasattr(attempt, "violations") and attempt.violations:
+            violations_count = len(attempt.violations)
+
+        return AttemptResponse(
+            id=attempt.id,
+            exam_id=attempt.exam_id,
+            student_id=attempt.student_id,
+            attempt_number=getattr(attempt, "attempt_number", 1) or 1,
+            started_at=attempt.started_at,
+            deadline=attempt.deadline,
+            submitted_at=attempt.submitted_at,
+            status=attempt.status,
+            total_score=attempt.total_score,
+            max_possible_score=attempt.max_possible_score,
+            identity_verified=bool(attempt.identity_verified),
+            identity_verified_at=attempt.identity_verified_at,
+            identity_verification_score=attempt.identity_verification_score,
+            answers=answers,
+            time_remaining_seconds=remaining_seconds,
+            violation_count=violations_count,
+            rejoin_count=getattr(attempt, "rejoin_count", 0) or 0,
+            max_rejoins=max_rejoins,
+            session_token=getattr(attempt, "session_token", None)
+        )
+
+    @staticmethod
+    async def get_student_active_attempt(db: AsyncSession, student_id: str) -> Optional[StudentActiveExamSummary]:
+        """Finds any current IN_PROGRESS attempt for the student, checking expiration."""
+        now = datetime.now(timezone.utc)
+        result = await db.execute(
+            select(ExamAttempt)
+            .where(
+                ExamAttempt.student_id == student_id,
+                ExamAttempt.status == AttemptStatus.IN_PROGRESS
+            )
+            .options(selectinload(ExamAttempt.exam))
+            .order_by(ExamAttempt.started_at.desc())
+        )
+        active_attempts = result.scalars().all()
+        for att in active_attempts:
+            exam = att.exam
+            if not exam:
+                continue
+            if not att.deadline:
+                att.deadline = att.started_at + timedelta(minutes=exam.duration_minutes)
+                if exam.availability_type == AvailabilityType.SCHEDULED and exam.end_time:
+                    att.deadline = min(att.deadline, exam.end_time)
+
+            remaining_seconds = max(0, int((att.deadline - now).total_seconds()))
+            if remaining_seconds <= 0:
+                if exam.auto_submit:
+                    await AttemptService.submit_attempt(db, att.id, student_id)
+                else:
+                    att.status = AttemptStatus.EXPIRED
+                    await db.commit()
+                continue
+
+            return StudentActiveExamSummary(
+                exam_id=exam.id,
+                exam_title=exam.title,
+                attempt_id=att.id,
+                attempt_number=att.attempt_number or 1,
+                status=att.status,
+                time_remaining_seconds=remaining_seconds,
+                deadline=att.deadline,
+                rejoin_count=att.rejoin_count or 0,
+                max_rejoins=exam.max_rejoins,
+                identity_verified=att.identity_verified or False
+            )
+        return None
+
+    @staticmethod
+    async def get_student_exam_status(db: AsyncSession, exam_id: str, student_id: str) -> StudentExamStatusResponse:
+        """Determines attempt state, active timer, and re-exam availability for student exam cards."""
+        exam = await ExamService.get_by_id(db, exam_id)
+        if not exam:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exam not found")
+
+        now = datetime.now(timezone.utc)
+        result = await db.execute(
+            select(ExamAttempt)
+            .where(ExamAttempt.exam_id == exam_id, ExamAttempt.student_id == student_id)
+            .order_by(ExamAttempt.attempt_number.desc(), ExamAttempt.started_at.desc())
+        )
+        attempts = result.scalars().all()
+
+        active_att = next((a for a in attempts if a.status == AttemptStatus.IN_PROGRESS), None)
+        latest_att = attempts[0] if attempts else None
+
+        remaining_seconds = 0
+        if active_att:
+            if not active_att.deadline:
+                active_att.deadline = active_att.started_at + timedelta(minutes=exam.duration_minutes)
+                if exam.availability_type == AvailabilityType.SCHEDULED and exam.end_time:
+                    active_att.deadline = min(active_att.deadline, exam.end_time)
+            remaining_seconds = max(0, int((active_att.deadline - now).total_seconds()))
+            if remaining_seconds <= 0:
+                if exam.auto_submit:
+                    await AttemptService.submit_attempt(db, active_att.id, student_id)
+                else:
+                    active_att.status = AttemptStatus.EXPIRED
+                    await db.commit()
+                active_att = None
+
+        has_active = active_att is not None
+        total_attempts = len(attempts)
+        reexam_available = False
+        can_start = True
+
+        if has_active:
+            can_start = True
+        else:
+            if total_attempts == 0:
+                can_start = True
+            elif exam.attempt_policy == AttemptPolicyType.UNLIMITED_ATTEMPTS:
+                can_start = True
+                reexam_available = True
+            elif exam.attempt_policy == AttemptPolicyType.LIMITED_ATTEMPTS and total_attempts < exam.max_attempts:
+                can_start = True
+                reexam_available = True
+            else:
+                perm = await ExamService.get_usable_reexam_permission(db, exam_id, student_id)
+                if perm:
+                    can_start = True
+                    reexam_available = True
+                else:
+                    can_start = False
+                    reexam_available = False
+
+        return StudentExamStatusResponse(
+            exam_id=exam_id,
+            has_active_attempt=has_active,
+            active_attempt_id=active_att.id if active_att else None,
+            latest_attempt_status=active_att.status if active_att else (latest_att.status if latest_att else "NOT_STARTED"),
+            latest_attempt_number=active_att.attempt_number if active_att else (latest_att.attempt_number if latest_att else 0),
+            reexam_available=reexam_available,
+            can_start_or_resume=can_start,
+            time_remaining_seconds=remaining_seconds,
+            rejoin_count=active_att.rejoin_count if active_att else 0,
+            max_rejoins=exam.max_rejoins
+        )
+
+    @staticmethod
+    async def start_or_get_attempt(
+        db: AsyncSession,
+        exam_id: str,
+        student_id: str,
+        session_token: Optional[str] = None,
+        is_rejoin: bool = False
+    ) -> AttemptResponse:
         exam = await ExamService.get_by_id(db, exam_id)
         if not exam:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exam not found")
@@ -44,44 +202,163 @@ class AttemptService:
         if exam.status != "PUBLISHED":
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Exam is not published")
 
-        # Check existing attempt
-        result = await db.execute(
-            select(ExamAttempt)
-            .where(ExamAttempt.exam_id == exam_id, ExamAttempt.student_id == student_id)
-            .options(selectinload(ExamAttempt.answers), selectinload(ExamAttempt.violations))
-        )
-        attempt = result.scalar_one_or_none()
-
         now = datetime.now(timezone.utc)
 
-        if not attempt:
-            attempt = ExamAttempt(
-                exam_id=exam_id,
-                student_id=student_id,
-                started_at=now,
-                status=AttemptStatus.IN_PROGRESS
+        # Check target assignment
+        if exam.assignment_type == AssignmentType.SELECTED_STUDENTS and student_id not in (exam.assigned_student_ids or []):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not assigned to this exam")
+
+        # Check availability window
+        if exam.availability_type == AvailabilityType.SCHEDULED and exam.start_time and now < exam.start_time:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Exam has not started yet. Starts at {exam.start_time.strftime('%Y-%m-%d %H:%M UTC')}.")
+
+        # Check single active exam constraint across all exams (Loop 10)
+        other_active_res = await db.execute(
+            select(ExamAttempt)
+            .where(
+                ExamAttempt.student_id == student_id,
+                ExamAttempt.status == AttemptStatus.IN_PROGRESS,
+                ExamAttempt.exam_id != exam_id
             )
-            db.add(attempt)
-            await db.commit()
-            await db.refresh(attempt)
-
-        # Calculate time remaining
-        elapsed_seconds = int((now - attempt.started_at).total_seconds())
-        total_allowed_seconds = exam.duration_minutes * 60
-        remaining_seconds = max(0, total_allowed_seconds - elapsed_seconds)
-
-        # Auto-expire if time exceeded
-        if remaining_seconds <= 0 and attempt.status == AttemptStatus.IN_PROGRESS:
-            if exam.auto_submit:
-                return await AttemptService.submit_attempt(db, attempt.id, student_id)
+            .options(selectinload(ExamAttempt.exam))
+        )
+        other_active = other_active_res.scalars().all()
+        for o_att in other_active:
+            o_exam = o_att.exam
+            if not o_att.deadline and o_exam:
+                o_att.deadline = o_att.started_at + timedelta(minutes=o_exam.duration_minutes)
+            if o_att.deadline and now >= o_att.deadline:
+                if o_exam and o_exam.auto_submit:
+                    await AttemptService.submit_attempt(db, o_att.id, student_id)
+                else:
+                    o_att.status = AttemptStatus.EXPIRED
+                    await db.commit()
             else:
-                attempt.status = AttemptStatus.EXPIRED
-                await db.commit()
+                o_title = o_exam.title if o_exam else "another test"
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"You already have an active exam in progress ('{o_title}'). Only one active exam session is permitted at a time."
+                )
 
-        return AttemptService._to_response(attempt, remaining_seconds)
+        # Query existing attempts for this exam
+        res = await db.execute(
+            select(ExamAttempt)
+            .where(ExamAttempt.exam_id == exam_id, ExamAttempt.student_id == student_id)
+            .options(selectinload(ExamAttempt.answers), selectinload(ExamAttempt.violations), selectinload(ExamAttempt.exam))
+            .order_by(ExamAttempt.started_at.asc())
+        )
+        all_attempts = res.scalars().all()
+
+        active_attempt = next((a for a in all_attempts if a.status == AttemptStatus.IN_PROGRESS), None)
+
+        if active_attempt:
+            # Server-controlled deadline
+            if not active_attempt.deadline:
+                active_attempt.deadline = active_attempt.started_at + timedelta(minutes=exam.duration_minutes)
+                if exam.availability_type == AvailabilityType.SCHEDULED and exam.end_time:
+                    active_attempt.deadline = min(active_attempt.deadline, exam.end_time)
+
+            remaining_seconds = max(0, int((active_attempt.deadline - now).total_seconds()))
+            if remaining_seconds <= 0:
+                if exam.auto_submit:
+                    await AttemptService.submit_attempt(db, active_attempt.id, student_id)
+                    return AttemptService._to_response(active_attempt, 0, exam.max_rejoins)
+                else:
+                    active_attempt.status = AttemptStatus.EXPIRED
+                    await db.commit()
+                    return AttemptService._to_response(active_attempt, 0, exam.max_rejoins)
+
+            # Rejoin vs Recovery check (Loops 10, 11, 12)
+            if active_attempt.session_token and session_token:
+                if active_attempt.session_token == session_token and not is_rejoin:
+                    # Normal session recovery: preserve session without consuming rejoin
+                    pass
+                else:
+                    # Rejoin event: session token changed or explicit rejoin requested
+                    if active_attempt.rejoin_count >= exam.max_rejoins:
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail=f"Maximum rejoin limit ({exam.max_rejoins}) reached for this exam attempt. Please contact your instructor."
+                        )
+                    active_attempt.rejoin_count += 1
+                    active_attempt.session_token = session_token
+                    v = ExamViolation(
+                        id=str(uuid.uuid4()),
+                        exam_attempt_id=active_attempt.id,
+                        student_id=student_id,
+                        violation_type=ViolationType.STUDENT_REJOINED,
+                        timestamp=now,
+                        metadata_json={
+                            "rejoin_number": active_attempt.rejoin_count,
+                            "max_rejoins": exam.max_rejoins,
+                            "action": "STUDENT_REJOIN"
+                        },
+                        created_at=now
+                    )
+                    db.add(v)
+            else:
+                if not active_attempt.session_token:
+                    active_attempt.session_token = session_token or str(uuid.uuid4())
+
+            active_attempt.last_active_at = now
+            await db.commit()
+            await db.refresh(active_attempt)
+            return AttemptService._to_response(active_attempt, remaining_seconds, exam.max_rejoins)
+
+        # ── Start a New Attempt (First attempt OR Re-examination) ──
+        if exam.availability_type == AvailabilityType.SCHEDULED and exam.end_time and now > exam.end_time:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Exam availability window has closed. Cannot create new attempt.")
+
+        total_prev = len(all_attempts)
+        if total_prev == 0:
+            next_attempt_number = 1
+        else:
+            if exam.attempt_policy == AttemptPolicyType.UNLIMITED_ATTEMPTS:
+                next_attempt_number = total_prev + 1
+            elif exam.attempt_policy == AttemptPolicyType.LIMITED_ATTEMPTS and total_prev < exam.max_attempts:
+                next_attempt_number = total_prev + 1
+            else:
+                perm = await ExamService.get_usable_reexam_permission(db, exam_id, student_id)
+                if not perm:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="You have already exhausted all attempts for this exam and no re-examination permission has been granted."
+                    )
+                perm.attempts_consumed += 1
+                next_attempt_number = total_prev + 1
+
+        deadline = now + timedelta(minutes=exam.duration_minutes)
+        if exam.availability_type == AvailabilityType.SCHEDULED and exam.end_time:
+            deadline = min(deadline, exam.end_time)
+
+        new_session_token = session_token or str(uuid.uuid4())
+        new_attempt = ExamAttempt(
+            id=str(uuid.uuid4()),
+            exam_id=exam_id,
+            student_id=student_id,
+            attempt_number=next_attempt_number,
+            started_at=now,
+            deadline=deadline,
+            status=AttemptStatus.IN_PROGRESS,
+            rejoin_count=0,
+            session_token=new_session_token,
+            last_active_at=now,
+            identity_verified=False
+        )
+        db.add(new_attempt)
+        await db.commit()
+        await db.refresh(new_attempt)
+
+        remaining_seconds = max(0, int((deadline - now).total_seconds()))
+        return AttemptService._to_response(new_attempt, remaining_seconds, exam.max_rejoins)
 
     @staticmethod
-    async def get_attempt_by_id(db: AsyncSession, attempt_id: str, student_id: str) -> AttemptResponse:
+    async def rejoin_attempt(
+        db: AsyncSession,
+        attempt_id: str,
+        student_id: str,
+        session_token: Optional[str] = None
+    ) -> AttemptResponse:
         result = await db.execute(
             select(ExamAttempt)
             .where(ExamAttempt.id == attempt_id)
@@ -92,27 +369,6 @@ class AttemptService:
             )
         )
         attempt = result.scalar_one_or_none()
-
-        if not attempt:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attempt not found")
-        if attempt.student_id != student_id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to view this attempt")
-
-        now = datetime.now(timezone.utc)
-        elapsed_seconds = int((now - attempt.started_at).total_seconds())
-        total_allowed_seconds = attempt.exam.duration_minutes * 60
-        remaining_seconds = max(0, total_allowed_seconds - elapsed_seconds)
-
-        return AttemptService._to_response(attempt, remaining_seconds)
-
-    @staticmethod
-    async def save_answer(db: AsyncSession, attempt_id: str, req: SaveAnswerRequest, student_id: str) -> AnswerResponse:
-        result = await db.execute(
-            select(ExamAttempt)
-            .where(ExamAttempt.id == attempt_id)
-            .options(selectinload(ExamAttempt.answers))
-        )
-        attempt = result.scalar_one_or_none()
         if not attempt:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attempt not found")
         if attempt.student_id != student_id:
@@ -120,38 +376,162 @@ class AttemptService:
         if attempt.status != AttemptStatus.IN_PROGRESS:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Attempt is already submitted or expired")
 
+        exam = attempt.exam
+        now = datetime.now(timezone.utc)
+        if not attempt.deadline and exam:
+            attempt.deadline = attempt.started_at + timedelta(minutes=exam.duration_minutes)
+            if exam.availability_type == AvailabilityType.SCHEDULED and exam.end_time:
+                attempt.deadline = min(attempt.deadline, exam.end_time)
+
+        remaining_seconds = max(0, int((attempt.deadline - now).total_seconds())) if attempt.deadline else 0
+        if remaining_seconds <= 0:
+            if exam and exam.auto_submit:
+                await AttemptService.submit_attempt(db, attempt.id, student_id)
+            else:
+                attempt.status = AttemptStatus.EXPIRED
+                await db.commit()
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Exam deadline has passed")
+
+        max_rej = exam.max_rejoins if exam else 2
+        if attempt.rejoin_count >= max_rej:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Maximum rejoin limit ({attempt.rejoin_count}/{max_rej}) reached. Please contact your instructor."
+            )
+
+        attempt.rejoin_count += 1
+        attempt.session_token = session_token or str(uuid.uuid4())
+        attempt.last_active_at = now
+
+        violation = ExamViolation(
+            id=str(uuid.uuid4()),
+            exam_attempt_id=attempt.id,
+            student_id=student_id,
+            violation_type=ViolationType.STUDENT_REJOINED,
+            timestamp=now,
+            metadata_json={"rejoin_number": attempt.rejoin_count, "max_rejoins": max_rej, "action": "EXPLICIT_REJOIN"},
+            created_at=now
+        )
+        db.add(violation)
+        await db.commit()
+        await db.refresh(attempt)
+        return AttemptService._to_response(attempt, remaining_seconds, max_rej)
+
+    @staticmethod
+    async def get_attempt_by_id(db: AsyncSession, attempt_id: str, student_id: str) -> AttemptResponse:
+        result = await db.execute(
+            select(ExamAttempt)
+            .where(ExamAttempt.id == attempt_id)
+            .options(
+                selectinload(ExamAttempt.answers),
+                selectinload(ExamAttempt.violations),
+                selectinload(ExamAttempt.exam)
+            )
+        )
+        attempt = result.scalar_one_or_none()
+        if not attempt:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attempt not found")
+        if attempt.student_id != student_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this attempt")
+
+        exam = attempt.exam
+        now = datetime.now(timezone.utc)
+        if not attempt.deadline and exam:
+            attempt.deadline = attempt.started_at + timedelta(minutes=exam.duration_minutes)
+            if exam.availability_type == AvailabilityType.SCHEDULED and exam.end_time:
+                attempt.deadline = min(attempt.deadline, exam.end_time)
+
+        remaining_seconds = max(0, int((attempt.deadline - now).total_seconds())) if attempt.deadline else 0
+        if attempt.status == AttemptStatus.IN_PROGRESS and attempt.deadline and now >= attempt.deadline:
+            if exam and exam.auto_submit:
+                await AttemptService.submit_attempt(db, attempt.id, student_id)
+                remaining_seconds = 0
+            else:
+                attempt.status = AttemptStatus.EXPIRED
+                await db.commit()
+                await db.refresh(attempt)
+                remaining_seconds = 0
+
+        max_rej = exam.max_rejoins if exam else 2
+        return AttemptService._to_response(attempt, remaining_seconds, max_rej)
+
+    @staticmethod
+    async def save_answer(
+        db: AsyncSession,
+        attempt_id: str,
+        req: SaveAnswerRequest,
+        student_id: str
+    ) -> AnswerResponse:
+        result = await db.execute(
+            select(ExamAttempt)
+            .where(ExamAttempt.id == attempt_id)
+            .options(
+                selectinload(ExamAttempt.answers),
+                selectinload(ExamAttempt.exam)
+            )
+        )
+        attempt = result.scalar_one_or_none()
+        if not attempt:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attempt not found")
+        if attempt.student_id != student_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized for this attempt")
+        if attempt.status != AttemptStatus.IN_PROGRESS:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Attempt is already submitted or expired")
         if not attempt.identity_verified:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Identity verification required before attempting examination questions"
+                detail="Identity verification required before answering questions."
             )
 
-        # Find existing answer or create new
-        ans_res = await db.execute(
-            select(Answer).where(Answer.attempt_id == attempt_id, Answer.question_id == req.question_id)
-        )
-        answer = ans_res.scalar_one_or_none()
+        now = datetime.now(timezone.utc)
+        exam = attempt.exam
+        if not attempt.deadline and exam:
+            attempt.deadline = attempt.started_at + timedelta(minutes=exam.duration_minutes)
+            if exam.availability_type == AvailabilityType.SCHEDULED and exam.end_time:
+                attempt.deadline = min(attempt.deadline, exam.end_time)
 
-        if not answer:
-            answer = Answer(
+        if attempt.deadline and now >= attempt.deadline:
+            if exam and exam.auto_submit:
+                await AttemptService.submit_attempt(db, attempt.id, student_id)
+            else:
+                attempt.status = AttemptStatus.EXPIRED
+                await db.commit()
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Exam deadline has passed")
+
+        attempt.last_active_at = now
+
+        # Find existing answer or create new
+        existing_answer = next((a for a in (attempt.answers or []) if a.question_id == req.question_id), None)
+        if existing_answer:
+            existing_answer.selected_option = req.selected_option
+            existing_answer.answer_text = req.answer_text
+            existing_answer.is_marked_for_review = req.is_marked_for_review
+            existing_answer.updated_at = now
+            ans_to_return = existing_answer
+        else:
+            new_ans = Answer(
+                id=str(uuid.uuid4()),
                 attempt_id=attempt_id,
                 question_id=req.question_id,
                 selected_option=req.selected_option,
                 answer_text=req.answer_text,
-                is_marked_for_review=req.is_marked_for_review
+                is_marked_for_review=req.is_marked_for_review,
+                created_at=now,
+                updated_at=now
             )
-            db.add(answer)
-        else:
-            answer.selected_option = req.selected_option
-            answer.answer_text = req.answer_text
-            answer.is_marked_for_review = req.is_marked_for_review
+            db.add(new_ans)
+            ans_to_return = new_ans
 
         await db.commit()
-        await db.refresh(answer)
-        return AnswerResponse.model_validate(answer)
+        await db.refresh(ans_to_return)
+        return AnswerResponse.model_validate(ans_to_return)
 
     @staticmethod
-    async def submit_attempt(db: AsyncSession, attempt_id: str, student_id: str) -> SubmitAttemptResponse:
+    async def submit_attempt(
+        db: AsyncSession,
+        attempt_id: str,
+        student_id: str
+    ) -> SubmitAttemptResponse:
         result = await db.execute(
             select(ExamAttempt)
             .where(ExamAttempt.id == attempt_id)
@@ -166,8 +546,8 @@ class AttemptService:
         if attempt.student_id != student_id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
+        # Idempotent submission: return existing result if already submitted (Loop 9)
         if attempt.status == AttemptStatus.SUBMITTED:
-            # Already submitted, return results
             return AttemptService._to_submit_response(attempt)
 
         exam = attempt.exam
@@ -184,7 +564,6 @@ class AttemptService:
             if not ans:
                 continue
 
-            # Question attempted check
             has_answered = False
             if q.question_type == QuestionType.MCQ and ans.selected_option and ans.selected_option.strip():
                 has_answered = True
@@ -194,9 +573,8 @@ class AttemptService:
             if has_answered:
                 attempted_count += 1
 
-            # Auto-grade MCQ
             if q.question_type == QuestionType.MCQ:
-                if ans.selected_option and ans.selected_option.strip() == q.correct_answer.strip():
+                if ans.selected_option and ans.selected_option.strip() == (q.correct_answer or "").strip():
                     ans.is_correct = True
                     ans.marks_awarded = q.marks
                     total_score += q.marks
@@ -220,29 +598,7 @@ class AttemptService:
 
         await db.commit()
         await db.refresh(attempt)
-
         return AttemptService._to_submit_response(attempt)
-
-    @staticmethod
-    def _to_response(attempt: ExamAttempt, remaining_seconds: int) -> AttemptResponse:
-        answers_resp = [AnswerResponse.model_validate(a) for a in (attempt.answers or [])]
-        violation_cnt = len(attempt.violations) if hasattr(attempt, "violations") and attempt.violations else 0
-        return AttemptResponse(
-            id=attempt.id,
-            exam_id=attempt.exam_id,
-            student_id=attempt.student_id,
-            started_at=attempt.started_at,
-            submitted_at=attempt.submitted_at,
-            status=attempt.status,
-            total_score=attempt.total_score,
-            max_possible_score=attempt.max_possible_score,
-            identity_verified=attempt.identity_verified or False,
-            identity_verified_at=attempt.identity_verified_at,
-            identity_verification_score=attempt.identity_verification_score,
-            answers=answers_resp,
-            time_remaining_seconds=remaining_seconds,
-            violation_count=violation_cnt
-        )
 
     @staticmethod
     def _to_submit_response(attempt: ExamAttempt) -> SubmitAttemptResponse:
@@ -401,12 +757,15 @@ class AttemptService:
                     attempt_id=att.id,
                     exam_id=att.exam_id,
                     student=student_info,
+                    attempt_number=att.attempt_number or 1,
                     status=att.status,
                     started_at=att.started_at,
                     submitted_at=att.submitted_at,
                     violation_count=len(att.violations or []),
                     recent_violations=recent_v_responses,
-                    media_session=media_resp
+                    media_session=media_resp,
+                    rejoin_count=att.rejoin_count or 0,
+                    max_rejoins=exam.max_rejoins if exam else 2
                 )
             )
         return monitoring_data

@@ -28,6 +28,12 @@ class AvailabilityType(str, enum.Enum):
     SCHEDULED = "SCHEDULED"
 
 
+class AttemptPolicyType(str, enum.Enum):
+    ONE_ATTEMPT = "ONE_ATTEMPT"
+    LIMITED_ATTEMPTS = "LIMITED_ATTEMPTS"
+    UNLIMITED_ATTEMPTS = "UNLIMITED_ATTEMPTS"
+
+
 class Exam(Base):
     __tablename__ = "exams"
 
@@ -69,6 +75,15 @@ class Exam(Base):
     start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     end_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Attempt Policy & Rejoin Settings
+    attempt_policy: Mapped[AttemptPolicyType] = mapped_column(
+        SQLEnum(AttemptPolicyType, name="attempt_policy_enum"),
+        nullable=False,
+        default=AttemptPolicyType.ONE_ATTEMPT
+    )
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    max_rejoins: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
+
     created_by_id: Mapped[str] = mapped_column(
         String(36),
         ForeignKey("users.id", ondelete="CASCADE"),
@@ -88,6 +103,47 @@ class Exam(Base):
     )
 
     # Relationships
-    creator = relationship("User", backref="created_exams", lazy="selectin")
+    creator = relationship("User", foreign_keys=[created_by_id], backref="created_exams", lazy="selectin")
     questions = relationship("Question", back_populates="exam", cascade="all, delete-orphan", lazy="selectin")
     attempts = relationship("ExamAttempt", back_populates="exam", cascade="all, delete-orphan", lazy="selectin")
+
+
+class ExamReexamPermission(Base):
+    __tablename__ = "exam_reexam_permissions"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4())
+    )
+    exam_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("exams.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    # student_id is NULL when permission is granted to ALL eligible students
+    student_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True
+    )
+    granted_by_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False
+    )
+    extra_attempts_allowed: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    attempts_consumed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False
+    )
+
+    # Relationships
+    exam = relationship("Exam", backref="reexam_permissions", lazy="selectin")
+    student = relationship("User", foreign_keys=[student_id], lazy="selectin")
+    granted_by = relationship("User", foreign_keys=[granted_by_id], lazy="selectin")
+

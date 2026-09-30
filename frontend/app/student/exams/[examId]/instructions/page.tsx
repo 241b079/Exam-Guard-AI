@@ -23,9 +23,42 @@ export default function StudentExamInstructionsPage() {
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Device capability state (Loops 17, 36)
+  const [isDeviceSupported, setIsDeviceSupported] = useState(true);
+  const [deviceWarning, setDeviceWarning] = useState<string | null>(null);
+
   // Step 1: Instructions, Step 2: Identity Verification, Step 3: Media Setup
   const [activeStep, setActiveStep] = useState<'instructions' | 'verification' | 'media-setup'>('instructions');
   const [isVerified, setIsVerified] = useState(false);
+
+  useEffect(() => {
+    // Capability check: proctoring requires PC/laptop with getUserMedia and getDisplayMedia
+    if (typeof window !== 'undefined') {
+      const userAgent = navigator.userAgent || '';
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent) ||
+        (window.innerWidth < 768 && 'ontouchstart' in window);
+      const hasMedia = Boolean(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+      const hasScreen = Boolean(navigator.mediaDevices && (navigator.mediaDevices as any).getDisplayMedia);
+
+      if (isMobile) {
+        setIsDeviceSupported(false);
+        setDeviceWarning('This exam must be attempted on a supported PC/Laptop with camera and microphone.');
+      } else if (!hasMedia || !hasScreen) {
+        setIsDeviceSupported(false);
+        setDeviceWarning('Your browser environment does not support camera or screen sharing proctoring APIs. Please use Google Chrome or Microsoft Edge on a PC/Laptop.');
+      }
+    }
+  }, []);
+
+  const getOrCreateSessionToken = () => {
+    if (typeof window === 'undefined') return undefined;
+    let token = sessionStorage.getItem(`exam_guard_session_${examId}`);
+    if (!token) {
+      token = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `sess_${Date.now()}_${Math.random()}`;
+      sessionStorage.setItem(`exam_guard_session_${examId}`, token);
+    }
+    return token;
+  };
 
   useEffect(() => {
     if (examId) {
@@ -64,6 +97,11 @@ export default function StudentExamInstructionsPage() {
   };
 
   const handleStartExam = async () => {
+    if (!isDeviceSupported) {
+      setError(deviceWarning || 'This exam must be attempted on a supported PC/Laptop.');
+      return;
+    }
+
     setIsStarting(true);
     setError(null);
 
@@ -76,7 +114,8 @@ export default function StudentExamInstructionsPage() {
     }
 
     try {
-      await attemptService.startOrResumeAttempt(examId);
+      const sessionToken = getOrCreateSessionToken();
+      await attemptService.startOrResumeAttempt(examId, { session_token: sessionToken, is_rejoin: false });
       router.push(`/student/exams/${examId}`);
     } catch (err: any) {
       setError(err.message || 'Failed to start exam attempt');
@@ -109,6 +148,16 @@ export default function StudentExamInstructionsPage() {
     <DashboardLayout title={`Exam Onboarding — ${exam.title}`}>
 
       <div className="space-y-6 max-w-4xl mx-auto">
+        {deviceWarning && (
+          <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-center gap-3 text-amber-900 text-xs shadow-warm-sm">
+            <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0" />
+            <div>
+              <strong className="block font-semibold">Proctoring Device Requirement</strong>
+              <span>{deviceWarning}</span>
+            </div>
+          </div>
+        )}
+
         {error && (
           <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-center justify-between gap-4 text-rose-800 text-xs">
             <div className="flex items-center gap-2">
@@ -228,14 +277,29 @@ export default function StudentExamInstructionsPage() {
               <Link href="/student/exams">
                 <Button variant="secondary">Back to Exams</Button>
               </Link>
-              <Button
-                variant="primary"
-                size="lg"
-                onClick={() => setActiveStep('verification')}
-                className="gap-2 text-base shadow-warm"
-              >
-                Proceed to Identity Check <ArrowRight className="w-5 h-5" />
-              </Button>
+              {!isDeviceSupported ? (
+                <Button variant="secondary" size="lg" disabled className="text-sm opacity-60">
+                  PC / Laptop Required
+                </Button>
+              ) : isVerified ? (
+                <Button
+                  variant="primary"
+                  size="lg"
+                  onClick={() => setActiveStep('media-setup')}
+                  className="gap-2 text-base shadow-warm bg-emerald-700 hover:bg-emerald-800"
+                >
+                  <UserCheck className="w-5 h-5" /> Proceed to Media Setup (Identity Verified) <ArrowRight className="w-5 h-5" />
+                </Button>
+              ) : (
+                <Button
+                  variant="primary"
+                  size="lg"
+                  onClick={() => setActiveStep('verification')}
+                  className="gap-2 text-base shadow-warm"
+                >
+                  Proceed to Identity Check <ArrowRight className="w-5 h-5" />
+                </Button>
+              )}
             </div>
           </div>
         )}

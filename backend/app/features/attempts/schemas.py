@@ -30,7 +30,9 @@ class AttemptResponse(BaseModel):
     id: str
     exam_id: str
     student_id: str
+    attempt_number: int = 1
     started_at: datetime
+    deadline: Optional[datetime] = None
     submitted_at: Optional[datetime] = None
     status: AttemptStatus
     total_score: Optional[float] = None
@@ -41,8 +43,42 @@ class AttemptResponse(BaseModel):
     answers: List[AnswerResponse] = []
     time_remaining_seconds: int = 0
     violation_count: int = 0
+    rejoin_count: int = 0
+    max_rejoins: int = 2
+    session_token: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class StartOrResumeAttemptRequest(BaseModel):
+    session_token: Optional[str] = None
+    is_rejoin: bool = False
+
+
+class StudentActiveExamSummary(BaseModel):
+    exam_id: str
+    exam_title: str
+    attempt_id: str
+    attempt_number: int
+    status: AttemptStatus
+    time_remaining_seconds: int
+    deadline: Optional[datetime] = None
+    rejoin_count: int = 0
+    max_rejoins: int = 2
+    identity_verified: bool = False
+
+
+class StudentExamStatusResponse(BaseModel):
+    exam_id: str
+    has_active_attempt: bool = False
+    active_attempt_id: Optional[str] = None
+    latest_attempt_status: Optional[str] = None
+    latest_attempt_number: int = 0
+    reexam_available: bool = False
+    can_start_or_resume: bool = True
+    time_remaining_seconds: int = 0
+    rejoin_count: int = 0
+    max_rejoins: int = 2
 
 
 class SubmitAttemptResponse(BaseModel):
@@ -112,11 +148,15 @@ class AttemptMonitoringResponse(BaseModel):
     attempt_id: str
     exam_id: str
     student: AttemptMonitoringStudentInfo
+    attempt_number: int = 1
     status: AttemptStatus
     started_at: datetime
     submitted_at: Optional[datetime] = None
     violation_count: int
     recent_violations: List[ViolationResponse] = []
     media_session: Optional[MediaSessionResponse] = None
+    rejoin_count: int = 0
+    max_rejoins: int = 2
 
     model_config = ConfigDict(from_attributes=True)
+

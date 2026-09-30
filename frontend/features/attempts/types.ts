@@ -77,7 +77,9 @@ export interface ExamAttempt {
   id: string;
   exam_id: string;
   student_id: string;
+  attempt_number?: number;
   started_at: string;
+  deadline?: string;
   submitted_at?: string;
   status: AttemptStatus;
   total_score?: number;
@@ -88,6 +90,40 @@ export interface ExamAttempt {
   answers: Answer[];
   time_remaining_seconds: number;
   violation_count?: number;
+  rejoin_count?: number;
+  max_rejoins?: number;
+  session_token?: string;
+}
+
+export interface StartOrResumeAttemptRequest {
+  session_token?: string;
+  is_rejoin?: boolean;
+}
+
+export interface StudentActiveExamSummary {
+  exam_id: string;
+  exam_title: string;
+  attempt_id: string;
+  attempt_number: number;
+  status: AttemptStatus;
+  time_remaining_seconds: number;
+  deadline?: string;
+  rejoin_count: number;
+  max_rejoins: number;
+  identity_verified: boolean;
+}
+
+export interface StudentExamStatusResponse {
+  exam_id: string;
+  has_active_attempt: boolean;
+  active_attempt_id?: string;
+  latest_attempt_status?: string;
+  latest_attempt_number: number;
+  reexam_available: boolean;
+  can_start_or_resume: boolean;
+  time_remaining_seconds: number;
+  rejoin_count: number;
+  max_rejoins: number;
 }
 
 export interface SaveAnswerPayload {
@@ -123,10 +159,13 @@ export interface AttemptMonitoringResponse {
   attempt_id: string;
   exam_id: string;
   student: AttemptMonitoringStudentInfo;
+  attempt_number?: number;
   status: AttemptStatus;
   started_at: string;
   submitted_at?: string;
   violation_count: number;
   recent_violations: ExamViolation[];
   media_session?: MediaSessionResponse | null;
+  rejoin_count?: number;
+  max_rejoins?: number;
 }

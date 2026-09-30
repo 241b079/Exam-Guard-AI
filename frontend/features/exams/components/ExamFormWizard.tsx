@@ -6,7 +6,7 @@ import { FileText, Settings, Users, CheckCircle, ArrowRight, ArrowLeft } from 'l
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
-import { NegativeMarkingType, AssignmentType, AvailabilityType } from '../types';
+import { NegativeMarkingType, AssignmentType, AvailabilityType, AttemptPolicyType } from '../types';
 import { examService } from '../services/examService';
 
 interface ExamFormWizardProps {
@@ -30,6 +30,10 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
   const [negativeMarking, setNegativeMarking] = useState<NegativeMarkingType>(initialData?.negative_marking || 'NONE');
   const [autoSubmit, setAutoSubmit] = useState<boolean>(initialData?.auto_submit ?? true);
   const [displayCountdown, setDisplayCountdown] = useState<boolean>(initialData?.display_countdown ?? true);
+
+  const [attemptPolicy, setAttemptPolicy] = useState<AttemptPolicyType>(initialData?.attempt_policy || 'ONE_ATTEMPT');
+  const [maxAttempts, setMaxAttempts] = useState<number>(initialData?.max_attempts || 1);
+  const [maxRejoins, setMaxRejoins] = useState<number>(initialData?.max_rejoins ?? 2);
 
   const [availabilityType, setAvailabilityType] = useState<AvailabilityType>(initialData?.availability_type || 'ALWAYS');
   const [startTime, setStartTime] = useState(initialData?.start_time ? initialData.start_time.slice(0, 16) : '');
@@ -68,6 +72,9 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
       negative_marking: negativeMarking,
       auto_submit: autoSubmit,
       display_countdown: displayCountdown,
+      attempt_policy: attemptPolicy,
+      max_attempts: attemptPolicy === 'LIMITED_ATTEMPTS' ? maxAttempts : (attemptPolicy === 'ONE_ATTEMPT' ? 1 : undefined),
+      max_rejoins: maxRejoins,
       assignment_type: assignmentType,
       assigned_student_ids: [],
       availability_type: availabilityType,
@@ -259,6 +266,75 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
                 />
               </div>
             )}
+          </div>
+
+          {/* Exam Attempt & Rejoin Settings (Loop 28) */}
+          <div className="space-y-4 pt-4 border-t border-[#EBE5DC]">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-stone-900">
+              Exam Attempt & Rejoin Settings
+            </h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-stone-900 block">Attempt Policy</label>
+                <div className="space-y-2 p-3 bg-[#FAF7F2] border border-[#EBE5DC] rounded-2xl text-xs">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="attemptPolicy"
+                      checked={attemptPolicy === 'ONE_ATTEMPT'}
+                      onChange={() => setAttemptPolicy('ONE_ATTEMPT')}
+                      className="accent-[#C25E1A]"
+                    />
+                    <span className="font-semibold text-stone-800">One Attempt (Default)</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="attemptPolicy"
+                      checked={attemptPolicy === 'LIMITED_ATTEMPTS'}
+                      onChange={() => setAttemptPolicy('LIMITED_ATTEMPTS')}
+                      className="accent-[#C25E1A]"
+                    />
+                    <span className="font-semibold text-stone-800">Limited Attempts</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="attemptPolicy"
+                      checked={attemptPolicy === 'UNLIMITED_ATTEMPTS'}
+                      onChange={() => setAttemptPolicy('UNLIMITED_ATTEMPTS')}
+                      className="accent-[#C25E1A]"
+                    />
+                    <span className="font-semibold text-stone-800">Unlimited Attempts</span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {attemptPolicy === 'LIMITED_ATTEMPTS' && (
+                  <Input
+                    label="Maximum Attempts"
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={maxAttempts}
+                    onChange={(e) => setMaxAttempts(Math.max(1, parseInt(e.target.value) || 1))}
+                  />
+                )}
+                <Input
+                  label="Maximum Rejoins Allowed (Default: 2)"
+                  type="number"
+                  min={0}
+                  max={10}
+                  value={maxRejoins}
+                  onChange={(e) => setMaxRejoins(Math.max(0, parseInt(e.target.value) || 0))}
+                />
+                <p className="text-[11px] text-stone-500">
+                  Number of times a candidate can reconnect after closing browser/leaving before requiring instructor approval. Page refreshes do not consume rejoins.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       )}

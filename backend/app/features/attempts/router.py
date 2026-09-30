@@ -20,6 +20,9 @@ from app.features.attempts.schemas import (
     AttemptMonitoringResponse,
     MediaSessionResponse,
     UpdateMediaStatusRequest,
+    StartOrResumeAttemptRequest,
+    StudentActiveExamSummary,
+    StudentExamStatusResponse,
 )
 from app.features.attempts.service import AttemptService
 from app.features.proctoring.signaling import signaling_manager
@@ -27,13 +30,48 @@ from app.features.proctoring.signaling import signaling_manager
 router = APIRouter(tags=["Attempts"])
 
 
-@router.post("/exams/{exam_id}/attempts", response_model=AttemptResponse, status_code=status.HTTP_201_CREATED)
-async def start_or_resume_attempt(
+@router.get("/student/active-exam", response_model=Optional[StudentActiveExamSummary])
+async def get_student_active_exam(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.STUDENT]))
+):
+    return await AttemptService.get_student_active_attempt(db, current_user.id)
+
+
+@router.get("/exams/{exam_id}/student-status", response_model=StudentExamStatusResponse)
+async def get_student_exam_status(
     exam_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([UserRole.STUDENT]))
 ):
-    return await AttemptService.start_or_get_attempt(db, exam_id, student_id=current_user.id)
+    return await AttemptService.get_student_exam_status(db, exam_id, current_user.id)
+
+
+@router.post("/exams/{exam_id}/attempts", response_model=AttemptResponse, status_code=status.HTTP_201_CREATED)
+async def start_or_resume_attempt(
+    exam_id: str,
+    req: Optional[StartOrResumeAttemptRequest] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.STUDENT]))
+):
+    session_token = req.session_token if req else None
+    is_rejoin = req.is_rejoin if req else False
+    return await AttemptService.start_or_get_attempt(
+        db, exam_id, student_id=current_user.id, session_token=session_token, is_rejoin=is_rejoin
+    )
+
+
+@router.post("/attempts/{attempt_id}/rejoin", response_model=AttemptResponse)
+async def rejoin_attempt(
+    attempt_id: str,
+    req: Optional[StartOrResumeAttemptRequest] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.STUDENT]))
+):
+    session_token = req.session_token if req else None
+    return await AttemptService.rejoin_attempt(
+        db, attempt_id, student_id=current_user.id, session_token=session_token
+    )
 
 
 @router.get("/attempts/{attempt_id}", response_model=AttemptResponse)

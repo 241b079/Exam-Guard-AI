@@ -5,7 +5,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.features.auth.dependencies import get_current_user, require_roles
 from app.features.users.models import User, UserRole
-from app.features.exams.schemas import ExamCreate, ExamUpdate, ExamResponse
+from app.features.exams.schemas import (
+    ExamCreate,
+    ExamUpdate,
+    ExamResponse,
+    GrantReexamRequest,
+    ReexamPermissionResponse,
+)
 from app.features.exams.service import ExamService
 
 router = APIRouter(prefix="/exams", tags=["Exams"])
@@ -77,3 +83,23 @@ async def publish_exam(
     current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN]))
 ):
     return await ExamService.publish_exam(db, exam_id, faculty_id=current_user.id)
+
+
+@router.post("/{exam_id}/reexam-permissions", response_model=List[ReexamPermissionResponse])
+async def grant_reexam_permissions(
+    exam_id: str,
+    req: GrantReexamRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN]))
+):
+    return await ExamService.grant_reexam_permissions(db, exam_id, req, faculty_id=current_user.id)
+
+
+@router.get("/{exam_id}/reexam-permissions", response_model=List[ReexamPermissionResponse])
+async def get_reexam_permissions(
+    exam_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN]))
+):
+    return await ExamService.get_reexam_permissions(db, exam_id, faculty_id=current_user.id)
+

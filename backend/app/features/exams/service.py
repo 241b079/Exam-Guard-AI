@@ -1,14 +1,22 @@
 from typing import List, Optional
 from datetime import datetime, timezone
+import uuid
 from fastapi import HTTPException, status
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.features.exams.models import Exam, ExamStatus
-from app.features.exams.schemas import ExamCreate, ExamUpdate, ExamResponse
+from app.features.exams.models import Exam, ExamStatus, ExamReexamPermission, AttemptPolicyType
+from app.features.exams.schemas import (
+    ExamCreate,
+    ExamUpdate,
+    ExamResponse,
+    GrantReexamRequest,
+    ReexamPermissionResponse,
+)
 from app.features.questions.models import Question, QuestionType
 from app.features.users.models import User, UserRole
+from app.features.students.models import StudentProfile
 
 
 class ExamService:
@@ -33,6 +41,9 @@ class ExamService:
             availability_type=req.availability_type,
             start_time=req.start_time,
             end_time=req.end_time,
+            attempt_policy=req.attempt_policy,
+            max_attempts=req.max_attempts,
+            max_rejoins=req.max_rejoins,
             status=ExamStatus.DRAFT,
             created_by_id=creator_id,
             total_marks=0.0
@@ -152,8 +163,154 @@ class ExamService:
             availability_type=exam.availability_type,
             start_time=exam.start_time,
             end_time=exam.end_time,
+            attempt_policy=exam.attempt_policy,
+            max_attempts=exam.max_attempts,
+            max_rejoins=exam.max_rejoins,
             created_by_id=exam.created_by_id,
             question_count=q_count,
             created_at=exam.created_at,
             updated_at=exam.updated_at
         )
+
+    # ── Re-examination Permissions Management ──────────────────────────────
+    @staticmethod
+    async def grant_reexam_permissions(
+        db: AsyncSession,
+        exam_id: str,
+        req: GrantReexamRequest,
+        faculty_id: str
+    ) -> List[ReexamPermissionResponse]:
+        exam = await ExamService.get_by_id(db, exam_id)
+        if not exam:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exam not found")
+        if exam.created_by_id != faculty_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to manage permissions for this exam")
+
+        created_permissions: List[ExamReexamPermission] = []
+        now = datetime.now(timezone.utc)
+
+        if req.scope == "ALL":
+            # Check if there's already an active ALL permission for this exam
+            existing_all = await db.execute(
+                select(ExamReexamPermission).where(
+                    ExamReexamPermission.exam_id == exam_id,
+                    ExamReexamPermission.student_id.is_(None)
+                )
+            )
+            all_perm = existing_all.scalar_one_or_none()
+            if all_perm:
+                all_perm.extra_attempts_allowed += req.extra_attempts
+            else:
+                all_perm = ExamReexamPermission(
+                    id=str(uuid.uuid4()),
+                    exam_id=exam_id,
+                    student_id=None,
+                    granted_by_id=faculty_id,
+                    extra_attempts_allowed=req.extra_attempts,
+                    attempts_consumed=0,
+                    created_at=now
+                )
+                db.add(all_perm)
+            created_permissions.append(all_perm)
+        else:
+            if not req.student_ids:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="At least one student must be selected")
+            
+            for sid in req.student_ids:
+                # Find existing permission or create new
+                res = await db.execute(
+                    select(ExamReexamPermission).where(
+                        ExamReexamPermission.exam_id == exam_id,
+                        ExamReexamPermission.student_id == sid
+                    )
+                )
+                existing = res.scalar_one_or_none()
+                if existing:
+                    existing.extra_attempts_allowed += req.extra_attempts
+                    created_permissions.append(existing)
+                else:
+                    new_perm = ExamReexamPermission(
+                        id=str(uuid.uuid4()),
+                        exam_id=exam_id,
+                        student_id=sid,
+                        granted_by_id=faculty_id,
+                        extra_attempts_allowed=req.extra_attempts,
+                        attempts_consumed=0,
+                        created_at=now
+                    )
+                    db.add(new_perm)
+                    created_permissions.append(new_perm)
+
+        await db.commit()
+        return await ExamService.get_reexam_permissions(db, exam_id, faculty_id)
+
+    @staticmethod
+    async def get_reexam_permissions(
+        db: AsyncSession,
+        exam_id: str,
+        faculty_id: str
+    ) -> List[ReexamPermissionResponse]:
+        exam = await ExamService.get_by_id(db, exam_id)
+        if not exam:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exam not found")
+
+        res = await db.execute(
+            select(ExamReexamPermission)
+            .where(ExamReexamPermission.exam_id == exam_id)
+            .options(
+                selectinload(ExamReexamPermission.student).selectinload(User.student_profile),
+            )
+            .order_by(ExamReexamPermission.created_at.desc())
+        )
+        perms = res.scalars().all()
+
+        responses = []
+        for p in perms:
+            student = p.student
+            roll = student.student_profile.student_id if student and student.student_profile else None
+            remaining = max(0, p.extra_attempts_allowed - p.attempts_consumed)
+            responses.append(
+                ReexamPermissionResponse(
+                    id=p.id,
+                    exam_id=p.exam_id,
+                    student_id=p.student_id,
+                    student_name=student.name if student else "All Students (Global)",
+                    student_email=student.email if student else "*@*",
+                    student_roll_number=roll,
+                    extra_attempts_allowed=p.extra_attempts_allowed,
+                    attempts_consumed=p.attempts_consumed,
+                    remaining_attempts=remaining,
+                    created_at=p.created_at
+                )
+            )
+        return responses
+
+    @staticmethod
+    async def get_usable_reexam_permission(
+        db: AsyncSession,
+        exam_id: str,
+        student_id: str
+    ) -> Optional[ExamReexamPermission]:
+        """Finds an unused re-examination permission for the student (either specific or global ALL)."""
+        # 1. Check student-specific permission first
+        res = await db.execute(
+            select(ExamReexamPermission).where(
+                ExamReexamPermission.exam_id == exam_id,
+                ExamReexamPermission.student_id == student_id,
+                ExamReexamPermission.attempts_consumed < ExamReexamPermission.extra_attempts_allowed
+            )
+        )
+        perm = res.scalar_one_or_none()
+        if perm:
+            return perm
+
+        # 2. Check global (all students) permission
+        res_all = await db.execute(
+            select(ExamReexamPermission).where(
+                ExamReexamPermission.exam_id == exam_id,
+                ExamReexamPermission.student_id.is_(None),
+                ExamReexamPermission.attempts_consumed < ExamReexamPermission.extra_attempts_allowed
+            )
+        )
+        return res_all.scalar_one_or_none()
+

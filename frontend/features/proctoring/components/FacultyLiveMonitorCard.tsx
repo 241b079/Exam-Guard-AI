@@ -149,7 +149,13 @@ export function FacultyLiveMonitorCard({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 justify-end">
+          <span className="text-[11px] font-semibold text-stone-700 bg-stone-100 px-2 py-0.5 rounded-full border border-stone-200">
+            Att #{monitoring.attempt_number || 1}
+          </span>
+          <span className="text-[11px] font-semibold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+            Rejoins: {monitoring.rejoin_count || 0}/{monitoring.max_rejoins ?? 2}
+          </span>
           <Badge variant={monitoring.status === 'SUBMITTED' ? 'success' : 'faculty'}>
             {monitoring.status}
           </Badge>

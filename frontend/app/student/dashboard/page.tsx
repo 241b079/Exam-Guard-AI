@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/features/auth/hooks/useAuth';
@@ -9,11 +9,39 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { useExams } from '@/features/exams';
-import { BookOpen, CalendarClock, Award, UserCheck, ArrowRight } from 'lucide-react';
+import { BookOpen, CalendarClock, Award, UserCheck, ArrowRight, Clock, Play } from 'lucide-react';
+import { StudentActiveExamSummary, attemptService } from '@/features/attempts';
 
 export default function StudentDashboardPage() {
   const { user } = useAuth();
   const { exams } = useExams();
+  const [activeExam, setActiveExam] = useState<StudentActiveExamSummary | null>(null);
+  const [timeLeft, setTimeLeft] = useState<number>(0);
+
+  useEffect(() => {
+    attemptService.getStudentActiveExam()
+      .then((summary) => {
+        if (summary) {
+          setActiveExam(summary);
+          setTimeLeft(summary.time_remaining_seconds);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (timeLeft <= 0) return;
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [timeLeft]);
+
+  const formatCountdown = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  };
 
   if (!user) return null;
 
@@ -39,6 +67,53 @@ export default function StudentDashboardPage() {
             </Button>
           </Link>
         </div>
+
+        {/* Recent Unfinished Exam Banner (Loop 6) */}
+        {activeExam && timeLeft > 0 && (
+          <div className="p-6 md:p-8 rounded-3xl bg-[#FAF7F2] border-2 border-[#C25E1A]/40 shadow-warm flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="p-2 rounded-xl bg-[#FBECE0] text-[#C25E1A]">
+                  <Clock className="w-5 h-5" />
+                </span>
+                <span className="text-xs font-bold uppercase tracking-wider text-[#C25E1A]">
+                  Recent Unfinished Exam • Attempt #{activeExam.attempt_number}
+                </span>
+                <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full border border-amber-200 animate-pulse">
+                  IN PROGRESS
+                </span>
+              </div>
+              <h3 className="text-xl md:text-2xl font-bold font-serif text-stone-900">
+                {activeExam.exam_title}
+              </h3>
+              <div className="flex flex-wrap items-center gap-4 text-xs text-stone-600">
+                <span>
+                  Rejoins: <strong className="text-stone-900">{activeExam.rejoin_count} / {activeExam.max_rejoins}</strong>
+                </span>
+                <span>•</span>
+                <span>
+                  Verification: <strong className={activeExam.identity_verified ? 'text-emerald-700 font-semibold' : 'text-amber-700'}>
+                    {activeExam.identity_verified ? 'Verified ✓' : 'Pending Check'}
+                  </strong>
+                </span>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+              <div className="text-right sm:text-center p-3 bg-white rounded-2xl border border-[#EBE5DC]">
+                <span className="text-[10px] text-stone-500 uppercase font-semibold block">Time Remaining</span>
+                <span className="text-2xl font-mono font-bold text-[#C25E1A]">
+                  {formatCountdown(timeLeft)}
+                </span>
+              </div>
+              <Link href={`/student/exams/${activeExam.exam_id}`}>
+                <Button variant="primary" size="lg" className="w-full sm:w-auto text-sm font-semibold shadow-warm gap-2 bg-[#C25E1A] hover:bg-[#A94F13]">
+                  <Play className="w-4 h-4 fill-white" /> Resume Exam
+                </Button>
+              </Link>
+            </div>
+          </div>
+        )}
 
         {/* Dashboard Content Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

@@ -263,31 +263,28 @@ class FaceVerificationService:
 
         now = datetime.now(timezone.utc)
 
-        # 8. Record verification state on attempt
+        # 8. Record verification state on active attempt
+        from app.features.attempts.service import AttemptService
+        
         att_res = await db.execute(
             select(ExamAttempt).where(
                 ExamAttempt.exam_id == exam_id,
-                ExamAttempt.student_id == student_user.id
-            ).options(selectinload(ExamAttempt.answers))
+                ExamAttempt.student_id == student_user.id,
+                ExamAttempt.status == AttemptStatus.IN_PROGRESS
+            ).order_by(ExamAttempt.started_at.desc())
         )
-        attempt = att_res.scalar_one_or_none()
+        attempt = att_res.scalars().first()
 
         if is_verified:
             if not attempt:
-                attempt = ExamAttempt(
-                    exam_id=exam_id,
-                    student_id=student_user.id,
-                    started_at=now,
-                    status=AttemptStatus.IN_PROGRESS,
-                    identity_verified=True,
-                    identity_verified_at=now,
-                    identity_verification_score=similarity
-                )
-                db.add(attempt)
-            else:
-                attempt.identity_verified = True
-                attempt.identity_verified_at = now
-                attempt.identity_verification_score = similarity
+                # Atomically start or resume through AttemptService to respect policy and limits
+                att_resp = await AttemptService.start_or_get_attempt(db, exam_id, student_user.id)
+                att_res = await db.execute(select(ExamAttempt).where(ExamAttempt.id == att_resp.id))
+                attempt = att_res.scalar_one()
+
+            attempt.identity_verified = True
+            attempt.identity_verified_at = now
+            attempt.identity_verification_score = similarity
 
             await db.commit()
             await db.refresh(attempt)
@@ -324,9 +321,12 @@ class FaceVerificationService:
             select(ExamAttempt).where(
                 ExamAttempt.exam_id == exam_id,
                 ExamAttempt.student_id == student_user.id
+            ).order_by(
+                (ExamAttempt.status == AttemptStatus.IN_PROGRESS).desc(),
+                ExamAttempt.started_at.desc()
             )
         )
-        attempt = att_res.scalar_one_or_none()
+        attempt = att_res.scalars().first()
 
         is_verified = bool(attempt and attempt.identity_verified)
         verified_at = attempt.identity_verified_at if attempt else None

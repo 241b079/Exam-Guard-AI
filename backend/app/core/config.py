@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = Field(..., description="Redis connection string")
     
     CORS_ORIGINS: Union[str, List[str]] = "http://localhost:3000"
-    CORS_ORIGIN_REGEX: Optional[str] = r"^https?://.*\.ngrok(-free)?\.app$"
+    CORS_ORIGIN_REGEX: Optional[str] = r"^https?://.*\.ngrok(-free)?\.(app|dev)$"
     
     # Face verification settings
     FACE_VERIFICATION_THRESHOLD: float = 0.363
