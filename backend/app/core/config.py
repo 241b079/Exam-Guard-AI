@@ -15,9 +15,14 @@ class Settings(BaseSettings):
     CORS_ORIGINS: Union[str, List[str]] = "http://localhost:3000"
     CORS_ORIGIN_REGEX: Optional[str] = r"^https?://.*\.ngrok(-free)?\.(app|dev)$"
     
-    # Face verification settings
+    # Face verification & continuous monitoring settings
     FACE_VERIFICATION_THRESHOLD: float = 0.363
     UPLOAD_DIR: str = "uploads"
+    EVIDENCE_DIR: str = "proctoring-evidence"
+    IDENTITY_MISMATCH_CONFIRM_SECONDS: float = 3.0
+    ABSENCE_GRACE_SECONDS: float = 5.0
+    MULTIPLE_PERSON_CONFIRM_SECONDS: float = 2.0
+    INCIDENT_COOLDOWN_SECONDS: float = 30.0
 
     model_config = SettingsConfigDict(
         env_file=".env",

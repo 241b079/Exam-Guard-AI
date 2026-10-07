@@ -128,6 +128,7 @@ async def init_db():
     from app.features.exams.models import Exam, ExamReexamPermission  # noqa
     from app.features.questions.models import Question  # noqa
     from app.features.attempts.models import ExamAttempt, Answer, ExamViolation, ExamMediaSession  # noqa
+    from app.features.proctoring.models import ProctoringEvent  # noqa
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -230,5 +231,60 @@ async def init_db():
             """))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_exam_reexam_permissions_exam_id ON exam_reexam_permissions(exam_id);"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_exam_reexam_permissions_student_id ON exam_reexam_permissions(student_id);"))
+
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS proctoring_events (
+                    id VARCHAR(36) PRIMARY KEY,
+                    exam_id VARCHAR(36) NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+                    exam_attempt_id VARCHAR(36) REFERENCES exam_attempts(id) ON DELETE CASCADE,
+                    student_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    event_type VARCHAR(50) NOT NULL,
+                    severity VARCHAR(20) NOT NULL DEFAULT 'MEDIUM',
+                    review_status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+                    review_comment TEXT,
+                    reviewed_by_id VARCHAR(36) REFERENCES users(id) ON DELETE SET NULL,
+                    reviewed_at TIMESTAMPTZ,
+                    detected_at TIMESTAMPTZ NOT NULL,
+                    started_at TIMESTAMPTZ NOT NULL,
+                    ended_at TIMESTAMPTZ,
+                    duration DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+                    confidence DOUBLE PRECISION,
+                    face_count INTEGER NOT NULL DEFAULT 0,
+                    expected_identity VARCHAR(255),
+                    detected_identity_status VARCHAR(50),
+                    evidence_path VARCHAR(500),
+                    incident_id VARCHAR(36),
+                    metadata_json JSON DEFAULT '{}'::json,
+                    created_at TIMESTAMPTZ NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL
+                );
+            """))
+
+            try:
+                await conn.execute(text("ALTER TABLE proctoring_events ALTER COLUMN event_type TYPE VARCHAR(50) USING event_type::text;"))
+                await conn.execute(text("ALTER TABLE proctoring_events ALTER COLUMN severity TYPE VARCHAR(20) USING severity::text;"))
+                await conn.execute(text("ALTER TABLE proctoring_events ALTER COLUMN review_status TYPE VARCHAR(20) USING review_status::text;"))
+            except Exception:
+                pass
+
+            await conn.execute(text("ALTER TABLE proctoring_events ADD COLUMN IF NOT EXISTS exam_attempt_id VARCHAR(36) REFERENCES exam_attempts(id) ON DELETE CASCADE;"))
+            await conn.execute(text("ALTER TABLE proctoring_events ADD COLUMN IF NOT EXISTS duration DOUBLE PRECISION NOT NULL DEFAULT 0.0;"))
+            await conn.execute(text("ALTER TABLE proctoring_events ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION;"))
+            await conn.execute(text("ALTER TABLE proctoring_events ADD COLUMN IF NOT EXISTS face_count INTEGER NOT NULL DEFAULT 0;"))
+            await conn.execute(text("ALTER TABLE proctoring_events ADD COLUMN IF NOT EXISTS expected_identity VARCHAR(255);"))
+            await conn.execute(text("ALTER TABLE proctoring_events ADD COLUMN IF NOT EXISTS detected_identity_status VARCHAR(50);"))
+            await conn.execute(text("ALTER TABLE proctoring_events ADD COLUMN IF NOT EXISTS evidence_path VARCHAR(500);"))
+            await conn.execute(text("ALTER TABLE proctoring_events ADD COLUMN IF NOT EXISTS incident_id VARCHAR(36);"))
+            await conn.execute(text("ALTER TABLE proctoring_events ADD COLUMN IF NOT EXISTS review_status VARCHAR(20) NOT NULL DEFAULT 'PENDING';"))
+            await conn.execute(text("ALTER TABLE proctoring_events ADD COLUMN IF NOT EXISTS review_comment TEXT;"))
+            await conn.execute(text("ALTER TABLE proctoring_events ADD COLUMN IF NOT EXISTS reviewed_by_id VARCHAR(36) REFERENCES users(id) ON DELETE SET NULL;"))
+            await conn.execute(text("ALTER TABLE proctoring_events ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;"))
+
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_events_exam_id ON proctoring_events(exam_id);"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_events_student_id ON proctoring_events(student_id);"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_events_attempt_id ON proctoring_events(exam_attempt_id);"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_events_incident_id ON proctoring_events(incident_id);"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_events_type ON proctoring_events(event_type);"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_events_review_status ON proctoring_events(review_status);"))
         except Exception as e:
             logger.warning(f"Note: Column migration check skipped or completed: {e}")

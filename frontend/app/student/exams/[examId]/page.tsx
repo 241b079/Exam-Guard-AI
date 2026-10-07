@@ -20,6 +20,7 @@ import {
   useExamLockdown,
   useExamMedia,
   useWebRTCStudent,
+  useContinuousIdentityMonitoring,
   ExamLockdownOverlay,
   ExamMediaLockOverlay,
   ExamIntegrityIndicator,
@@ -395,6 +396,26 @@ export default function StudentExaminationPage() {
       window.removeEventListener('focus', handleFocusOrVisibility);
     };
   }, [videoNode, cameraStream, cameraStreamRef]);
+
+  // Continuous Live Identity Monitoring & Suspicious Evidence Engine
+  const {
+    currentState: continuousIdentityState,
+  } = useContinuousIdentityMonitoring({
+    examId,
+    isActive: isExamActive && Boolean(cameraReady),
+    videoElement: localCamPipRef.current || videoNode,
+    onSuspiciousEventConfirmed: (result) => {
+      // Notify real-time proctoring channel without interrupting exam
+      if (sendViolationRef.current) {
+        sendViolationRef.current(result.state, {
+          reason: result.message,
+          face_count: result.face_count,
+          similarity: result.similarity,
+          incident_id: result.incident_id,
+        });
+      }
+    },
+  });
 
   const handleResumeMedia = async () => {
     setIsResumingMedia(true);

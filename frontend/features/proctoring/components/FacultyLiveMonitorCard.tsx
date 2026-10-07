@@ -169,6 +169,44 @@ export function FacultyLiveMonitorCard({
         </div>
       </div>
 
+      {/* Identity Alert Indicator Banner if suspicious event occurred recently */}
+      {(() => {
+        const latest = monitoring.recent_violations?.[0];
+        const isIdentityViolation =
+          latest &&
+          [
+            'IDENTITY_MISMATCH',
+            'MULTIPLE_PERSON',
+            'MULTIPLE_PERSON_IDENTITY_MISMATCH',
+            'TEMPORARY_ABSENCE',
+            'STUDENT_RECOVERED',
+          ].includes(latest.violation_type as string);
+
+        if (!isIdentityViolation || !latest) return null;
+
+        const isRecovered = (latest.violation_type as string) === 'STUDENT_RECOVERED';
+
+        return (
+          <div
+            className={`flex items-center justify-between p-2 px-3 rounded-2xl border text-xs ${
+              isRecovered
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                : 'bg-rose-50 border-rose-300 text-rose-800 animate-pulse'
+            }`}
+          >
+            <div className="flex items-center gap-2 font-bold text-[11px]">
+              <AlertTriangle className={`w-3.5 h-3.5 ${isRecovered ? 'text-emerald-600' : 'text-rose-600'}`} />
+              <span>
+                {isRecovered ? 'Verified Student Returned' : `Suspicious: ${latest.violation_type.replace(/_/g, ' ')}`}
+              </span>
+            </div>
+            <span className="text-[10px] font-mono opacity-80">
+              {new Date(latest.timestamp).toLocaleTimeString()}
+            </span>
+          </div>
+        );
+      })()}
+
       {/* Live Stream Viewport */}
       <div className="relative aspect-video w-full rounded-2xl bg-stone-950 overflow-hidden border border-stone-800 flex items-center justify-center">
         {/* Camera View */}

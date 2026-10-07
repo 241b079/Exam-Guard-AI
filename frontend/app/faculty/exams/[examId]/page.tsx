@@ -16,7 +16,7 @@ import {
   GradebookEntry,
   AttemptReviewResponse,
 } from '@/features/attempts';
-import { useWebRTCFaculty, FacultyLiveMonitorCard } from '@/features/proctoring';
+import { useWebRTCFaculty, FacultyLiveMonitorCard, FacultyEvidenceGallery } from '@/features/proctoring';
 import { Loading } from '@/components/shared/Loading';
 import { Input } from '@/components/ui/Input';
 
@@ -974,6 +974,11 @@ export default function FacultyExamDetailPage() {
               ))}
             </div>
           )}
+        </div>
+
+        {/* Proctoring Evidence & Identity Incident Review Gallery */}
+        <div className="pt-6 border-t border-[#EBE5DC]">
+          <FacultyEvidenceGallery examId={examId} examTitle={exam?.title} />
         </div>
       </div>
     </DashboardLayout>

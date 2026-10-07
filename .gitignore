@@ -37,9 +37,11 @@ yarn-error.log*
 *.sqlite3
 *.db
 
-# Uploads
+# Uploads & Evidence
 uploads/
 backend/uploads/
+proctoring-evidence/
+backend/proctoring-evidence/
 
 # Model binaries (auto-downloaded on runtime)
 *.onnx

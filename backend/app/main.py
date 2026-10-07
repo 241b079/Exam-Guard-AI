@@ -15,6 +15,7 @@ from app.features.questions.router import router as questions_router
 from app.features.attempts.router import router as attempts_router
 from app.features.identity.router import router as identity_router
 from app.features.faculty.router import router as faculty_router
+from app.features.proctoring.router import router as proctoring_router
 import os
 from fastapi.staticfiles import StaticFiles
 
@@ -53,8 +54,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Ensure uploads directory exists and mount static files
+# Ensure uploads and evidence directories exist and mount static files
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+os.makedirs(settings.EVIDENCE_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
 
 
@@ -72,3 +74,4 @@ app.include_router(questions_router, prefix="/api/v1")
 app.include_router(attempts_router, prefix="/api/v1")
 app.include_router(identity_router, prefix="/api/v1")
 app.include_router(faculty_router, prefix="/api/v1")
+app.include_router(proctoring_router, prefix="/api/v1")
