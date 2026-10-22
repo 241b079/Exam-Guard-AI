@@ -147,3 +147,42 @@ class ExamReexamPermission(Base):
     student = relationship("User", foreign_keys=[student_id], lazy="selectin")
     granted_by = relationship("User", foreign_keys=[granted_by_id], lazy="selectin")
 
+
+class ExamReexamConsumption(Base):
+    __tablename__ = "exam_reexam_consumptions"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4())
+    )
+    permission_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("exam_reexam_permissions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    student_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    attempts_consumed: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False
+    )
+
+    # Relationships
+    permission = relationship("ExamReexamPermission", backref="consumptions", lazy="selectin")
+    student = relationship("User", lazy="selectin")
+
+

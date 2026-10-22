@@ -2,7 +2,8 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 import uuid
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -220,6 +221,16 @@ class AttemptService:
         if exam.availability_type == AvailabilityType.SCHEDULED and exam.start_time and now < exam.start_time:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Exam has not started yet. Starts at {exam.start_time.strftime('%Y-%m-%d %H:%M UTC')}.")
 
+        # Acquire PostgreSQL advisory transaction lock on (student_id, exam_id)
+        # Automatically released on transaction commit/rollback; serializes concurrent attempt creation across workers
+        try:
+            await db.execute(
+                text("SELECT pg_advisory_xact_lock(hashtext(:k)::bigint)"),
+                {"k": f"attempt_{student_id}_{exam_id}"}
+            )
+        except Exception:
+            pass
+
         # Check single active exam constraint across all exams (Loop 10)
         other_active_res = await db.execute(
             select(ExamAttempt)
@@ -332,7 +343,7 @@ class AttemptService:
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail="You have already exhausted all attempts for this exam and no re-examination permission has been granted."
                     )
-                perm.attempts_consumed += 1
+                await ExamService.consume_reexam_permission(db, perm, student_id)
                 next_attempt_number = total_prev + 1
 
         deadline = now + timedelta(minutes=exam.duration_minutes)
@@ -354,8 +365,28 @@ class AttemptService:
             identity_verified=False
         )
         db.add(new_attempt)
-        await db.commit()
-        await db.refresh(new_attempt)
+        try:
+            await db.commit()
+            await db.refresh(new_attempt)
+        except IntegrityError:
+            await db.rollback()
+            # Concurrency race caught by database constraint:
+            # Re-fetch attempt to return the active attempt without a 500 error
+            res_race = await db.execute(
+                select(ExamAttempt)
+                .where(ExamAttempt.exam_id == exam_id, ExamAttempt.student_id == student_id)
+                .options(selectinload(ExamAttempt.answers), selectinload(ExamAttempt.violations), selectinload(ExamAttempt.exam))
+                .order_by(ExamAttempt.started_at.desc())
+            )
+            all_race = res_race.scalars().all()
+            active_race = next((a for a in all_race if a.status == AttemptStatus.IN_PROGRESS), None)
+            if active_race:
+                remaining_seconds = max(0, int((active_race.deadline - now).total_seconds())) if active_race.deadline else 0
+                return AttemptService._to_response(active_race, remaining_seconds, exam.max_rejoins)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A concurrent attempt was already started or attempt limit reached."
+            )
 
         remaining_seconds = max(0, int((deadline - now).total_seconds()))
         return AttemptService._to_response(new_attempt, remaining_seconds, exam.max_rejoins)
@@ -507,6 +538,19 @@ class AttemptService:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Exam deadline has passed")
 
         attempt.last_active_at = now
+
+        # Phase 2C: Verify question belongs to the attempt's exam
+        q_res = await db.execute(
+            select(Question).where(
+                Question.id == req.question_id,
+                Question.exam_id == attempt.exam_id
+            )
+        )
+        if not q_res.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Question does not belong to this exam or does not exist."
+            )
 
         # Find existing answer or create new
         existing_answer = next((a for a in (attempt.answers or []) if a.question_id == req.question_id), None)

@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Shield, LayoutDashboard, FileText, Users, User as UserIcon } from 'lucide-react';
+import { Shield, LayoutDashboard, FileText, Users, User as UserIcon, ShieldCheck } from 'lucide-react';
 import { UserRole } from '@/types';
 
 interface SidebarProps {
@@ -27,15 +27,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ role }) => {
 
   if (role === 'FACULTY') {
     navItems.push({ label: 'Exams', href: '/faculty/exams', icon: FileText });
-    navItems.push({ label: 'Batches & Permissions', href: '/faculty/batches', icon: Users });
+    navItems.push({ label: 'Students', href: '/faculty/students', icon: Users });
+    navItems.push({ label: 'Batches & Permissions', href: '/faculty/batches', icon: ShieldCheck });
     navItems.push({ label: 'My Profile', href: '/faculty/profile', icon: UserIcon });
   } else if (role === 'STUDENT') {
     navItems.push({ label: 'Available Exams', href: '/student/exams', icon: FileText });
     navItems.push({ label: 'My Profile', href: '/student/profile', icon: UserIcon });
   } else if (role === 'ADMIN') {
     navItems.push({ label: 'Students', href: '/admin/students', icon: Users });
-    navItems.push({ label: 'Batches & Permissions', href: '/faculty/batches', icon: Users });
+    navItems.push({ label: 'Batches & Permissions', href: '/faculty/batches', icon: ShieldCheck });
   }
+
 
   return (
     <aside className="w-64 bg-white border-r border-[#EBE5DC] flex flex-col h-screen sticky top-0 shrink-0 shadow-warm-sm">
@@ -73,11 +75,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ role }) => {
         })}
       </nav>
 
-      {/* Footer / Phase Info */}
+      {/* Footer / Platform Info */}
       <div className="p-4 border-t border-[#EBE5DC] text-[11px] text-stone-400 text-center">
-        <span>Phase 2 — Examination & Students</span>
+        <span>ExamGuard AI • Live Platform</span>
       </div>
     </aside>
   );
 };
+
 

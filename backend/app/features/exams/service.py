@@ -6,7 +6,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.features.exams.models import Exam, ExamStatus, ExamReexamPermission, AttemptPolicyType
+from app.features.exams.models import Exam, ExamStatus, ExamReexamPermission, ExamReexamConsumption, AttemptPolicyType
 from app.features.exams.schemas import (
     ExamCreate,
     ExamUpdate,
@@ -268,7 +268,12 @@ class ExamService:
         for p in perms:
             student = p.student
             roll = student.student_profile.student_id if student and student.student_profile else None
-            remaining = max(0, p.extra_attempts_allowed - p.attempts_consumed)
+            if p.student_id is not None:
+                remaining = max(0, p.extra_attempts_allowed - p.attempts_consumed)
+                consumed = p.attempts_consumed
+            else:
+                consumed = p.attempts_consumed
+                remaining = p.extra_attempts_allowed
             responses.append(
                 ReexamPermissionResponse(
                     id=p.id,
@@ -278,7 +283,7 @@ class ExamService:
                     student_email=student.email if student else "*@*",
                     student_roll_number=roll,
                     extra_attempts_allowed=p.extra_attempts_allowed,
-                    attempts_consumed=p.attempts_consumed,
+                    attempts_consumed=consumed,
                     remaining_attempts=remaining,
                     created_at=p.created_at
                 )
@@ -298,9 +303,9 @@ class ExamService:
                 ExamReexamPermission.exam_id == exam_id,
                 ExamReexamPermission.student_id == student_id,
                 ExamReexamPermission.attempts_consumed < ExamReexamPermission.extra_attempts_allowed
-            )
+            ).order_by(ExamReexamPermission.created_at.desc())
         )
-        perm = res.scalar_one_or_none()
+        perm = res.scalars().first()
         if perm:
             return perm
 
@@ -308,9 +313,57 @@ class ExamService:
         res_all = await db.execute(
             select(ExamReexamPermission).where(
                 ExamReexamPermission.exam_id == exam_id,
-                ExamReexamPermission.student_id.is_(None),
-                ExamReexamPermission.attempts_consumed < ExamReexamPermission.extra_attempts_allowed
-            )
+                ExamReexamPermission.student_id.is_(None)
+            ).order_by(ExamReexamPermission.created_at.desc())
         )
-        return res_all.scalar_one_or_none()
+        global_perms = res_all.scalars().all()
+        for g_perm in global_perms:
+            c_res = await db.execute(
+                select(ExamReexamConsumption).where(
+                    ExamReexamConsumption.permission_id == g_perm.id,
+                    ExamReexamConsumption.student_id == student_id
+                )
+            )
+            consumption = c_res.scalar_one_or_none()
+            consumed = consumption.attempts_consumed if consumption else 0
+            if consumed < g_perm.extra_attempts_allowed:
+                return g_perm
+
+        return None
+
+    @staticmethod
+    async def consume_reexam_permission(
+        db: AsyncSession,
+        perm: ExamReexamPermission,
+        student_id: str
+    ) -> None:
+        """Consumes one re-examination attempt. Tracks student-specific or per-student global consumption."""
+        now = datetime.now(timezone.utc)
+        if perm.student_id is not None:
+            # Student-specific permission: increment directly on permission record
+            perm.attempts_consumed += 1
+        else:
+            # Global permission: record/increment in exam_reexam_consumptions for this student
+            c_res = await db.execute(
+                select(ExamReexamConsumption).where(
+                    ExamReexamConsumption.permission_id == perm.id,
+                    ExamReexamConsumption.student_id == student_id
+                )
+            )
+            consumption = c_res.scalar_one_or_none()
+            if consumption:
+                consumption.attempts_consumed += 1
+                consumption.updated_at = now
+            else:
+                consumption = ExamReexamConsumption(
+                    id=str(uuid.uuid4()),
+                    permission_id=perm.id,
+                    student_id=student_id,
+                    attempts_consumed=1,
+                    created_at=now,
+                    updated_at=now
+                )
+                db.add(consumption)
+            perm.attempts_consumed += 1
+
 

@@ -11,12 +11,23 @@ from app.core.config import settings
 from app.features.faculty.schemas import (
     FacultyProfileResponse,
     FacultyProfileUpdate,
-    BatchSummaryResponse
+    BatchSummaryResponse,
+    FacultyDashboardStatsResponse
 )
 from app.features.faculty.service import FacultyService
 from app.features.students.schemas import StudentResponse
 
 router = APIRouter(prefix="/faculty", tags=["Faculty"])
+
+
+@router.get("/dashboard-stats", response_model=FacultyDashboardStatsResponse)
+async def get_faculty_dashboard_stats(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN]))
+):
+    """Retrieves live metrics, proctoring summaries, and student rosters for faculty dashboard."""
+    return await FacultyService.get_dashboard_stats(db, current_user.id)
+
 
 
 @router.get("/me", response_model=FacultyProfileResponse)

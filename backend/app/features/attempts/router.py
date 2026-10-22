@@ -22,6 +22,7 @@ from app.features.attempts.schemas import (
     MediaSessionResponse,
     UpdateMediaStatusRequest,
     StartOrResumeAttemptRequest,
+    StartAttemptRequest,
     StudentActiveExamSummary,
     StudentExamStatusResponse,
     GradebookEntry,
@@ -71,6 +72,35 @@ async def start_or_resume_attempt(
     if is_rejoin or (res.rejoin_count and res.rejoin_count > 0):
         await signaling_manager.broadcast_student_state(
             exam_id=exam_id,
+            student_id=current_user.id,
+            state_payload={
+                "type": "student_rejoined",
+                "attempt_id": res.id,
+                "student_id": current_user.id,
+                "student_name": current_user.name,
+                "student_email": current_user.email,
+                "student_roll_number": getattr(current_user, "roll_number", "") or "",
+                "rejoin_count": res.rejoin_count,
+                "max_rejoins": res.max_rejoins,
+                "violation_count": getattr(res, "violation_count", 0) or 0,
+                "status": res.status.value if hasattr(res.status, "value") else str(res.status),
+            }
+        )
+    return res
+
+
+@router.post("/attempts/start", response_model=AttemptResponse, status_code=status.HTTP_201_CREATED)
+async def start_attempt_direct(
+    req: StartAttemptRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.STUDENT]))
+):
+    res = await AttemptService.start_or_get_attempt(
+        db, req.exam_id, student_id=current_user.id, session_token=req.session_token, is_rejoin=req.is_rejoin
+    )
+    if req.is_rejoin or (res.rejoin_count and res.rejoin_count > 0):
+        await signaling_manager.broadcast_student_state(
+            exam_id=req.exam_id,
             student_id=current_user.id,
             state_payload={
                 "type": "student_rejoined",

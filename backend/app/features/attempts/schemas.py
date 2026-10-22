@@ -55,6 +55,13 @@ class StartOrResumeAttemptRequest(BaseModel):
     is_rejoin: bool = False
 
 
+class StartAttemptRequest(BaseModel):
+    exam_id: str
+    session_token: Optional[str] = None
+    is_rejoin: bool = False
+
+
+
 class StudentActiveExamSummary(BaseModel):
     exam_id: str
     exam_title: str

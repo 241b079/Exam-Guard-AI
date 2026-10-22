@@ -48,3 +48,43 @@ class BatchSummaryResponse(BaseModel):
     completed_count: int
     locked_count: int
     active_permission_count: int
+
+
+class ProctoringIncidentSummary(BaseModel):
+    id: str
+    exam_id: str
+    exam_title: Optional[str] = None
+    student_name: Optional[str] = None
+    student_email: Optional[str] = None
+    event_type: str
+    severity: str
+    review_status: str
+    detected_at: datetime
+    evidence_url: Optional[str] = None
+
+
+class StudentSummaryItem(BaseModel):
+    id: str
+    user_id: str
+    student_id: str
+    name: str
+    email: str
+    batch: Optional[str] = None
+    department: Optional[str] = None
+    is_active: bool = True
+    profile_completed: bool = False
+
+
+class FacultyDashboardStatsResponse(BaseModel):
+    total_exams: int
+    published_exams: int
+    total_students: int
+    active_students: int
+    total_submissions: int
+    proctoring_total_events: int
+    proctoring_pending_reviews: int
+    proctoring_critical_high: int
+    recent_incidents: List[ProctoringIncidentSummary] = []
+    recent_students: List[StudentSummaryItem] = []
+    batches: List[BatchSummaryResponse] = []
+

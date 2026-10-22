@@ -125,7 +125,7 @@ async def init_db():
     from app.features.students.models import StudentProfile  # noqa
     from app.features.students.permission_models import ProfileEditPermission  # noqa
     from app.features.faculty.models import FacultyProfile  # noqa
-    from app.features.exams.models import Exam, ExamReexamPermission  # noqa
+    from app.features.exams.models import Exam, ExamReexamPermission, ExamReexamConsumption  # noqa
     from app.features.questions.models import Question  # noqa
     from app.features.attempts.models import ExamAttempt, Answer, ExamViolation, ExamMediaSession  # noqa
     from app.features.proctoring.models import ProctoringEvent  # noqa
@@ -231,6 +231,32 @@ async def init_db():
             """))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_exam_reexam_permissions_exam_id ON exam_reexam_permissions(exam_id);"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_exam_reexam_permissions_student_id ON exam_reexam_permissions(student_id);"))
+
+            # Phase 2A: Unique indexes for attempt consistency and atomicity
+            await conn.execute(text("""
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_exam_attempts_active_in_progress
+                ON exam_attempts (student_id, exam_id)
+                WHERE status = 'IN_PROGRESS';
+            """))
+            await conn.execute(text("""
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_exam_attempts_student_exam_num
+                ON exam_attempts (exam_id, student_id, attempt_number);
+            """))
+
+            # Phase 2B: Per-student re-examination consumption tracking for global permissions
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS exam_reexam_consumptions (
+                    id VARCHAR(36) PRIMARY KEY,
+                    permission_id VARCHAR(36) NOT NULL REFERENCES exam_reexam_permissions(id) ON DELETE CASCADE,
+                    student_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    attempts_consumed INTEGER NOT NULL DEFAULT 1,
+                    created_at TIMESTAMPTZ NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL,
+                    UNIQUE(permission_id, student_id)
+                );
+            """))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_exam_reexam_consumptions_perm_student ON exam_reexam_consumptions(permission_id, student_id);"))
+
 
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS proctoring_events (
