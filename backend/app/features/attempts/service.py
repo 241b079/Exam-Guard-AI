@@ -41,8 +41,16 @@ from app.features.attempts.schemas import (
 )
 
 from app.features.users.models import User, UserRole
-from app.features.exams.models import Exam, NegativeMarkingType, AssignmentType, AvailabilityType, AttemptPolicyType
+from app.features.exams.models import (
+    Exam,
+    ExamStatus,
+    NegativeMarkingType,
+    AssignmentType,
+    AvailabilityType,
+    AttemptPolicyType,
+)
 from app.features.exams.service import ExamService
+from app.features.proctoring.signaling import signaling_manager
 from app.features.questions.models import Question, QuestionType
 
 
@@ -648,8 +656,36 @@ class AttemptService:
         attempt.total_score = max(0.0, total_score)
         attempt.max_possible_score = max_possible_score
 
+        # Close media session upon submission so live stream is torn down and not reported as active
+        media_res = await db.execute(
+            select(ExamMediaSession).where(ExamMediaSession.exam_attempt_id == attempt_id)
+        )
+        media_sess = media_res.scalar_one_or_none()
+        if media_sess:
+            media_sess.status = MediaSessionStatus.CLOSED
+            media_sess.camera_active = False
+            media_sess.mic_active = False
+            media_sess.screen_active = False
+            media_sess.updated_at = now
+
         await db.commit()
         await db.refresh(attempt)
+
+        # Broadcast real-time student_submitted event to evict candidate from live faculty monitoring grid
+        try:
+            await signaling_manager.broadcast_student_state(
+                exam_id=attempt.exam_id,
+                student_id=student_id,
+                state_payload={
+                    "type": "student_submitted",
+                    "attempt_id": attempt.id,
+                    "student_id": student_id,
+                    "status": "SUBMITTED",
+                }
+            )
+        except Exception:
+            pass
+
         return AttemptService._to_submit_response(attempt)
 
     @staticmethod
@@ -768,7 +804,8 @@ class AttemptService:
     async def get_exam_monitoring(
         db: AsyncSession,
         exam_id: str,
-        current_user: User
+        current_user: User,
+        active_only: bool = True
     ) -> List[AttemptMonitoringResponse]:
         exam = await ExamService.get_by_id(db, exam_id)
         if not exam:
@@ -776,20 +813,51 @@ class AttemptService:
         if current_user.role == UserRole.FACULTY and exam.created_by_id != current_user.id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to monitor this exam")
 
-        attempts_result = await db.execute(
-            select(ExamAttempt)
-            .where(ExamAttempt.exam_id == exam_id)
-            .options(
-                selectinload(ExamAttempt.student).selectinload(User.student_profile),
-                selectinload(ExamAttempt.violations),
-                selectinload(ExamAttempt.media_session)
+        now = datetime.now(timezone.utc)
+
+        # When active_only is requested for live proctoring, verify the examination is actively open
+        if active_only:
+            if exam.status != ExamStatus.PUBLISHED:
+                return []
+            if exam.availability_type == AvailabilityType.SCHEDULED:
+                if exam.start_time and now < exam.start_time:
+                    return []
+                if exam.end_time and now > exam.end_time:
+                    return []
+
+        query = select(ExamAttempt).where(ExamAttempt.exam_id == exam_id)
+        if active_only:
+            query = query.where(
+                ExamAttempt.status == AttemptStatus.IN_PROGRESS,
+                ExamAttempt.submitted_at.is_(None)
             )
-            .order_by(ExamAttempt.started_at.desc())
-        )
+
+        query = query.options(
+            selectinload(ExamAttempt.student).selectinload(User.student_profile),
+            selectinload(ExamAttempt.violations),
+            selectinload(ExamAttempt.media_session)
+        ).order_by(ExamAttempt.started_at.desc())
+
+        attempts_result = await db.execute(query)
         attempts = attempts_result.scalars().all()
 
         monitoring_data = []
+        seen_student_ids = set()
+
         for att in attempts:
+            if active_only:
+                # 1. Deduplicate by student: each candidate only appears once in the live monitor grid
+                if att.student_id in seen_student_ids:
+                    continue
+                seen_student_ids.add(att.student_id)
+
+                # 2. Check if candidate's allotted exam duration has lapsed
+                duration_mins = exam.duration_minutes or 60
+                attempt_cutoff = att.started_at + timedelta(minutes=duration_mins + 2)
+                if now > attempt_cutoff:
+                    # Attempt duration has lapsed; candidate is not actively taking the test
+                    continue
+
             student = att.student
             roll = student.student_profile.student_id if student and student.student_profile else None
             student_info = AttemptMonitoringStudentInfo(

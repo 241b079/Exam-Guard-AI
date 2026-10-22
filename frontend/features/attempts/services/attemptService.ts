@@ -84,8 +84,8 @@ export const attemptService = {
     return fetchApi<ExamViolation[]>(`/api/v1/attempts/${attemptId}/violations`);
   },
 
-  async getExamAttemptsMonitoring(examId: string): Promise<AttemptMonitoringResponse[]> {
-    return fetchApi<AttemptMonitoringResponse[]>(`/api/v1/exams/${examId}/attempts-monitoring`);
+  async getExamAttemptsMonitoring(examId: string, activeOnly: boolean = true): Promise<AttemptMonitoringResponse[]> {
+    return fetchApi<AttemptMonitoringResponse[]>(`/api/v1/exams/${examId}/attempts-monitoring?active_only=${activeOnly}`);
   },
 
   async getMyExamResult(examId: string, attemptId?: string): Promise<AttemptReviewResponse> {

@@ -142,12 +142,26 @@ export default function FacultyExamDetailPage() {
     });
   }, [examId]);
 
+  const handleStudentSubmitted = React.useCallback((payload: any) => {
+    // Immediately evict student from live monitoring grid upon submission / auto-submit
+    setMonitoringData((prev) =>
+      prev.filter(
+        (item) =>
+          item.attempt_id !== payload.attempt_id &&
+          item.student.id !== payload.student_id
+      )
+    );
+    // Refresh gradebook so the submitted candidate immediately appears in Submissions & Gradebook
+    fetchGradebook();
+  }, []);
+
   // WebRTC Live Monitoring for Students
   const { studentStreams, isWsConnected, refresh: refreshSignaling } = useWebRTCFaculty({
     examId,
     onViolationReceived: handleViolationReceived,
     onStudentRejoined: handleStudentRejoined,
     onStudentJoined: handleStudentJoined,
+    onStudentSubmitted: handleStudentSubmitted,
   });
 
   const fetchExam = async () => {
@@ -561,31 +575,56 @@ export default function FacultyExamDetailPage() {
                   <div className="space-y-2">
                     <label className="font-semibold text-stone-800 block">Select Students</label>
                     <div className="max-h-48 overflow-y-auto p-2 bg-[#FAF7F2] border border-[#EBE5DC] rounded-xl space-y-1.5">
-                      {monitoringData.length === 0 ? (
-                        <p className="text-stone-400 italic p-1">No candidate records available yet.</p>
-                      ) : (
-                        monitoringData.map((att) => {
-                          const isChecked = selectedStudentIds.includes(att.student.id);
+                      {(() => {
+                        const candidateMap = new Map<string, { id: string; name: string; email: string }>();
+                        if (gradebook?.entries) {
+                          gradebook.entries.forEach((e) => {
+                            if (e.student?.id) {
+                              candidateMap.set(e.student.id, {
+                                id: e.student.id,
+                                name: e.student.name,
+                                email: e.student.email,
+                              });
+                            }
+                          });
+                        }
+                        monitoringData.forEach((att) => {
+                          if (att.student?.id) {
+                            candidateMap.set(att.student.id, {
+                              id: att.student.id,
+                              name: att.student.name,
+                              email: att.student.email,
+                            });
+                          }
+                        });
+                        const candidateList = Array.from(candidateMap.values());
+
+                        if (candidateList.length === 0) {
+                          return <p className="text-stone-400 italic p-1">No candidate records available yet.</p>;
+                        }
+
+                        return candidateList.map((cand) => {
+                          const isChecked = selectedStudentIds.includes(cand.id);
                           return (
-                            <label key={att.student.id} className="flex items-center gap-2 p-1.5 hover:bg-white rounded cursor-pointer">
+                            <label key={cand.id} className="flex items-center gap-2 p-1.5 hover:bg-white rounded cursor-pointer">
                               <input
                                 type="checkbox"
                                 checked={isChecked}
                                 onChange={(e) => {
                                   if (e.target.checked) {
-                                    setSelectedStudentIds([...selectedStudentIds, att.student.id]);
+                                    setSelectedStudentIds([...selectedStudentIds, cand.id]);
                                   } else {
-                                    setSelectedStudentIds(selectedStudentIds.filter(id => id !== att.student.id));
+                                    setSelectedStudentIds(selectedStudentIds.filter(id => id !== cand.id));
                                   }
                                 }}
                                 className="accent-[#C25E1A]"
                               />
-                              <span className="font-medium text-stone-800">{att.student.name}</span>
-                              <span className="text-[10px] text-stone-500">({att.student.email})</span>
+                              <span className="font-medium text-stone-800">{cand.name}</span>
+                              <span className="text-[10px] text-stone-500">({cand.email})</span>
                             </label>
                           );
-                        })
-                      )}
+                        });
+                      })()}
                     </div>
                   </div>
                 )}
@@ -959,21 +998,55 @@ export default function FacultyExamDetailPage() {
             </Button>
           </div>
 
-          {monitoringData.length === 0 ? (
-            <Card className="p-8 text-center text-stone-500 text-sm">
-              No candidate attempts recorded for this exam yet.
-            </Card>
-          ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {monitoringData.map((att) => (
-                <FacultyLiveMonitorCard
-                  key={att.attempt_id}
-                  monitoring={att}
-                  mediaTracks={studentStreams[att.student.id]}
-                />
-              ))}
-            </div>
-          )}
+          {(() => {
+            const isExamActive =
+              exam?.status === 'PUBLISHED' &&
+              (exam?.availability_type !== 'SCHEDULED' ||
+                ((!exam.start_time || new Date() >= new Date(exam.start_time)) &&
+                  (!exam.end_time || new Date() <= new Date(exam.end_time))));
+
+            const activeLiveCandidates = monitoringData.filter(
+              (att) => att.status === 'IN_PROGRESS'
+            );
+
+            if (!isExamActive) {
+              return (
+                <Card className="p-8 text-center space-y-2 bg-[#FAF7F2] border border-[#EBE5DC]">
+                  <p className="text-sm font-semibold text-stone-700">
+                    Examination is currently closed or outside its scheduled availability window.
+                  </p>
+                  <p className="text-xs text-stone-500">
+                    Live candidate video streams and media monitoring are only active while an examination is open and published.
+                  </p>
+                </Card>
+              );
+            }
+
+            if (activeLiveCandidates.length === 0) {
+              return (
+                <Card className="p-8 text-center space-y-2 bg-white border border-[#EBE5DC]">
+                  <p className="text-sm font-semibold text-stone-800">
+                    No candidates are currently taking this exam live.
+                  </p>
+                  <p className="text-xs text-stone-500">
+                    Live candidate cards will appear here as soon as a student starts their attempt, and are automatically removed once they submit or auto-submit.
+                  </p>
+                </Card>
+              );
+            }
+
+            return (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {activeLiveCandidates.map((att) => (
+                  <FacultyLiveMonitorCard
+                    key={att.attempt_id}
+                    monitoring={att}
+                    mediaTracks={studentStreams[att.student.id]}
+                  />
+                ))}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Proctoring Evidence & Identity Incident Review Gallery */}

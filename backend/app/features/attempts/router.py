@@ -215,10 +215,11 @@ async def get_violations(
 @router.get("/exams/{exam_id}/attempts-monitoring", response_model=List[AttemptMonitoringResponse])
 async def get_exam_monitoring(
     exam_id: str,
+    active_only: bool = Query(True, description="Filter for currently active in-progress attempts only"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN]))
 ):
-    return await AttemptService.get_exam_monitoring(db, exam_id, current_user=current_user)
+    return await AttemptService.get_exam_monitoring(db, exam_id, current_user=current_user, active_only=active_only)
 
 
 @router.post("/attempts/{attempt_id}/media-session", response_model=MediaSessionResponse)

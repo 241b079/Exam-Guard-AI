@@ -19,6 +19,8 @@ export interface UseWebRTCFacultyOptions {
   onViolationReceived?: (violation: any) => void;
   onStudentRejoined?: (payload: any) => void;
   onStudentJoined?: (payload: any) => void;
+  onStudentSubmitted?: (payload: any) => void;
+  onStudentLeft?: (payload: any) => void;
 }
 
 export function useWebRTCFaculty({
@@ -26,6 +28,8 @@ export function useWebRTCFaculty({
   onViolationReceived,
   onStudentRejoined,
   onStudentJoined,
+  onStudentSubmitted,
+  onStudentLeft,
 }: UseWebRTCFacultyOptions) {
   const [studentStreams, setStudentStreams] = useState<Record<string, StudentMediaTracks>>({});
   const [activeStudentIds, setActiveStudentIds] = useState<string[]>([]);
@@ -42,13 +46,17 @@ export function useWebRTCFaculty({
   const onViolationReceivedRef = useRef(onViolationReceived);
   const onStudentRejoinedRef = useRef(onStudentRejoined);
   const onStudentJoinedRef = useRef(onStudentJoined);
+  const onStudentSubmittedRef = useRef(onStudentSubmitted);
+  const onStudentLeftRef = useRef(onStudentLeft);
   const seenViolationIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     onViolationReceivedRef.current = onViolationReceived;
     onStudentRejoinedRef.current = onStudentRejoined;
     onStudentJoinedRef.current = onStudentJoined;
-  }, [onViolationReceived, onStudentRejoined, onStudentJoined]);
+    onStudentSubmittedRef.current = onStudentSubmitted;
+    onStudentLeftRef.current = onStudentLeft;
+  }, [onViolationReceived, onStudentRejoined, onStudentJoined, onStudentSubmitted, onStudentLeft]);
 
   const getFacultyWsUrl = useCallback(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
@@ -339,6 +347,29 @@ export function useWebRTCFaculty({
             break;
           }
 
+          case 'student_submitted':
+            if (msg.student_id) {
+              setActiveStudentIds((prev) => prev.filter((id) => id !== msg.student_id));
+              const pc = peerConnectionsRef.current.get(msg.student_id);
+              if (pc) {
+                pc.close();
+                peerConnectionsRef.current.delete(msg.student_id);
+              }
+              pendingIceCandidatesRef.current.delete(msg.student_id);
+              updateStudentState(msg.student_id, (prev) => ({
+                ...prev,
+                connectionState: 'disconnected',
+                hasCamera: false,
+                hasMic: false,
+                hasScreen: false,
+                cameraStream: null,
+                screenStream: null,
+                audioStream: null,
+              }));
+              onStudentSubmittedRef.current?.(msg);
+            }
+            break;
+
           case 'student_left':
             if (msg.student_id) {
               setActiveStudentIds((prev) => prev.filter((id) => id !== msg.student_id));
@@ -358,6 +389,7 @@ export function useWebRTCFaculty({
                 screenStream: null,
                 audioStream: null,
               }));
+              onStudentLeftRef.current?.(msg);
             }
             break;
 
