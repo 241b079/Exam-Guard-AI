@@ -61,6 +61,7 @@ export function FacultyEvidenceGallery({
   const [inspectingEvent, setInspectingEvent] = useState<ProctoringEventItem | null>(null);
   const [reviewNote, setReviewNote] = useState('');
   const [isUpdatingReview, setIsUpdatingReview] = useState(false);
+  const [failedImageIds, setFailedImageIds] = useState<Record<string, boolean>>({});
 
   const fetchEvents = useCallback(async () => {
     try {
@@ -313,7 +314,7 @@ export function FacultyEvidenceGallery({
 
         {/* Evidence Thumbnail / Snapshot Container */}
         <div className="relative aspect-video w-full rounded-2xl bg-stone-950 overflow-hidden border border-stone-800 flex items-center justify-center group">
-          {hasEvidence ? (
+          {hasEvidence && !failedImageIds[ev.id] ? (
             <>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -321,6 +322,7 @@ export function FacultyEvidenceGallery({
                 alt={`Evidence for ${ev.event_type}`}
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                 loading="lazy"
+                onError={() => setFailedImageIds((prev) => ({ ...prev, [ev.id]: true }))}
               />
               <button
                 onClick={() => setInspectingEvent(ev)}
@@ -666,7 +668,7 @@ export function FacultyEvidenceGallery({
 
                 {/* Evidence Thumbnail Preview */}
                 <div className="relative aspect-video w-full rounded-2xl bg-stone-950 overflow-hidden border border-stone-800 flex items-center justify-center">
-                  {hasEvidence && cluster.latestEvidenceEvent ? (
+                  {hasEvidence && cluster.latestEvidenceEvent && !failedImageIds[cluster.latestEvidenceEvent.id] ? (
                     <>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
@@ -676,6 +678,12 @@ export function FacultyEvidenceGallery({
                         alt={`Latest capture for ${cluster.studentName}`}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                         loading="lazy"
+                        onError={() => {
+                          if (cluster.latestEvidenceEvent) {
+                            const errId = cluster.latestEvidenceEvent.id;
+                            setFailedImageIds((prev) => ({ ...prev, [errId]: true }));
+                          }
+                        }}
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-stone-950/80 via-transparent to-transparent flex items-end justify-between p-3">
                         <span className="text-[11px] font-mono text-white/95 flex items-center gap-1.5">
@@ -784,12 +792,15 @@ export function FacultyEvidenceGallery({
               {/* Evidence Visual Capture */}
               <div className="lg:col-span-2 space-y-2">
                 <div className="relative aspect-video w-full rounded-2xl bg-stone-950 overflow-hidden border border-stone-800 flex items-center justify-center">
-                  {inspectingEvent.evidence_url ? (
+                  {inspectingEvent.evidence_url && !failedImageIds[inspectingEvent.id] ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={continuousProctoringService.getEvidenceImageUrl(inspectingEvent.id)}
                       alt="Proctoring visual evidence"
                       className="w-full h-full object-contain"
+                      onError={() =>
+                        setFailedImageIds((prev) => ({ ...prev, [inspectingEvent.id]: true }))
+                      }
                     />
                   ) : (
                     <div className="text-center p-6 text-stone-500 space-y-2">

@@ -1,11 +1,12 @@
 import os
 from typing import Optional, List
-from fastapi import APIRouter, Depends, status, UploadFile, File, Form, Query, HTTPException
+from fastapi import APIRouter, Depends, status, UploadFile, File, Form, Query, Header, Cookie, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import get_db
+from app.core.security import decode_token
 from app.features.auth.dependencies import get_current_user, require_roles
 from app.features.users.models import User, UserRole
 from app.features.exams.models import Exam
@@ -158,13 +159,57 @@ async def list_student_proctoring_events(
 @router.get("/evidence/{event_id}")
 async def get_proctoring_evidence_file(
     event_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    token: Optional[str] = Query(None),
+    authorization: Optional[str] = Header(None),
+    auth_token: Optional[str] = Cookie(None),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Secure retrieval of proctoring evidence screenshot.
-    Requires authentication; only authorized faculty or the student can access.
+    Supports Authorization header, ?token=... query parameter, or auth_token cookie
+    so that browser <img> tags can render images securely without authorization headers.
     """
+    raw_token = None
+    if authorization and authorization.startswith("Bearer "):
+        raw_token = authorization.split(" ", 1)[1]
+    elif token:
+        raw_token = token
+    elif auth_token:
+        raw_token = auth_token
+
+    if not raw_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication token required (header, token query, or cookie)",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+
+    try:
+        payload = decode_token(raw_token)
+        user_id = payload.get("sub")
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token missing user identity",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+
+    user_res = await db.execute(select(User).where(User.id == user_id))
+    current_user = user_res.scalar_one_or_none()
+    if not current_user or not current_user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or inactive",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+
     ev = await ProctoringService.get_proctoring_event(db, event_id)
     if not ev or not ev.evidence_path:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evidence not found")

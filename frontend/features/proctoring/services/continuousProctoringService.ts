@@ -119,6 +119,9 @@ export const continuousProctoringService = {
    */
   getEvidenceImageUrl(eventId: string): string {
     const apiUrl = getApiUrl();
-    return `${apiUrl}/api/v1/proctoring/evidence/${eventId}`;
+    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+    return token
+      ? `${apiUrl}/api/v1/proctoring/evidence/${eventId}?token=${encodeURIComponent(token)}`
+      : `${apiUrl}/api/v1/proctoring/evidence/${eventId}`;
   },
 };
