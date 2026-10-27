@@ -111,6 +111,7 @@ class MediaSessionStatus(str, enum.Enum):
     CONNECTED = "CONNECTED"
     DISCONNECTED = "DISCONNECTED"
     ENDED = "ENDED"
+    CLOSED = "ENDED"
 
 
 class ExamMediaSession(Base):

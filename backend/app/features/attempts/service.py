@@ -662,7 +662,7 @@ class AttemptService:
         )
         media_sess = media_res.scalar_one_or_none()
         if media_sess:
-            media_sess.status = MediaSessionStatus.CLOSED
+            media_sess.status = MediaSessionStatus.ENDED
             media_sess.camera_active = False
             media_sess.mic_active = False
             media_sess.screen_active = False
