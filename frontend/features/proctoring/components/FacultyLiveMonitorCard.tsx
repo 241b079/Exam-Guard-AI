@@ -12,6 +12,10 @@ import {
   User,
   Radio,
   Maximize2,
+  Minimize2,
+  Zap,
+  ShieldAlert,
+  FileText,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -22,15 +26,26 @@ import { StudentMediaTracks } from '../hooks/useWebRTCFaculty';
 interface FacultyLiveMonitorCardProps {
   monitoring: AttemptMonitoringResponse;
   mediaTracks?: StudentMediaTracks;
+  onFocusChange?: (studentId: string, isFocused: boolean) => void;
+  onInspectInvestigation?: (attemptId: string) => void;
 }
 
 export function FacultyLiveMonitorCard({
   monitoring,
   mediaTracks,
+  onFocusChange,
+  onInspectInvestigation,
 }: FacultyLiveMonitorCardProps) {
   const [activeTab, setActiveTab] = useState<'camera' | 'screen'>('camera');
   const [isAudioMuted, setIsAudioMuted] = useState(true);
   const [audioPlaybackError, setAudioPlaybackError] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
+
+  const toggleFocus = () => {
+    const next = !isFocused;
+    setIsFocused(next);
+    onFocusChange?.(monitoring.student.id, next);
+  };
 
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
   const screenVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -137,7 +152,9 @@ export function FacultyLiveMonitorCard({
           : (connectionState === 'connected' ? 1 : 0));
 
   return (
-    <Card className="p-5 space-y-4 bg-white border border-[#EBE5DC] rounded-3xl shadow-warm flex flex-col justify-between">
+    <Card className={`p-5 space-y-4 bg-white border border-[#EBE5DC] rounded-3xl shadow-warm flex flex-col justify-between transition-all ${
+      isFocused ? 'lg:col-span-2 shadow-warm-lg ring-2 ring-cyan-500/30' : ''
+    }`}>
       {/* Hidden audio element for student mic playback */}
       <audio ref={audioRef} autoPlay playsInline />
 
@@ -163,6 +180,27 @@ export function FacultyLiveMonitorCard({
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5 justify-end">
+          {mediaTracks?.isSfu ? (
+            <span
+              className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1 transition-all ${
+                isFocused
+                  ? 'bg-cyan-600 text-white border-cyan-700 shadow-sm'
+                  : 'bg-cyan-50 text-cyan-900 border-cyan-300'
+              }`}
+              title="LiveKit SFU Dynacast: Ingests candidate video once and forwards dynamic low-bitrate thumbnails or 720p HD"
+            >
+              <Zap className="w-3 h-3 text-cyan-500 fill-current" />
+              <span>SFU Dynacast {isFocused ? '• 720p HD' : '• 180p Low-BW'}</span>
+            </span>
+          ) : (
+            <span
+              className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 border border-stone-300 flex items-center gap-1"
+              title="Direct WebRTC Peer-to-Peer Mesh Fallback"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-stone-400" />
+              <span>P2P Mesh</span>
+            </span>
+          )}
           <span className="text-[11px] font-semibold text-stone-700 bg-stone-100 px-2 py-0.5 rounded-full border border-stone-200">
             Att #{monitoring.attempt_number || 1}
           </span>
@@ -179,6 +217,41 @@ export function FacultyLiveMonitorCard({
           >
             {monitoring.violation_count} {monitoring.violation_count === 1 ? 'Violation' : 'Violations'}
           </span>
+          {typeof (monitoring as any).risk_score === 'number' && (
+            <span
+              className={`text-[11px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1 ${
+                ((monitoring as any).risk_level === 'CRITICAL' || (monitoring as any).risk_score >= 75)
+                  ? 'bg-red-50 text-red-700 border-red-200 animate-pulse'
+                  : ((monitoring as any).risk_level === 'HIGH' || (monitoring as any).risk_score >= 50)
+                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                  : ((monitoring as any).risk_level === 'MEDIUM' || (monitoring as any).risk_score >= 30)
+                  ? 'bg-yellow-50 text-yellow-700 border-yellow-200'
+                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+              }`}
+              title={`Dynamic Cheating Risk Score: ${(monitoring as any).risk_score.toFixed(1)}/100`}
+            >
+              <ShieldAlert className="w-3 h-3" />
+              <span>Risk: {(monitoring as any).risk_score.toFixed(0)}</span>
+            </span>
+          )}
+          {(monitoring as any).investigation_status === 'DISQUALIFIED' ? (
+            <Badge variant="danger">DISQUALIFIED</Badge>
+          ) : (monitoring as any).investigation_status === 'VIOLATION_CONFIRMED' ? (
+            <Badge variant="danger">VIOLATION</Badge>
+          ) : (monitoring as any).investigation_status === 'CLEARED' ? (
+            <Badge variant="success">CLEARED</Badge>
+          ) : null}
+          {onInspectInvestigation && (
+            <button
+              type="button"
+              onClick={() => onInspectInvestigation(monitoring.attempt_id)}
+              className="text-[11px] font-bold text-stone-700 hover:text-stone-900 bg-white hover:bg-stone-100 border border-stone-200 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs transition-colors"
+              title="Open Post-Examination AI Investigation Dossier"
+            >
+              <FileText className="w-3 h-3 text-stone-500" />
+              <span>Dossier</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -362,6 +435,23 @@ export function FacultyLiveMonitorCard({
             }`}
           >
             <Monitor className="w-3.5 h-3.5" /> Screen
+          </button>
+          <button
+            onClick={toggleFocus}
+            title={isFocused ? 'Switch back to low-bandwidth overview grid' : 'Focus candidate (scales SFU stream to 720p HD)'}
+            className={`px-2 py-1 rounded-lg font-medium transition-all flex items-center gap-1 ${
+              isFocused ? 'bg-cyan-600 text-white shadow-sm' : 'text-stone-300 hover:text-white'
+            }`}
+          >
+            {isFocused ? (
+              <>
+                <Minimize2 className="w-3.5 h-3.5" /> Normal
+              </>
+            ) : (
+              <>
+                <Maximize2 className="w-3.5 h-3.5" /> Focus HD
+              </>
+            )}
           </button>
         </div>
 

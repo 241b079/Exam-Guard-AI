@@ -31,6 +31,24 @@ services:
       timeout: 5s
       retries: 5
 
+  # Selective Forwarding Unit (SFU) Media Server (LiveKit)
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: exam_proctoring_livekit
+    command: --dev
+    ports:
+      - "7880:7880"       # WebRTC Signaling & HTTP API
+      - "7881:7881"       # WebRTC TCP Fallback
+      - "7882:7882/udp"   # WebRTC UDP Media Traffic
+    environment:
+      - LIVEKIT_KEYS=devkey:secret_1234567890_abcdefghijklmnopqrstuvwxyz
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7880/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
 volumes:
   postgres_data:
   redis_data:

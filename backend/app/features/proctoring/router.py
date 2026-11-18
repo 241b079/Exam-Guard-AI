@@ -3,7 +3,7 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, status, UploadFile, File, Form, Query, Header, Cookie, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, desc
 
 from app.core.database import get_db
 from app.core.security import decode_token
@@ -20,8 +20,12 @@ from app.features.proctoring.schemas import (
     ProctoringEventResponse,
     ProctoringEventReviewPatch,
     ProctoringEventsListResponse,
+    SFUTokenRequest,
+    SFUTokenResponse,
 )
 from app.features.proctoring.service import ProctoringService
+from app.features.proctoring.sfu import LiveKitTokenService
+from app.core.config import settings
 
 router = APIRouter(prefix="/proctoring", tags=["Proctoring"])
 
@@ -237,3 +241,354 @@ async def review_proctoring_event(
         patch=patch
     )
     return _map_event_to_response(ev)
+
+
+@router.post("/sfu/token", response_model=SFUTokenResponse)
+async def get_sfu_access_token(
+    req: SFUTokenRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Issues an authorized LiveKit SFU access token for Selective Forwarding Unit media exchange.
+    Enables low-bandwidth simulcast / dynacast streaming for candidate cameras and screens.
+    """
+    exam = await db.get(Exam, req.exam_id)
+    if not exam:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Exam not found"
+        )
+
+    attempt_id = req.attempt_id
+    if current_user.role == UserRole.STUDENT:
+        from app.features.attempts.models import ExamAttempt, AttemptStatus
+        stmt = select(ExamAttempt).where(
+            ExamAttempt.exam_id == req.exam_id,
+            ExamAttempt.student_id == current_user.id,
+            ExamAttempt.status == AttemptStatus.IN_PROGRESS
+        )
+        attempt_res = await db.execute(stmt)
+        attempt = attempt_res.scalar_one_or_none()
+        if not attempt:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Student does not have an active exam attempt in progress."
+            )
+        attempt_id = attempt.id
+    elif current_user.role == UserRole.FACULTY:
+        if exam.created_by_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Faculty not authorized to monitor this exam"
+            )
+    # ADMIN is authorized by default
+
+    token = LiveKitTokenService.create_token(
+        user_id=current_user.id,
+        name=current_user.name,
+        role=current_user.role.value,
+        exam_id=req.exam_id,
+        attempt_id=attempt_id,
+    )
+
+    identity = f"stu_{current_user.id}" if current_user.role == UserRole.STUDENT else f"fac_{current_user.id}"
+    return SFUTokenResponse(
+        sfu_enabled=settings.SFU_ENABLED,
+        server_url=settings.LIVEKIT_URL,
+        token=token,
+        room_name=LiveKitTokenService.get_room_name(req.exam_id),
+        identity=identity,
+        role=current_user.role.value,
+    )
+
+
+# ── AI Risk Scoring & Post-Examination Investigation Endpoints ──
+
+from app.features.proctoring.schemas import (
+    StudentRiskScoreResponse,
+    FacultyAlertResponse,
+    ExaminationInvestigationResponse,
+    FacultyDecisionRequest,
+    IncidentReviewRequest,
+)
+from app.features.proctoring.models import (
+    StudentRiskScore,
+    FacultyAlert,
+    ExaminationInvestigation,
+    ProctoringIncident,
+)
+from app.features.proctoring.risk_engine import RiskScoringEngine
+from app.features.proctoring.investigation import PostExaminationInvestigationService
+from sqlalchemy.orm import selectinload
+
+
+@router.get("/risk/{attempt_id}", response_model=StudentRiskScoreResponse)
+async def get_attempt_risk_score(
+    attempt_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Returns current dynamic cheating risk score for an examination attempt.
+    """
+    res = await db.execute(
+        select(StudentRiskScore).where(StudentRiskScore.exam_attempt_id == attempt_id)
+    )
+    risk_score = res.scalar_one_or_none()
+    if not risk_score:
+        # Return initial default 0 score
+        risk_score = await RiskScoringEngine._fetch_or_create_default(db, attempt_id)
+    return risk_score
+
+
+@router.get("/alerts/{exam_id}", response_model=List[FacultyAlertResponse])
+async def list_faculty_alerts(
+    exam_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN])),
+):
+    """
+    Retrieves real-time faculty alerts generated when students enter medium, high, or critical risk tiers.
+    """
+    exam = await db.get(Exam, exam_id)
+    if not exam:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exam not found")
+    if current_user.role == UserRole.FACULTY and exam.created_by_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized for this exam")
+
+    stmt = (
+        select(FacultyAlert)
+        .where(FacultyAlert.exam_id == exam_id)
+        .options(selectinload(FacultyAlert.student))
+        .order_by(FacultyAlert.created_at.desc())
+    )
+    res = await db.execute(stmt)
+    alerts = res.scalars().all()
+
+    resp = []
+    for a in alerts:
+        resp.append(FacultyAlertResponse(
+            id=a.id,
+            exam_id=a.exam_id,
+            exam_attempt_id=a.exam_attempt_id,
+            student_id=a.student_id,
+            student_name=a.student.name if a.student else None,
+            student_email=a.student.email if a.student else None,
+            severity=a.severity,
+            title=a.title,
+            description=a.description,
+            current_risk_score=a.current_risk_score,
+            risk_classification=a.risk_classification,
+            evidence_url=a.evidence_url,
+            ai_explanation=a.ai_explanation,
+            incident_id=a.incident_id,
+            is_read=a.is_read,
+            created_at=a.created_at,
+        ))
+    return resp
+
+
+@router.patch("/alerts/{alert_id}/read", response_model=FacultyAlertResponse)
+async def mark_alert_read(
+    alert_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN])),
+):
+    alert = await db.get(FacultyAlert, alert_id)
+    if not alert:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
+    alert.is_read = True
+    await db.commit()
+    await db.refresh(alert)
+    return alert
+
+
+@router.get("/investigations/{exam_id}", response_model=List[ExaminationInvestigationResponse])
+async def list_exam_investigations(
+    exam_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN])),
+):
+    """
+    Lists post-examination investigations for all submitted or completed candidate attempts in an exam.
+    """
+    exam = await db.get(Exam, exam_id)
+    if not exam:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exam not found")
+    if current_user.role == UserRole.FACULTY and exam.created_by_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized for this exam")
+
+    stmt = (
+        select(ExaminationInvestigation)
+        .where(ExaminationInvestigation.exam_id == exam_id)
+        .options(
+            selectinload(ExaminationInvestigation.student).selectinload(User.student_profile),
+            selectinload(ExaminationInvestigation.exam),
+        )
+        .order_by(desc(ExaminationInvestigation.final_risk_score))
+    )
+    res = await db.execute(stmt)
+    investigations = res.scalars().all()
+
+    resp = []
+    for inv in investigations:
+        student = inv.student
+        roll = student.student_profile.student_id if student and student.student_profile else None
+        resp.append(ExaminationInvestigationResponse(
+            id=inv.id,
+            exam_id=inv.exam_id,
+            exam_attempt_id=inv.exam_attempt_id,
+            student_id=inv.student_id,
+            student_name=student.name if student else None,
+            student_email=student.email if student else None,
+            student_roll_number=roll,
+            exam_title=inv.exam.title if inv.exam else None,
+            final_risk_score=inv.final_risk_score,
+            risk_classification=inv.risk_classification,
+            review_priority=inv.review_priority,
+            total_incidents=inv.total_incidents,
+            confirmed_count=inv.confirmed_count,
+            suspicious_count=inv.suspicious_count,
+            inconclusive_count=inv.inconclusive_count,
+            monitoring_interruption_count=inv.monitoring_interruption_count,
+            executive_summary=inv.executive_summary,
+            incident_timeline_json=inv.incident_timeline_json or [],
+            correlations_json=inv.correlations_json or [],
+            score_breakdown_json=inv.score_breakdown_json or {},
+            limitations_notes=inv.limitations_notes,
+            investigation_status=inv.investigation_status,
+            generated_at=inv.generated_at,
+            updated_at=inv.updated_at,
+        ))
+    return resp
+
+
+@router.get("/investigations/{exam_id}/attempt/{attempt_id}", response_model=ExaminationInvestigationResponse)
+async def get_attempt_investigation(
+    exam_id: str,
+    attempt_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN])),
+):
+    """
+    Returns full post-examination investigation report with incident timeline,
+    AI explanations, evidence links, and score breakdown.
+    """
+    inv = await PostExaminationInvestigationService.generate_investigation_report(db, attempt_id)
+    student = inv.student
+    roll = student.student_profile.student_id if student and student.student_profile else None
+
+    return ExaminationInvestigationResponse(
+        id=inv.id,
+        exam_id=inv.exam_id,
+        exam_attempt_id=inv.exam_attempt_id,
+        student_id=inv.student_id,
+        student_name=student.name if student else None,
+        student_email=student.email if student else None,
+        student_roll_number=roll,
+        exam_title=inv.exam.title if inv.exam else None,
+        final_risk_score=inv.final_risk_score,
+        risk_classification=inv.risk_classification,
+        review_priority=inv.review_priority,
+        total_incidents=inv.total_incidents,
+        confirmed_count=inv.confirmed_count,
+        suspicious_count=inv.suspicious_count,
+        inconclusive_count=inv.inconclusive_count,
+        monitoring_interruption_count=inv.monitoring_interruption_count,
+        executive_summary=inv.executive_summary,
+        incident_timeline_json=inv.incident_timeline_json or [],
+        correlations_json=inv.correlations_json or [],
+        score_breakdown_json=inv.score_breakdown_json or {},
+        limitations_notes=inv.limitations_notes,
+        investigation_status=inv.investigation_status,
+        generated_at=inv.generated_at,
+        updated_at=inv.updated_at,
+    )
+
+
+@router.post("/investigations/{attempt_id}/incident/{incident_id}/review")
+async def review_investigation_incident(
+    attempt_id: str,
+    incident_id: str,
+    req: IncidentReviewRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN])),
+):
+    """
+    Faculty marks an individual incident as VALIDATED or FALSE_POSITIVE.
+    If FALSE_POSITIVE, the risk score is automatically recalculated with the incident deducted.
+    """
+    incident = await db.get(ProctoringIncident, incident_id)
+    if not incident or incident.exam_attempt_id != attempt_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Incident not found for this attempt")
+
+    incident.review_status = req.status
+    if req.comment:
+        incident.review_comment = req.comment
+
+    if req.status == "FALSE_POSITIVE":
+        await RiskScoringEngine.recalculate_attempt_score(
+            db=db,
+            attempt_id=attempt_id,
+            trigger_event_type="FALSE_POSITIVE_REJECTION",
+            trigger_incident_id=incident_id,
+            reason=f"Faculty marked incident as false positive: {req.comment or 'No comment'}"
+        )
+
+    await db.commit()
+    return {"message": "Incident review updated", "incident_id": incident_id, "review_status": req.status}
+
+
+@router.post("/investigations/{attempt_id}/decision", response_model=ExaminationInvestigationResponse)
+async def submit_faculty_investigation_decision(
+    attempt_id: str,
+    req: FacultyDecisionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN])),
+):
+    """
+    Faculty formal post-examination decision:
+    - CLEARED: Clears candidate, confirms normal gradebook evaluation.
+    - VIOLATION_CONFIRMED: Flags policy violation with justification.
+    - DISQUALIFIED: Formal disqualification requiring mandatory justification reason. Zeros attempt score.
+    """
+    inv = await PostExaminationInvestigationService.submit_faculty_decision(
+        db=db,
+        attempt_id=attempt_id,
+        faculty_user=current_user,
+        decision=req.decision,
+        reason=req.reason,
+        notes=req.notes,
+        incident_reviews=req.incident_reviews,
+    )
+
+    student = inv.student
+    roll = student.student_profile.student_id if student and student.student_profile else None
+    return ExaminationInvestigationResponse(
+        id=inv.id,
+        exam_id=inv.exam_id,
+        exam_attempt_id=inv.exam_attempt_id,
+        student_id=inv.student_id,
+        student_name=student.name if student else None,
+        student_email=student.email if student else None,
+        student_roll_number=roll,
+        exam_title=inv.exam.title if inv.exam else None,
+        final_risk_score=inv.final_risk_score,
+        risk_classification=inv.risk_classification,
+        review_priority=inv.review_priority,
+        total_incidents=inv.total_incidents,
+        confirmed_count=inv.confirmed_count,
+        suspicious_count=inv.suspicious_count,
+        inconclusive_count=inv.inconclusive_count,
+        monitoring_interruption_count=inv.monitoring_interruption_count,
+        executive_summary=inv.executive_summary,
+        incident_timeline_json=inv.incident_timeline_json or [],
+        correlations_json=inv.correlations_json or [],
+        score_breakdown_json=inv.score_breakdown_json or {},
+        limitations_notes=inv.limitations_notes,
+        investigation_status=inv.investigation_status,
+        generated_at=inv.generated_at,
+        updated_at=inv.updated_at,
+    )
+

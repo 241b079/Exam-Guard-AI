@@ -190,6 +190,10 @@ export interface AttemptMonitoringResponse {
   yaw?: number;
   pitch?: number;
   detected_objects?: string[];
+  risk_score?: number | null;
+  risk_level?: string | null;
+  incident_count?: number | null;
+  investigation_status?: string | null;
 }
 
 export interface GradebookStudentInfo {

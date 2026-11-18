@@ -128,7 +128,16 @@ async def init_db():
     from app.features.exams.models import Exam, ExamReexamPermission, ExamReexamConsumption  # noqa
     from app.features.questions.models import Question  # noqa
     from app.features.attempts.models import ExamAttempt, Answer, ExamViolation, ExamMediaSession  # noqa
-    from app.features.proctoring.models import ProctoringEvent  # noqa
+    from app.features.proctoring.models import (  # noqa
+        ProctoringEvent,
+        ProctoringIncident,
+        StudentRiskScore,
+        RiskScoreHistory,
+        FacultyAlert,
+        ExaminationInvestigation,
+        FacultyReview,
+        DisqualificationRecord,
+    )
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -331,11 +340,166 @@ async def init_db():
             await conn.execute(text("ALTER TABLE proctoring_events ADD COLUMN IF NOT EXISTS reviewed_by_id VARCHAR(36) REFERENCES users(id) ON DELETE SET NULL;"))
             await conn.execute(text("ALTER TABLE proctoring_events ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;"))
 
+            await conn.execute(text("ALTER TABLE proctoring_events ADD COLUMN IF NOT EXISTS ai_classification VARCHAR(30) DEFAULT 'CONFIRMED';"))
+            await conn.execute(text("ALTER TABLE proctoring_events ADD COLUMN IF NOT EXISTS detection_source VARCHAR(50) DEFAULT 'VISION_AI';"))
+            await conn.execute(text("ALTER TABLE proctoring_events ADD COLUMN IF NOT EXISTS ai_explanation TEXT;"))
+
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_events_exam_id ON proctoring_events(exam_id);"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_events_student_id ON proctoring_events(student_id);"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_events_attempt_id ON proctoring_events(exam_attempt_id);"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_events_incident_id ON proctoring_events(incident_id);"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_events_type ON proctoring_events(event_type);"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_events_review_status ON proctoring_events(review_status);"))
+
+            # Evidence-Based Cheating Detection & Risk Scoring Tables
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS proctoring_incidents (
+                    id VARCHAR(36) PRIMARY KEY,
+                    exam_id VARCHAR(36) NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+                    exam_attempt_id VARCHAR(36) NOT NULL REFERENCES exam_attempts(id) ON DELETE CASCADE,
+                    student_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    incident_type VARCHAR(50) NOT NULL,
+                    category VARCHAR(50) NOT NULL DEFAULT 'BEHAVIORAL_ANOMALY',
+                    severity VARCHAR(20) NOT NULL DEFAULT 'MEDIUM',
+                    ai_classification VARCHAR(30) NOT NULL DEFAULT 'SUSPICIOUS',
+                    peak_confidence DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+                    started_at TIMESTAMPTZ NOT NULL,
+                    ended_at TIMESTAMPTZ,
+                    duration_seconds DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+                    event_count INTEGER NOT NULL DEFAULT 1,
+                    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+                    primary_evidence_url VARCHAR(500),
+                    ai_explanation TEXT,
+                    review_status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+                    review_comment TEXT,
+                    risk_contribution DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+                    metadata_json JSON DEFAULT '{}'::json,
+                    created_at TIMESTAMPTZ NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL
+                );
+            """))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_incidents_attempt ON proctoring_incidents(exam_attempt_id);"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_incidents_exam ON proctoring_incidents(exam_id);"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_incidents_student ON proctoring_incidents(student_id);"))
+
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS student_risk_scores (
+                    id VARCHAR(36) PRIMARY KEY,
+                    exam_id VARCHAR(36) NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+                    exam_attempt_id VARCHAR(36) UNIQUE NOT NULL REFERENCES exam_attempts(id) ON DELETE CASCADE,
+                    student_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    current_score DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+                    peak_score DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+                    risk_level VARCHAR(20) NOT NULL DEFAULT 'LOW',
+                    incident_count INTEGER NOT NULL DEFAULT 0,
+                    confirmed_incidents_count INTEGER NOT NULL DEFAULT 0,
+                    suspicious_incidents_count INTEGER NOT NULL DEFAULT 0,
+                    inconclusive_incidents_count INTEGER NOT NULL DEFAULT 0,
+                    monitoring_status VARCHAR(30) NOT NULL DEFAULT 'NORMAL',
+                    last_calculated_at TIMESTAMPTZ NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL
+                );
+            """))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_student_risk_scores_attempt ON student_risk_scores(exam_attempt_id);"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_student_risk_scores_exam ON student_risk_scores(exam_id);"))
+
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS risk_score_history (
+                    id VARCHAR(36) PRIMARY KEY,
+                    exam_attempt_id VARCHAR(36) NOT NULL REFERENCES exam_attempts(id) ON DELETE CASCADE,
+                    risk_score_id VARCHAR(36) REFERENCES student_risk_scores(id) ON DELETE CASCADE,
+                    score_before DOUBLE PRECISION NOT NULL,
+                    score_after DOUBLE PRECISION NOT NULL,
+                    delta DOUBLE PRECISION NOT NULL,
+                    trigger_event_type VARCHAR(50) NOT NULL,
+                    trigger_incident_id VARCHAR(36),
+                    risk_level VARCHAR(20) NOT NULL,
+                    reason VARCHAR(255) NOT NULL,
+                    timestamp TIMESTAMPTZ NOT NULL
+                );
+            """))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_risk_score_history_attempt ON risk_score_history(exam_attempt_id);"))
+
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS faculty_alerts (
+                    id VARCHAR(36) PRIMARY KEY,
+                    exam_id VARCHAR(36) NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+                    exam_attempt_id VARCHAR(36) NOT NULL REFERENCES exam_attempts(id) ON DELETE CASCADE,
+                    student_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    severity VARCHAR(20) NOT NULL DEFAULT 'MEDIUM',
+                    title VARCHAR(255) NOT NULL,
+                    description TEXT NOT NULL,
+                    current_risk_score DOUBLE PRECISION NOT NULL,
+                    risk_classification VARCHAR(20) NOT NULL,
+                    evidence_url VARCHAR(500),
+                    ai_explanation TEXT,
+                    incident_id VARCHAR(36),
+                    is_read BOOLEAN NOT NULL DEFAULT FALSE,
+                    created_at TIMESTAMPTZ NOT NULL
+                );
+            """))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_faculty_alerts_exam ON faculty_alerts(exam_id);"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_faculty_alerts_attempt ON faculty_alerts(exam_attempt_id);"))
+
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS examination_investigations (
+                    id VARCHAR(36) PRIMARY KEY,
+                    exam_id VARCHAR(36) NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+                    exam_attempt_id VARCHAR(36) UNIQUE NOT NULL REFERENCES exam_attempts(id) ON DELETE CASCADE,
+                    student_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    final_risk_score DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+                    risk_classification VARCHAR(20) NOT NULL DEFAULT 'LOW',
+                    review_priority VARCHAR(20) NOT NULL DEFAULT 'LOW',
+                    total_incidents INTEGER NOT NULL DEFAULT 0,
+                    confirmed_count INTEGER NOT NULL DEFAULT 0,
+                    suspicious_count INTEGER NOT NULL DEFAULT 0,
+                    inconclusive_count INTEGER NOT NULL DEFAULT 0,
+                    monitoring_interruption_count INTEGER NOT NULL DEFAULT 0,
+                    executive_summary TEXT,
+                    incident_timeline_json JSON DEFAULT '[]'::json,
+                    correlations_json JSON DEFAULT '[]'::json,
+                    score_breakdown_json JSON DEFAULT '{}'::json,
+                    limitations_notes TEXT,
+                    investigation_status VARCHAR(30) NOT NULL DEFAULT 'PENDING_REVIEW',
+                    generated_at TIMESTAMPTZ NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL
+                );
+            """))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_examination_investigations_exam ON examination_investigations(exam_id);"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_examination_investigations_attempt ON examination_investigations(exam_attempt_id);"))
+
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS faculty_reviews (
+                    id VARCHAR(36) PRIMARY KEY,
+                    investigation_id VARCHAR(36) NOT NULL REFERENCES examination_investigations(id) ON DELETE CASCADE,
+                    exam_attempt_id VARCHAR(36) NOT NULL REFERENCES exam_attempts(id) ON DELETE CASCADE,
+                    faculty_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    decision VARCHAR(50) NOT NULL,
+                    reason TEXT,
+                    notes TEXT,
+                    incident_adjustments_json JSON DEFAULT '{}'::json,
+                    created_at TIMESTAMPTZ NOT NULL
+                );
+            """))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_faculty_reviews_investigation ON faculty_reviews(investigation_id);"))
+
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS disqualification_records (
+                    id VARCHAR(36) PRIMARY KEY,
+                    exam_attempt_id VARCHAR(36) UNIQUE NOT NULL REFERENCES exam_attempts(id) ON DELETE CASCADE,
+                    exam_id VARCHAR(36) NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+                    student_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    faculty_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    reason TEXT NOT NULL,
+                    evidence_summary TEXT NOT NULL,
+                    final_risk_score DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+                    disqualified_at TIMESTAMPTZ NOT NULL,
+                    is_appealable BOOLEAN NOT NULL DEFAULT TRUE,
+                    appeal_status VARCHAR(30) NOT NULL DEFAULT 'NONE'
+                );
+            """))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_disqualification_records_attempt ON disqualification_records(exam_attempt_id);"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_disqualification_records_exam ON disqualification_records(exam_id);"))
         except Exception as e:
             logger.warning(f"Note: Column migration check skipped or completed: {e}")

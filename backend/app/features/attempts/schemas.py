@@ -47,6 +47,10 @@ class AttemptResponse(BaseModel):
     max_rejoins: int = 2
     face_count: Optional[int] = None
     identity_state: Optional[str] = None
+    risk_score: Optional[float] = 0.0
+    risk_level: Optional[str] = "LOW"
+    incident_count: Optional[int] = 0
+    investigation_status: Optional[str] = None
     session_token: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -76,6 +80,10 @@ class StudentActiveExamSummary(BaseModel):
     max_rejoins: int = 2
     face_count: Optional[int] = None
     identity_state: Optional[str] = None
+    risk_score: Optional[float] = 0.0
+    risk_level: Optional[str] = "LOW"
+    incident_count: Optional[int] = 0
+    investigation_status: Optional[str] = None
     identity_verified: bool = False
 
 
@@ -92,6 +100,10 @@ class StudentExamStatusResponse(BaseModel):
     max_rejoins: int = 2
     face_count: Optional[int] = None
     identity_state: Optional[str] = None
+    risk_score: Optional[float] = 0.0
+    risk_level: Optional[str] = "LOW"
+    incident_count: Optional[int] = 0
+    investigation_status: Optional[str] = None
 
 
 class SubmitAttemptResponse(BaseModel):
@@ -172,6 +184,10 @@ class AttemptMonitoringResponse(BaseModel):
     max_rejoins: int = 2
     face_count: Optional[int] = None
     identity_state: Optional[str] = None
+    risk_score: Optional[float] = 0.0
+    risk_level: Optional[str] = "LOW"
+    incident_count: Optional[int] = 0
+    investigation_status: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

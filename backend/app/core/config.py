@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     MULTIPLE_PERSON_CONFIRM_SECONDS: float = 2.0
     INCIDENT_COOLDOWN_SECONDS: float = 30.0
 
+    # Selective Forwarding Unit (SFU) Settings (LiveKit)
+    SFU_ENABLED: bool = True
+    LIVEKIT_URL: str = "ws://localhost:7880"
+    LIVEKIT_API_KEY: str = "devkey"
+    LIVEKIT_API_SECRET: str = "secret_1234567890_abcdefghijklmnopqrstuvwxyz"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

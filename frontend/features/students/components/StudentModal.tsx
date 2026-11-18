@@ -23,6 +23,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [studentId, setStudentId] = useState('');
+  const [password, setPassword] = useState('');
   const [phone, setPhone] = useState('');
   const [department, setDepartment] = useState('');
   const [course, setCourse] = useState('');
@@ -52,6 +53,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({
       setName('');
       setEmail('');
       setStudentId('');
+      setPassword('');
       setPhone('');
       setDepartment('');
       setCourse('');
@@ -103,10 +105,11 @@ export const StudentModal: React.FC<StudentModalProps> = ({
           name,
           email,
           student_id: studentId,
+          password: password.trim() || undefined,
           phone: phone || undefined,
           department: department || undefined,
           course: course || undefined,
-          semester: semester ? Number(semester) : undefined,
+          semester: semester !== '' ? Number(semester) : undefined,
           section: section || undefined,
           date_of_birth: dateOfBirth || undefined,
           gender: gender || undefined,
@@ -183,6 +186,19 @@ export const StudentModal: React.FC<StudentModalProps> = ({
               onChange={(e) => setPhone(e.target.value)}
             />
           </div>
+
+          {!studentToEdit && (
+            <div>
+              <Input
+                label="Initial Password (Optional)"
+                type="text"
+                placeholder="Student@123 (Default)"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                helperText="Leave blank to use default initial password: Student@123"
+              />
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Input

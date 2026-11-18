@@ -708,6 +708,45 @@ class ProctoringService:
                     tracker.last_evidence_saved_at = now
                     evidence_captured = True
 
+        # Wire incident recording & dynamic risk scoring
+        current_risk_score = 0.0
+        current_risk_level = "LOW"
+        try:
+            from app.features.proctoring.risk_engine import RiskScoringEngine
+            from app.features.proctoring.models import AIClassification
+
+            ai_class = (
+                AIClassification.CONFIRMED.value
+                if (primary_conf or 0.8) >= 0.70
+                else AIClassification.SUSPICIOUS.value
+            )
+            expl = f"Confirmed proctoring condition: {target_state}. Face count: {face_count}."
+            inc_obj, risk_score_obj, _ = await RiskScoringEngine.record_incident_and_update_risk(
+                db=db,
+                exam_id=exam_id,
+                attempt_id=attempt.id,
+                student_id=student_user.id,
+                incident_type=target_state,
+                category="IDENTITY_AND_PRESENCE",
+                severity=severity.value if hasattr(severity, "value") else str(severity),
+                confidence=primary_conf or 0.85,
+                evidence_url=f"/api/v1/proctoring/evidence/{created_event_id or tracker.active_event_id}" if (created_event_id or tracker.active_event_id) else None,
+                explanation=expl,
+                duration_seconds=round((now - (tracker.incident_started_at or now)).total_seconds(), 2),
+                metadata={
+                    "face_count": face_count,
+                    "similarity": primary_sim,
+                },
+                existing_incident_id=tracker.active_incident_id,
+                ai_classification=ai_class
+            )
+            await db.commit()
+            if risk_score_obj:
+                current_risk_score = risk_score_obj.current_score
+                current_risk_level = risk_score_obj.risk_level
+        except Exception as r_err:
+            logger.warning(f"Error updating risk score in continuous proctoring: {r_err}")
+
         return ContinuousVerificationResponse(
             state=target_state,
             is_suspicious=True,
@@ -718,7 +757,9 @@ class ProctoringService:
             incident_id=tracker.active_incident_id,
             event_created=event_created,
             event_id=created_event_id or tracker.active_event_id,
-            evidence_captured=evidence_captured
+            evidence_captured=evidence_captured,
+            risk_score=current_risk_score,
+            risk_level=current_risk_level,
         )
 
     @staticmethod

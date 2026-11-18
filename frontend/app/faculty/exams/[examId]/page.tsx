@@ -16,7 +16,12 @@ import {
   GradebookEntry,
   AttemptReviewResponse,
 } from '@/features/attempts';
-import { useWebRTCFaculty, FacultyLiveMonitorCard, FacultyEvidenceGallery } from '@/features/proctoring';
+import {
+  useWebRTCFaculty,
+  FacultyLiveMonitorCard,
+  FacultyEvidenceGallery,
+  PostExamInvestigationModal,
+} from '@/features/proctoring';
 import { Loading } from '@/components/shared/Loading';
 import { Input } from '@/components/ui/Input';
 
@@ -49,6 +54,12 @@ export default function FacultyExamDetailPage() {
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [extraAttempts, setExtraAttempts] = useState(1);
   const [isGranting, setIsGranting] = useState(false);
+
+  // Post-Examination Investigation & Adjudication state
+  const [investigationAttemptId, setInvestigationAttemptId] = useState<string | null>(null);
+  const [recentAlerts, setRecentAlerts] = useState<
+    Array<{ id: string; title: string; description: string; risk_classification: string; student_name?: string }>
+  >([]);
 
   const fetchMonitoring = async () => {
     setIsLoadingMonitoring(true);
@@ -188,13 +199,48 @@ export default function FacultyExamDetailPage() {
   }, []);
 
   // WebRTC Live Monitoring for Students
-  const { studentStreams, isWsConnected, refresh: refreshSignaling } = useWebRTCFaculty({
+  const {
+    studentStreams,
+    isWsConnected,
+    isSfuActive,
+    setCandidateStreamQuality,
+    refresh: refreshSignaling,
+  } = useWebRTCFaculty({
     examId,
     onViolationReceived: handleViolationReceived,
     onStudentRejoined: handleStudentRejoined,
     onStudentJoined: handleStudentJoined,
     onStudentSubmitted: handleStudentSubmitted,
     onPresenceUpdate: handlePresenceUpdate,
+    onRiskUpdate: (payload) => {
+      setMonitoringData((prev) =>
+        prev.map((item) => {
+          const matches =
+            (payload.attempt_id && item.attempt_id === payload.attempt_id) ||
+            (payload.student_id && item.student.id === payload.student_id);
+          if (matches) {
+            return {
+              ...item,
+              risk_score: payload.risk_score,
+              risk_level: payload.risk_level,
+            };
+          }
+          return item;
+        })
+      );
+    },
+    onFacultyAlert: (payload) => {
+      setRecentAlerts((prev) => [
+        {
+          id: `alert_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          title: payload.title || 'Cheating Risk Alert',
+          description: payload.description || 'Elevated risk detected during examination.',
+          risk_classification: payload.risk_level || 'CRITICAL',
+          student_name: payload.student_name,
+        },
+        ...prev.slice(0, 4),
+      ]);
+    },
   });
 
   const fetchExam = async () => {
@@ -384,6 +430,41 @@ export default function FacultyExamDetailPage() {
         <Link href="/faculty/exams" className="inline-flex items-center gap-2 text-xs text-stone-500 hover:text-stone-900 transition-colors">
           <ArrowLeft className="w-4 h-4" /> Back to My Exams
         </Link>
+
+        {/* Real-time Faculty Alert Notification Banner */}
+        {recentAlerts.length > 0 && (
+          <div className="space-y-2">
+            {recentAlerts.map((alert) => (
+              <div
+                key={alert.id}
+                className="p-4 rounded-2xl bg-red-50 border border-red-200 text-red-900 shadow-warm flex items-start justify-between gap-4 animate-in fade-in slide-in-from-top-2"
+              >
+                <div className="flex items-start gap-3">
+                  <ShieldAlert className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-xs uppercase tracking-wider text-red-700">
+                        {alert.risk_classification} RISK ALERT
+                      </span>
+                      {alert.student_name && (
+                        <span className="text-xs font-semibold text-stone-800">• {alert.student_name}</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-stone-700 font-medium mt-0.5">{alert.title}</p>
+                    <p className="text-xs text-stone-600 mt-0.5">{alert.description}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setRecentAlerts((prev) => prev.filter((a) => a.id !== alert.id))}
+                  className="text-stone-400 hover:text-stone-600 text-xs font-bold p-1"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Header Action Bar */}
         <div className="p-6 md:p-8 bg-white rounded-3xl border border-[#EBE5DC] shadow-warm flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -1010,6 +1091,17 @@ export default function FacultyExamDetailPage() {
               <h2 className="text-lg font-bold font-serif text-stone-900">
                 Candidate Integrity & Live Media Monitoring
               </h2>
+              {isSfuActive ? (
+                <span className="text-[10px] font-bold text-cyan-800 bg-cyan-50 px-2 py-0.5 rounded-full border border-cyan-300 flex items-center gap-1 shadow-xs" title="LiveKit SFU Dynacast: Ingests candidate video once and forwards dynamic low-bitrate thumbnails or 720p HD">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse" />
+                  ⚡ SFU Dynacast Active
+                </span>
+              ) : (
+                <span className="text-[10px] font-bold text-stone-600 bg-stone-100 px-2 py-0.5 rounded-full border border-stone-300 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-stone-400" />
+                  P2P Mesh Mode
+                </span>
+              )}
               {isWsConnected && (
                 <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -1075,6 +1167,12 @@ export default function FacultyExamDetailPage() {
                     key={att.attempt_id}
                     monitoring={att}
                     mediaTracks={studentStreams[att.student.id]}
+                    onFocusChange={(studentId, isFocused) => {
+                      setCandidateStreamQuality(studentId, isFocused ? 'high' : 'low');
+                    }}
+                    onInspectInvestigation={(attId) => {
+                      setInvestigationAttemptId(attId);
+                    }}
                   />
                 ))}
               </div>
@@ -1082,10 +1180,181 @@ export default function FacultyExamDetailPage() {
           })()}
         </div>
 
+        {/* AI Cheating Detection, Dynamic Risk Scoring & Post-Examination Adjudication */}
+        <div className="pt-6 border-t border-[#EBE5DC] space-y-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="p-1 rounded-lg bg-red-50 text-red-700 border border-red-200">
+                  <ShieldAlert className="w-4 h-4" />
+                </span>
+                <h2 className="text-lg font-bold font-serif text-stone-900">
+                  AI Cheating Detection, Risk Scoring & Integrity Adjudication
+                </h2>
+              </div>
+              <p className="text-xs text-stone-500">
+                Audited evidence-based risk assessment (0-100). Detecting suspicious activity never automatically interrupts or disqualifies candidates.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchMonitoring}
+              className="text-xs gap-1 self-start md:self-auto"
+            >
+              <RefreshCw className="w-3.5 h-3.5" /> Refresh Risk Scores
+            </Button>
+          </div>
+
+          {/* Metric Summary Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-center">
+            <div className="p-3 rounded-2xl bg-stone-50 border border-[#EBE5DC]">
+              <div className="text-xl font-bold text-stone-800">{monitoringData.length}</div>
+              <div className="text-[10px] uppercase font-bold text-stone-400">Total Attempts</div>
+            </div>
+            <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-100">
+              <div className="text-xl font-bold text-emerald-700">
+                {monitoringData.filter((m) => (m.risk_score || 0) < 30).length}
+              </div>
+              <div className="text-[10px] uppercase font-bold text-emerald-600">Low Risk (0-29)</div>
+            </div>
+            <div className="p-3 rounded-2xl bg-yellow-50 border border-yellow-100">
+              <div className="text-xl font-bold text-yellow-700">
+                {monitoringData.filter((m) => (m.risk_score || 0) >= 30 && (m.risk_score || 0) < 50).length}
+              </div>
+              <div className="text-[10px] uppercase font-bold text-yellow-600">Medium (30-49)</div>
+            </div>
+            <div className="p-3 rounded-2xl bg-amber-50 border border-amber-100">
+              <div className="text-xl font-bold text-amber-700">
+                {monitoringData.filter((m) => (m.risk_score || 0) >= 50 && (m.risk_score || 0) < 75).length}
+              </div>
+              <div className="text-[10px] uppercase font-bold text-amber-600">High (50-74)</div>
+            </div>
+            <div className="p-3 rounded-2xl bg-red-50 border border-red-100">
+              <div className="text-xl font-bold text-red-700">
+                {monitoringData.filter((m) => (m.risk_score || 0) >= 75).length}
+              </div>
+              <div className="text-[10px] uppercase font-bold text-red-600">Critical (75-100)</div>
+            </div>
+            <div className="p-3 rounded-2xl bg-stone-100 border border-stone-200">
+              <div className="text-xl font-bold text-stone-700">
+                {monitoringData.filter((m) => m.investigation_status === 'DISQUALIFIED').length}
+              </div>
+              <div className="text-[10px] uppercase font-bold text-stone-500">Disqualified</div>
+            </div>
+          </div>
+
+          {/* Candidate Risk Scores & Investigation Table */}
+          <div className="bg-white rounded-3xl border border-[#EBE5DC] overflow-hidden shadow-warm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left text-stone-700">
+                <thead className="bg-[#FAF7F2] text-[11px] uppercase tracking-wider text-stone-500 font-semibold border-b border-[#EBE5DC]">
+                  <tr>
+                    <th className="py-3 px-4">Candidate</th>
+                    <th className="py-3 px-4">Exam Status</th>
+                    <th className="py-3 px-4">Dynamic Risk Score</th>
+                    <th className="py-3 px-4">Classification</th>
+                    <th className="py-3 px-4">Integrity Adjudication</th>
+                    <th className="py-3 px-4 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#EBE5DC]">
+                  {monitoringData.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-stone-400">
+                        No candidate attempts recorded yet for this examination.
+                      </td>
+                    </tr>
+                  ) : (
+                    monitoringData.map((att) => {
+                      const score = att.risk_score || 0;
+                      const level = att.risk_level || (score >= 75 ? 'CRITICAL' : score >= 50 ? 'HIGH' : score >= 30 ? 'MEDIUM' : 'LOW');
+                      const invStatus = att.investigation_status || 'PENDING_REVIEW';
+                      return (
+                        <tr key={att.attempt_id} className="hover:bg-stone-50/60 transition-colors">
+                          <td className="py-3 px-4">
+                            <div className="font-bold text-stone-900">{att.student.name}</div>
+                            <div className="text-[11px] text-stone-500">
+                              {att.student.roll_number ? `${att.student.roll_number} • ` : ''}
+                              {att.student.email}
+                            </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <Badge variant={att.status === 'SUBMITTED' ? 'success' : 'faculty'}>
+                              {att.status}
+                            </Badge>
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-sm text-stone-900">{score.toFixed(1)}</span>
+                              <span className="text-[10px] text-stone-400">/ 100</span>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                level === 'CRITICAL'
+                                  ? 'bg-red-50 text-red-700 border-red-200'
+                                  : level === 'HIGH'
+                                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                  : level === 'MEDIUM'
+                                  ? 'bg-yellow-50 text-yellow-700 border-yellow-200'
+                                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              }`}
+                            >
+                              {level}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4">
+                            {invStatus === 'DISQUALIFIED' ? (
+                              <Badge variant="danger">DISQUALIFIED</Badge>
+                            ) : invStatus === 'VIOLATION_CONFIRMED' ? (
+                              <Badge variant="danger">VIOLATION CONFIRMED</Badge>
+                            ) : invStatus === 'CLEARED' ? (
+                              <Badge variant="success">CLEARED</Badge>
+                            ) : invStatus === 'UNDER_INVESTIGATION' ? (
+                              <Badge variant="warning">UNDER INVESTIGATION</Badge>
+                            ) : (
+                              <Badge variant="outline">PENDING REVIEW</Badge>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setInvestigationAttemptId(att.attempt_id)}
+                              className="text-xs gap-1"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                              <span>Inspect Dossier</span>
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
         {/* Proctoring Evidence & Identity Incident Review Gallery */}
         <div className="pt-6 border-t border-[#EBE5DC]">
           <FacultyEvidenceGallery examId={examId} examTitle={exam?.title} />
         </div>
+
+        {/* Post-Examination AI Investigation & Adjudication Modal */}
+        <PostExamInvestigationModal
+          isOpen={!!investigationAttemptId}
+          onClose={() => setInvestigationAttemptId(null)}
+          examId={examId}
+          attemptId={investigationAttemptId || ''}
+          onDecisionApplied={() => {
+            fetchMonitoring();
+            fetchGradebook();
+          }}
+        />
       </div>
     </DashboardLayout>
   );

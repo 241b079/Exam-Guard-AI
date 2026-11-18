@@ -139,8 +139,8 @@ class StudentService:
                 detail=f"Student ID / Roll Number '{req.student_id}' is already registered."
             )
 
-        # Generate default password if not provided
-        raw_password = req.password if req.password else f"Student@{secrets.token_hex(4)}"
+        # Use provided password or standard default initial password
+        raw_password = req.password.strip() if req.password and req.password.strip() else "Student@123"
 
         user = User(
             name=req.name,
@@ -585,7 +585,7 @@ class StudentService:
             if not row.is_valid:
                 continue
 
-            raw_password = f"Student@{secrets.token_hex(4)}"
+            raw_password = "Student@123"
             user = User(
                 name=row.name,
                 email=row.email.lower(),

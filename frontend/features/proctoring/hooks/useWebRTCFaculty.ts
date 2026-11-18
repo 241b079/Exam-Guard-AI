@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { getWsUrl } from '@/lib/api';
 import { getIceConfiguration } from '../config/webrtc';
+import { useLiveKitSFU } from './useLiveKitSFU';
 
 export interface StudentMediaTracks {
   cameraStream: MediaStream | null;
@@ -12,6 +13,7 @@ export interface StudentMediaTracks {
   hasCamera: boolean;
   hasMic: boolean;
   hasScreen: boolean;
+  isSfu?: boolean;
 }
 
 export interface UseWebRTCFacultyOptions {
@@ -22,6 +24,8 @@ export interface UseWebRTCFacultyOptions {
   onStudentSubmitted?: (payload: any) => void;
   onStudentLeft?: (payload: any) => void;
   onPresenceUpdate?: (payload: any) => void;
+  onRiskUpdate?: (payload: any) => void;
+  onFacultyAlert?: (payload: any) => void;
 }
 
 export function useWebRTCFaculty({
@@ -32,6 +36,8 @@ export function useWebRTCFaculty({
   onStudentSubmitted,
   onStudentLeft,
   onPresenceUpdate,
+  onRiskUpdate,
+  onFacultyAlert,
 }: UseWebRTCFacultyOptions) {
   const [studentStreams, setStudentStreams] = useState<Record<string, StudentMediaTracks>>({});
   const [activeStudentIds, setActiveStudentIds] = useState<string[]>([]);
@@ -43,6 +49,65 @@ export function useWebRTCFaculty({
   const streamMapRef = useRef<Map<string, Record<string, string | null>>>(new Map());
   const streamsStoreRef = useRef<Record<string, StudentMediaTracks>>({});
   const isMountedRef = useRef(true);
+  const isSfuActiveRef = useRef(false);
+
+  // LiveKit SFU Integration (Dynacast + Adaptive Streaming)
+  const {
+    isSfuActive,
+    isSfuConnected,
+    connectSFU,
+    setCandidateStreamQuality,
+  } = useLiveKitSFU({
+    examId,
+    role: 'faculty',
+    onTrackSubscribed: (studentId, stream, kind) => {
+      updateStudentState(studentId, (prev) => {
+        const updated = { ...prev, isSfu: true, connectionState: 'connected' as const };
+        if (kind === 'camera') {
+          updated.cameraStream = stream;
+          updated.hasCamera = true;
+        } else if (kind === 'screen') {
+          updated.screenStream = stream;
+          updated.hasScreen = true;
+        } else if (kind === 'audio') {
+          updated.audioStream = stream;
+          updated.hasMic = true;
+        }
+        return updated;
+      });
+    },
+    onTrackUnsubscribed: (studentId, kind) => {
+      updateStudentState(studentId, (prev) => {
+        const updated = { ...prev };
+        if (kind === 'camera') {
+          updated.hasCamera = false;
+        } else if (kind === 'screen') {
+          updated.hasScreen = false;
+          updated.screenStream = null;
+        } else if (kind === 'audio') {
+          updated.hasMic = false;
+          updated.audioStream = null;
+        }
+        return updated;
+      });
+    },
+    onStudentDisconnected: (studentId) => {
+      updateStudentState(studentId, (prev) => ({
+        ...prev,
+        connectionState: 'disconnected',
+        hasCamera: false,
+        hasMic: false,
+        hasScreen: false,
+      }));
+    },
+    onSfuStatusChange: (_connected, active) => {
+      isSfuActiveRef.current = active;
+    },
+  });
+
+  useEffect(() => {
+    isSfuActiveRef.current = isSfuActive;
+  }, [isSfuActive]);
 
   // Callbacks and event deduplication refs
   const onViolationReceivedRef = useRef(onViolationReceived);
@@ -51,6 +116,8 @@ export function useWebRTCFaculty({
   const onStudentSubmittedRef = useRef(onStudentSubmitted);
   const onStudentLeftRef = useRef(onStudentLeft);
   const onPresenceUpdateRef = useRef(onPresenceUpdate);
+  const onRiskUpdateRef = useRef(onRiskUpdate);
+  const onFacultyAlertRef = useRef(onFacultyAlert);
   const seenViolationIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -60,7 +127,18 @@ export function useWebRTCFaculty({
     onStudentSubmittedRef.current = onStudentSubmitted;
     onStudentLeftRef.current = onStudentLeft;
     onPresenceUpdateRef.current = onPresenceUpdate;
-  }, [onViolationReceived, onStudentRejoined, onStudentJoined, onStudentSubmitted, onStudentLeft, onPresenceUpdate]);
+    onRiskUpdateRef.current = onRiskUpdate;
+    onFacultyAlertRef.current = onFacultyAlert;
+  }, [
+    onViolationReceived,
+    onStudentRejoined,
+    onStudentJoined,
+    onStudentSubmitted,
+    onStudentLeft,
+    onPresenceUpdate,
+    onRiskUpdate,
+    onFacultyAlert,
+  ]);
 
   const getFacultyWsUrl = useCallback(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
@@ -266,10 +344,12 @@ export function useWebRTCFaculty({
             setIsWsConnected(true);
             if (Array.isArray(msg.active_students)) {
               setActiveStudentIds(msg.active_students.map((s: any) => s.student_id));
-              // Request offers from all already-connected students
-              msg.active_students.forEach((s: any) => {
-                requestOfferFromStudent(s.client_id);
-              });
+              // Request offers from all already-connected students only if SFU is not active
+              if (!isSfuActiveRef.current) {
+                msg.active_students.forEach((s: any) => {
+                  requestOfferFromStudent(s.client_id);
+                });
+              }
             }
             break;
 
@@ -278,9 +358,10 @@ export function useWebRTCFaculty({
               setActiveStudentIds((prev) => Array.from(new Set([...prev, msg.student_id])));
               const existing = peerConnectionsRef.current.get(msg.student_id);
               if (
-                !existing ||
-                existing.connectionState === 'disconnected' ||
-                existing.connectionState === 'failed'
+                !isSfuActiveRef.current &&
+                (!existing ||
+                  existing.connectionState === 'disconnected' ||
+                  existing.connectionState === 'failed')
               ) {
                 if (msg.client_id) {
                   requestOfferFromStudent(msg.client_id);
@@ -293,7 +374,7 @@ export function useWebRTCFaculty({
           case 'student_rejoined':
             if (msg.student_id) {
               setActiveStudentIds((prev) => Array.from(new Set([...prev, msg.student_id])));
-              if (msg.client_id) {
+              if (!isSfuActiveRef.current && msg.client_id) {
                 requestOfferFromStudent(msg.client_id);
               }
               onStudentRejoinedRef.current?.(msg);
@@ -309,6 +390,14 @@ export function useWebRTCFaculty({
             }
             break;
           }
+
+          case 'risk_update':
+            onRiskUpdateRef.current?.(msg);
+            break;
+
+          case 'faculty_alert':
+            onFacultyAlertRef.current?.(msg);
+            break;
 
           case 'offer':
             if (msg.sender_client_id && msg.student_id && msg.sdp) {
@@ -447,6 +536,7 @@ export function useWebRTCFaculty({
 
   useEffect(() => {
     isMountedRef.current = true;
+    connectSFU().catch(() => {});
     connectSignaling();
 
     return () => {
@@ -459,12 +549,18 @@ export function useWebRTCFaculty({
       peerConnectionsRef.current.clear();
       pendingIceCandidatesRef.current.clear();
     };
-  }, [connectSignaling]);
+  }, [connectSignaling, connectSFU]);
 
   return {
     studentStreams,
     activeStudentIds,
     isWsConnected,
-    refresh: connectSignaling,
+    isSfuActive,
+    isSfuConnected,
+    setCandidateStreamQuality,
+    refresh: () => {
+      connectSFU().catch(() => {});
+      connectSignaling();
+    },
   };
 }

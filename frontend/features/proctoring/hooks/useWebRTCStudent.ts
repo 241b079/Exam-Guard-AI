@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { getWsUrl } from '@/lib/api';
 import { getIceConfiguration } from '../config/webrtc';
+import { useLiveKitSFU } from './useLiveKitSFU';
 
 export type WebRTCConnectionState =
   | 'idle'
@@ -41,6 +42,27 @@ export function useWebRTCStudent({
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef(true);
+  const isSfuActiveRef = useRef(false);
+
+  // LiveKit SFU Publisher (Simulcast enabled)
+  const {
+    isSfuActive,
+    isSfuConnected,
+    connectSFU,
+  } = useLiveKitSFU({
+    examId,
+    role: 'student',
+    attemptId,
+    cameraStream,
+    screenStream,
+    onSfuStatusChange: (_connected, active) => {
+      isSfuActiveRef.current = active;
+    },
+  });
+
+  useEffect(() => {
+    isSfuActiveRef.current = isSfuActive;
+  }, [isSfuActive]);
 
   // Keep references to media streams and callbacks stable
   const cameraStreamRef = useRef<MediaStream | null>(cameraStream);
@@ -170,6 +192,14 @@ export function useWebRTCStudent({
   const createOfferForFaculty = useCallback(
     async (facultyClientId: string, forceRestart: boolean = false) => {
       if (typeof window === 'undefined' || !window.RTCPeerConnection) return;
+
+      if (isSfuActiveRef.current) {
+        // In SFU mode, candidate media is ingested into LiveKit with simulcast;
+        // avoid expensive redundant P2P mesh uploads to multiple faculty monitors
+        setConnectionState('connected');
+        setFacultyConnected(true);
+        return;
+      }
 
       const existing = peerConnectionsRef.current.get(facultyClientId);
       // Prevent glare: if offer negotiation is already in progress, avoid duplicate offers
@@ -420,6 +450,7 @@ export function useWebRTCStudent({
   // Establish signaling connection once on mount or when examId changes
   useEffect(() => {
     isMountedRef.current = true;
+    connectSFU().catch(() => {});
     connectSignaling();
 
     return () => {
@@ -434,12 +465,17 @@ export function useWebRTCStudent({
       pendingIceCandidatesRef.current.clear();
       inFlightOffersRef.current.clear();
     };
-  }, [connectSignaling]);
+  }, [connectSignaling, connectSFU]);
 
   return {
-    connectionState,
-    facultyConnected,
-    reconnect: connectSignaling,
+    connectionState: isSfuConnected ? 'connected' : connectionState,
+    facultyConnected: isSfuConnected ? true : facultyConnected,
+    isSfuActive,
+    isSfuConnected,
+    reconnect: () => {
+      connectSFU().catch(() => {});
+      connectSignaling();
+    },
     sendViolation,
     sendMediaStatus,
   };

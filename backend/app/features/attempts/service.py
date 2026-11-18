@@ -686,6 +686,13 @@ class AttemptService:
         except Exception:
             pass
 
+        # Generate Post-Examination AI Investigation report upon submission
+        try:
+            from app.features.proctoring.investigation import PostExaminationInvestigationService
+            await PostExaminationInvestigationService.generate_investigation_report(db, attempt.id)
+        except Exception as inv_err:
+            logger.warning(f"Error generating post-examination investigation report: {inv_err}")
+
         return AttemptService._to_submit_response(attempt)
 
     @staticmethod
@@ -771,6 +778,100 @@ class AttemptService:
         db.add(violation)
         await db.commit()
         await db.refresh(violation)
+
+        # Wire incident recording & dynamic risk scoring
+        try:
+            from app.features.proctoring.risk_engine import RiskScoringEngine
+            from app.features.proctoring.models import AIClassification, EventSeverity
+
+            v_type_str = violation.violation_type.value if hasattr(violation.violation_type, "value") else str(violation.violation_type)
+
+            # Map violation type to category, classification, severity, and explanation
+            if v_type_str in ("PAGE_HIDDEN", "WINDOW_BLUR"):
+                cat = "BROWSER_ANOMALY"
+                sev = EventSeverity.MEDIUM.value
+                ai_class = AIClassification.CONFIRMED.value
+                conf = 0.95
+                expl = "Browser tab lost visibility or candidate switched active application window."
+            elif v_type_str == "FULLSCREEN_EXIT":
+                cat = "BROWSER_ANOMALY"
+                sev = EventSeverity.MEDIUM.value
+                ai_class = AIClassification.CONFIRMED.value
+                conf = 0.95
+                expl = "Exam lockdown fullscreen mode was exited."
+            elif v_type_str == "CAMERA_STOPPED":
+                cat = "HARDWARE_ANOMALY"
+                sev = EventSeverity.HIGH.value
+                ai_class = AIClassification.CONFIRMED.value
+                conf = 0.90
+                expl = "Candidate camera feed stopped during exam attempt."
+            elif v_type_str in ("MEDIA_CONNECTION_LOST", "MEDIA_CONNECTION_FAILED"):
+                cat = "NETWORK_ANOMALY"
+                sev = EventSeverity.LOW.value
+                ai_class = AIClassification.INCONCLUSIVE.value
+                conf = 0.50
+                v_type_str = "MONITORING_INTERRUPTED"
+                expl = "WebRTC media or signaling connection was interrupted. Classified as technical interruption without risk score penalty."
+            elif v_type_str == "LOOKING_AWAY":
+                cat = "BEHAVIORAL_ANOMALY"
+                sev = EventSeverity.MEDIUM.value
+                ai_class = AIClassification.SUSPICIOUS.value
+                conf = 0.85
+                expl = "Candidate sustained 3D gaze away from exam monitor."
+            elif v_type_str in ("MULTIPLE_PERSON_IDENTITY_MISMATCH", "IDENTITY_MISMATCH"):
+                cat = "IDENTITY_ANOMALY"
+                sev = EventSeverity.CRITICAL.value
+                ai_class = AIClassification.CONFIRMED.value
+                conf = float(req.metadata.get("confidence", 0.95)) if req.metadata else 0.95
+                expl = "Multiple persons or identity mismatch detected in examination area."
+            elif v_type_str == "MULTIPLE_PERSON":
+                cat = "ENVIRONMENTAL_ANOMALY"
+                sev = EventSeverity.HIGH.value
+                ai_class = AIClassification.CONFIRMED.value
+                conf = float(req.metadata.get("confidence", 0.90)) if req.metadata else 0.90
+                expl = "Multiple individuals detected in candidate proctoring feed."
+            elif v_type_str in ("NO_FACE", "TEMPORARY_ABSENCE"):
+                cat = "BEHAVIORAL_ANOMALY"
+                sev = EventSeverity.MEDIUM.value
+                ai_class = AIClassification.CONFIRMED.value
+                conf = float(req.metadata.get("confidence", 0.90)) if req.metadata else 0.90
+                expl = "No candidate face visible in camera frame."
+            elif v_type_str == "UNAUTHORIZED_OBJECT":
+                cat = "ENVIRONMENTAL_ANOMALY"
+                sev = EventSeverity.HIGH.value
+                ai_class = AIClassification.CONFIRMED.value
+                conf = 0.90
+                expl = "Prohibited object detected in exam area."
+            elif v_type_str == "AUDIO_ANOMALY":
+                cat = "AUDIO_ANOMALY"
+                sev = EventSeverity.MEDIUM.value
+                ai_class = AIClassification.SUSPICIOUS.value
+                conf = 0.80
+                expl = "Acoustic or speech anomaly detected."
+            else:
+                cat = "INTEGRITY_NOTICE"
+                sev = EventSeverity.LOW.value
+                ai_class = AIClassification.SUSPICIOUS.value
+                conf = 0.70
+                expl = f"Violation of type {v_type_str} recorded."
+
+            await RiskScoringEngine.record_incident_and_update_risk(
+                db=db,
+                exam_id=attempt.exam_id,
+                attempt_id=attempt_id,
+                student_id=student_id,
+                incident_type=v_type_str,
+                category=cat,
+                severity=sev,
+                confidence=conf,
+                explanation=expl,
+                metadata=req.metadata or {},
+                ai_classification=ai_class
+            )
+            await db.commit()
+        except Exception as r_err:
+            logger.warning(f"Error updating risk score on violation: {r_err}")
+
         return ViolationResponse.model_validate(violation)
 
     @staticmethod
@@ -841,11 +942,13 @@ class AttemptService:
         attempts_result = await db.execute(query)
         attempts = attempts_result.scalars().all()
 
-        # Query latest proctoring events to obtain current face_count and identity_state
+        # Query latest proctoring events and risk scores to obtain current face_count, identity_state, and risk levels
         attempt_ids = [att.id for att in attempts]
         latest_events_map = {}
+        risk_scores_map = {}
+        inv_map = {}
         if attempt_ids:
-            from app.features.proctoring.models import ProctoringEvent
+            from app.features.proctoring.models import ProctoringEvent, StudentRiskScore, ExaminationInvestigation
             pe_res = await db.execute(
                 select(ProctoringEvent)
                 .where(ProctoringEvent.exam_attempt_id.in_(attempt_ids))
@@ -854,6 +957,18 @@ class AttemptService:
             for pe in pe_res.scalars().all():
                 if pe.exam_attempt_id not in latest_events_map:
                     latest_events_map[pe.exam_attempt_id] = pe
+
+            rs_res = await db.execute(
+                select(StudentRiskScore).where(StudentRiskScore.exam_attempt_id.in_(attempt_ids))
+            )
+            for rs in rs_res.scalars().all():
+                risk_scores_map[rs.exam_attempt_id] = rs
+
+            inv_res = await db.execute(
+                select(ExaminationInvestigation).where(ExaminationInvestigation.exam_attempt_id.in_(attempt_ids))
+            )
+            for inv in inv_res.scalars().all():
+                inv_map[inv.exam_attempt_id] = inv
 
         monitoring_data = []
         seen_student_ids = set()
@@ -890,6 +1005,13 @@ class AttemptService:
             current_face_count = latest_pe.face_count if latest_pe else (1 if att.identity_verified else 0)
             current_identity_state = latest_pe.event_type if latest_pe else ("NORMAL_VERIFIED" if att.identity_verified else "UNKNOWN")
 
+            rs_obj = risk_scores_map.get(att.id)
+            inv_obj = inv_map.get(att.id)
+            r_score = rs_obj.current_score if rs_obj else 0.0
+            r_level = rs_obj.risk_level if rs_obj else "LOW"
+            i_count = rs_obj.incident_count if rs_obj else 0
+            inv_status = inv_obj.investigation_status if inv_obj else None
+
             monitoring_data.append(
                 AttemptMonitoringResponse(
                     attempt_id=att.id,
@@ -906,6 +1028,10 @@ class AttemptService:
                     max_rejoins=exam.max_rejoins if exam else 2,
                     face_count=current_face_count,
                     identity_state=current_identity_state,
+                    risk_score=r_score,
+                    risk_level=r_level,
+                    incident_count=i_count,
+                    investigation_status=inv_status,
                 )
             )
         return monitoring_data

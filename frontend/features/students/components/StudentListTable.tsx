@@ -35,6 +35,12 @@ export const StudentListTable: React.FC<StudentListTableProps> = ({
   onEditStudent,
   onToggleStatus,
 }) => {
+  const availableDepts = React.useMemo(() => {
+    const defaultDepts = ['CSE', 'ECE', 'ME', 'EE', 'Civil', 'IT'];
+    const dynamicDepts = students.map((s) => s.department).filter(Boolean) as string[];
+    return Array.from(new Set([...defaultDepts, ...dynamicDepts])).sort();
+  }, [students]);
+
   return (
     <div className="space-y-4">
       {/* Search & Actions Bar */}
@@ -59,12 +65,11 @@ export const StudentListTable: React.FC<StudentListTableProps> = ({
             className="px-3 py-2 bg-white border border-[#E2DAD0] rounded-xl text-xs text-stone-800 focus:outline-none focus:ring-2 focus:ring-[#C25E1A]/20 focus:border-[#C25E1A] w-full sm:w-auto"
           >
             <option value="All">All Departments</option>
-            <option value="CSE">CSE</option>
-            <option value="ECE">ECE</option>
-            <option value="ME">ME</option>
-            <option value="EE">EE</option>
-            <option value="Civil">Civil</option>
-            <option value="IT">IT</option>
+            {availableDepts.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
           </select>
 
           {/* Status Filter */}

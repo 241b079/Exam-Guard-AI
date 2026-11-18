@@ -57,6 +57,106 @@ export interface ProctoringEventsListResponse {
   events: ProctoringEventItem[];
 }
 
+export interface StudentRiskScoreResponse {
+  id: string;
+  exam_id: string;
+  exam_attempt_id: string;
+  student_id: string;
+  current_score: number;
+  peak_score: number;
+  risk_level: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  incident_count: number;
+  confirmed_incidents_count: number;
+  suspicious_incidents_count: number;
+  inconclusive_incidents_count: number;
+  monitoring_status: string;
+  last_calculated_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FacultyAlertResponse {
+  id: string;
+  exam_id: string;
+  exam_attempt_id: string;
+  student_id: string;
+  student_name?: string | null;
+  student_email?: string | null;
+  current_risk_score: number;
+  risk_classification: string;
+  severity: string;
+  title: string;
+  description: string;
+  evidence_url?: string | null;
+  trigger_event_type: string;
+  ai_explanation?: string | null;
+  is_read: boolean;
+  created_at: string;
+}
+
+export interface IncidentTimelineItem {
+  incident_id: string;
+  incident_type: string;
+  category: string;
+  severity: string;
+  started_at: string;
+  ended_at?: string | null;
+  duration_seconds: number;
+  confidence: number;
+  ai_classification: string;
+  ai_explanation?: string | null;
+  evidence_url?: string | null;
+  evidence_reference?: string | null;
+  review_status: string;
+  risk_contribution: number;
+}
+
+export interface ExaminationInvestigationResponse {
+  id: string;
+  exam_id: string;
+  exam_title?: string | null;
+  exam_attempt_id: string;
+  student_id: string;
+  student_name?: string | null;
+  student_email?: string | null;
+  student_roll_number?: string | null;
+  final_risk_score: number;
+  peak_risk_score: number;
+  risk_classification: string;
+  total_incidents: number;
+  confirmed_incidents_count: number;
+  suspicious_incidents_count: number;
+  inconclusive_incidents_count: number;
+  review_priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  investigation_status:
+    | 'PENDING_REVIEW'
+    | 'UNDER_INVESTIGATION'
+    | 'CLEARED'
+    | 'VIOLATION_CONFIRMED'
+    | 'DISQUALIFIED'
+    | 'INCONCLUSIVE';
+  executive_summary: string;
+  incident_timeline_json: IncidentTimelineItem[];
+  score_history_json: Array<{
+    score_before: number;
+    score_after: number;
+    delta: number;
+    trigger: string;
+    timestamp: string;
+    reason?: string;
+  }>;
+  correlations_json: string[];
+  limitations_json: string[];
+  recommended_action: string;
+  faculty_decision?: string | null;
+  decision_reason?: string | null;
+  decision_notes?: string | null;
+  decided_at?: string | null;
+  decided_by_name?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export const continuousProctoringService = {
   /**
    * Submits a sampled camera frame for continuous live identity verification
@@ -123,5 +223,69 @@ export const continuousProctoringService = {
     return token
       ? `${apiUrl}/api/v1/proctoring/evidence/${eventId}?token=${encodeURIComponent(token)}`
       : `${apiUrl}/api/v1/proctoring/evidence/${eventId}`;
+  },
+
+  /**
+   * Retrieves current dynamic risk score and history for an attempt
+   */
+  async getAttemptRiskScore(attemptId: string): Promise<StudentRiskScoreResponse> {
+    return fetchApi<StudentRiskScoreResponse>(`/api/v1/proctoring/risk/${attemptId}`);
+  },
+
+  /**
+   * Lists real-time faculty alerts for an exam
+   */
+  async listFacultyAlerts(examId: string): Promise<FacultyAlertResponse[]> {
+    return fetchApi<FacultyAlertResponse[]>(`/api/v1/proctoring/alerts/${examId}`);
+  },
+
+  /**
+   * Marks a faculty alert as acknowledged/read
+   */
+  async markAlertRead(alertId: string): Promise<{ success: boolean }> {
+    return fetchApi<{ success: boolean }>(`/api/v1/proctoring/alerts/${alertId}/read`, {
+      method: 'PATCH',
+    });
+  },
+
+  /**
+   * Lists all post-examination investigations for an exam
+   */
+  async listInvestigations(examId: string): Promise<ExaminationInvestigationResponse[]> {
+    return fetchApi<ExaminationInvestigationResponse[]>(`/api/v1/proctoring/investigations/${examId}`);
+  },
+
+  /**
+   * Retrieves the comprehensive post-examination investigation dossier for an attempt
+   */
+  async getInvestigation(examId: string, attemptId: string): Promise<ExaminationInvestigationResponse> {
+    return fetchApi<ExaminationInvestigationResponse>(`/api/v1/proctoring/investigations/${examId}/attempt/${attemptId}`);
+  },
+
+  /**
+   * Submits a formal faculty investigation decision (CLEARED, VIOLATION_CONFIRMED, DISQUALIFIED)
+   */
+  async submitDecision(
+    attemptId: string,
+    payload: { decision: string; reason?: string; notes?: string }
+  ): Promise<ExaminationInvestigationResponse> {
+    return fetchApi<ExaminationInvestigationResponse>(`/api/v1/proctoring/investigations/${attemptId}/decision`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  /**
+   * Reviews an individual incident (CONFIRMED, FALSE_POSITIVE) with automatic risk recalculation
+   */
+  async reviewIncident(
+    attemptId: string,
+    incidentId: string,
+    payload: { status: 'CONFIRMED' | 'FALSE_POSITIVE' | 'PENDING'; comment?: string }
+  ): Promise<{ success: boolean; incident_id: string; review_status: string; new_risk_score: number; new_risk_level: string }> {
+    return fetchApi(`/api/v1/proctoring/investigations/${attemptId}/incident/${incidentId}/review`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
   },
 };
