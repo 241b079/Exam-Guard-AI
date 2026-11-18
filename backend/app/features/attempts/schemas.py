@@ -45,6 +45,8 @@ class AttemptResponse(BaseModel):
     violation_count: int = 0
     rejoin_count: int = 0
     max_rejoins: int = 2
+    face_count: Optional[int] = None
+    identity_state: Optional[str] = None
     session_token: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -72,6 +74,8 @@ class StudentActiveExamSummary(BaseModel):
     deadline: Optional[datetime] = None
     rejoin_count: int = 0
     max_rejoins: int = 2
+    face_count: Optional[int] = None
+    identity_state: Optional[str] = None
     identity_verified: bool = False
 
 
@@ -86,6 +90,8 @@ class StudentExamStatusResponse(BaseModel):
     time_remaining_seconds: int = 0
     rejoin_count: int = 0
     max_rejoins: int = 2
+    face_count: Optional[int] = None
+    identity_state: Optional[str] = None
 
 
 class SubmitAttemptResponse(BaseModel):
@@ -164,6 +170,8 @@ class AttemptMonitoringResponse(BaseModel):
     media_session: Optional[MediaSessionResponse] = None
     rejoin_count: int = 0
     max_rejoins: int = 2
+    face_count: Optional[int] = None
+    identity_state: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

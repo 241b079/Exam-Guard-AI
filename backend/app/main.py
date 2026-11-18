@@ -16,6 +16,7 @@ from app.features.attempts.router import router as attempts_router
 from app.features.identity.router import router as identity_router
 from app.features.faculty.router import router as faculty_router
 from app.features.proctoring.router import router as proctoring_router
+from app.features.admin.router import router as admin_router
 import os
 from fastapi.staticfiles import StaticFiles
 
@@ -75,3 +76,4 @@ app.include_router(attempts_router, prefix="/api/v1")
 app.include_router(identity_router, prefix="/api/v1")
 app.include_router(faculty_router, prefix="/api/v1")
 app.include_router(proctoring_router, prefix="/api/v1")
+app.include_router(admin_router, prefix="/api/v1")

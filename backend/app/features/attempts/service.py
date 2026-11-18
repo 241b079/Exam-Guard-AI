@@ -841,6 +841,20 @@ class AttemptService:
         attempts_result = await db.execute(query)
         attempts = attempts_result.scalars().all()
 
+        # Query latest proctoring events to obtain current face_count and identity_state
+        attempt_ids = [att.id for att in attempts]
+        latest_events_map = {}
+        if attempt_ids:
+            from app.features.proctoring.models import ProctoringEvent
+            pe_res = await db.execute(
+                select(ProctoringEvent)
+                .where(ProctoringEvent.exam_attempt_id.in_(attempt_ids))
+                .order_by(ProctoringEvent.detected_at.desc())
+            )
+            for pe in pe_res.scalars().all():
+                if pe.exam_attempt_id not in latest_events_map:
+                    latest_events_map[pe.exam_attempt_id] = pe
+
         monitoring_data = []
         seen_student_ids = set()
 
@@ -872,6 +886,10 @@ class AttemptService:
             recent_v_responses = [ViolationResponse.model_validate(v) for v in sorted_violations[:10]]
             media_resp = MediaSessionResponse.model_validate(att.media_session) if att.media_session else None
 
+            latest_pe = latest_events_map.get(att.id)
+            current_face_count = latest_pe.face_count if latest_pe else (1 if att.identity_verified else 0)
+            current_identity_state = latest_pe.event_type if latest_pe else ("NORMAL_VERIFIED" if att.identity_verified else "UNKNOWN")
+
             monitoring_data.append(
                 AttemptMonitoringResponse(
                     attempt_id=att.id,
@@ -885,7 +903,9 @@ class AttemptService:
                     recent_violations=recent_v_responses,
                     media_session=media_resp,
                     rejoin_count=att.rejoin_count or 0,
-                    max_rejoins=exam.max_rejoins if exam else 2
+                    max_rejoins=exam.max_rejoins if exam else 2,
+                    face_count=current_face_count,
+                    identity_state=current_identity_state,
                 )
             )
         return monitoring_data

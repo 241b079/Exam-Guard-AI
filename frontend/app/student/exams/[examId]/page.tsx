@@ -400,6 +400,7 @@ export default function StudentExaminationPage() {
   // Continuous Live Identity Monitoring & Suspicious Evidence Engine
   const {
     currentState: continuousIdentityState,
+    lastResult: continuousIdentityResult,
   } = useContinuousIdentityMonitoring({
     examId,
     isActive: isExamActive && Boolean(cameraReady),
@@ -532,6 +533,8 @@ export default function StudentExaminationPage() {
           <ExamIntegrityIndicator
             isFullscreen={isFullscreen}
             violationCount={violationCount}
+            faceCount={continuousIdentityResult?.face_count}
+            identityState={continuousIdentityState}
           />
           <ExamTimer
             initialSeconds={attempt.time_remaining_seconds}
@@ -719,7 +722,14 @@ export default function StudentExaminationPage() {
       />
 
       {/* Floating Violation Alert Toast */}
-      <ExamViolationToast message={activeWarning} />
+      <ExamViolationToast
+        message={
+          activeWarning ||
+          (continuousIdentityResult?.face_count && continuousIdentityResult.face_count >= 2
+            ? `Warning: Multiple people (${continuousIdentityResult.face_count}) detected in your exam area. Ensure only you are in camera frame.`
+            : null)
+        }
+      />
 
       {/* Fullscreen Required / Exit Warning Overlay */}
       <ExamLockdownOverlay

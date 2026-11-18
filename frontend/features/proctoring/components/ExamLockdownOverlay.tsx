@@ -65,11 +65,15 @@ export const ExamLockdownOverlay: React.FC<ExamLockdownOverlayProps> = ({
 interface ExamIntegrityIndicatorProps {
   isFullscreen: boolean;
   violationCount: number;
+  faceCount?: number;
+  identityState?: string;
 }
 
 export const ExamIntegrityIndicator: React.FC<ExamIntegrityIndicatorProps> = ({
   isFullscreen,
   violationCount,
+  faceCount,
+  identityState,
 }) => {
   return (
     <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-[#FAF7F2] border border-[#EBE5DC] text-xs shadow-sm">
@@ -80,6 +84,39 @@ export const ExamIntegrityIndicator: React.FC<ExamIntegrityIndicatorProps> = ({
           {isFullscreen ? 'Fullscreen Active' : 'Windowed'}
         </span>
       </div>
+
+      {faceCount !== undefined && (
+        <>
+          <span className="text-stone-300">|</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-stone-500 hidden sm:inline">Exam Area:</span>
+            <span
+              className={`font-bold px-1.5 py-0.5 rounded-md text-[11px] flex items-center gap-1 ${
+                faceCount === 1
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : faceCount >= 2
+                  ? 'bg-rose-100 text-rose-800 animate-pulse'
+                  : 'bg-amber-100 text-amber-800'
+              }`}
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  faceCount === 1
+                    ? 'bg-emerald-500'
+                    : faceCount >= 2
+                    ? 'bg-rose-500'
+                    : 'bg-amber-500'
+                }`}
+              />
+              {faceCount === 1
+                ? '1 Person'
+                : faceCount >= 2
+                ? `⚠️ ${faceCount} People Detected`
+                : 'No Face'}
+            </span>
+          </div>
+        </>
+      )}
 
       <span className="text-stone-300">|</span>
 

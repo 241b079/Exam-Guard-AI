@@ -19,6 +19,7 @@ class ExamBase(BaseModel):
     display_countdown: bool = True
     assignment_type: AssignmentType = AssignmentType.ALL_STUDENTS
     assigned_student_ids: Optional[List[str]] = []
+    assigned_batches: Optional[List[str]] = []
     availability_type: AvailabilityType = AvailabilityType.ALWAYS
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
@@ -42,6 +43,7 @@ class ExamUpdate(BaseModel):
     display_countdown: Optional[bool] = None
     assignment_type: Optional[AssignmentType] = None
     assigned_student_ids: Optional[List[str]] = None
+    assigned_batches: Optional[List[str]] = None
     availability_type: Optional[AvailabilityType] = None
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None

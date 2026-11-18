@@ -15,7 +15,7 @@ from app.core.logging import logger
 from app.features.users.models import User, UserRole
 from app.features.students.models import StudentProfile
 from app.features.exams.models import Exam
-from app.features.attempts.models import ExamAttempt, AttemptStatus
+from app.features.attempts.models import ExamAttempt, AttemptStatus, ExamViolation, ViolationType
 from app.features.identity.service import FaceVerificationService
 from app.features.proctoring.models import (
     ProctoringEvent,
@@ -30,6 +30,7 @@ from app.features.proctoring.schemas import (
     ProctoringEventReviewPatch,
 )
 from app.features.proctoring.signaling import signaling_manager
+from app.features.proctoring.vision import estimate_head_pose, NanoDetDetector
 
 
 class SessionMonitoringTracker:
@@ -45,6 +46,14 @@ class SessionMonitoringTracker:
         self.incident_started_at: Optional[datetime] = None
         self.last_evidence_saved_at: Optional[datetime] = None
         self.incident_ended_at: Optional[datetime] = None
+
+        # Priority 2: 3D Gaze & Head Pose Tracking
+        self.looking_away_started_at: Optional[datetime] = None
+        self.active_looking_away_incident_id: Optional[str] = None
+        self.active_looking_away_event_id: Optional[str] = None
+
+        # Priority 2: Prohibited Object Detection tracking
+        self.last_object_violation_at: Optional[datetime] = None
 
 
 class ProctoringService:
@@ -149,9 +158,20 @@ class ProctoringService:
         if faces is None or len(faces) == 0:
             return 0, []
 
-        face_count = len(faces)
-        results = []
+        valid_faces = []
         for face in faces:
+            conf = float(face[14])
+            box_w, box_h = float(face[2]), float(face[3])
+            # Filter out tiny artifacts smaller than 20x20 pixels or below 0.6 confidence
+            if conf >= 0.6 and box_w >= 20 and box_h >= 20:
+                valid_faces.append(face)
+
+        if not valid_faces:
+            return 0, []
+
+        face_count = len(valid_faces)
+        results = []
+        for face in valid_faces:
             conf = float(face[14])
             try:
                 aligned = recognizer.alignCrop(img, face)
@@ -226,17 +246,20 @@ class ProctoringService:
         if face_count == 0:
             raw_detection = "NO_FACE"
         elif face_count == 1:
-            _, conf, feat = faces_info[0]
-            primary_conf = conf
-            if profile_feat is not None:
-                sim = FaceVerificationService.compute_similarity(feat, profile_feat)
-                primary_sim = sim
-                if sim >= threshold:
-                    raw_detection = "MATCH"
+            if faces_info:
+                _, conf, feat = faces_info[0]
+                primary_conf = conf
+                if profile_feat is not None:
+                    sim = FaceVerificationService.compute_similarity(feat, profile_feat)
+                    primary_sim = sim
+                    if sim >= threshold:
+                        raw_detection = "MATCH"
+                    else:
+                        raw_detection = "MISMATCH"
                 else:
-                    raw_detection = "MISMATCH"
+                    raw_detection = "MATCH"  # Fallback if no profile photo on file
             else:
-                raw_detection = "MATCH"  # Fallback if no profile photo on file
+                raw_detection = "MISMATCH"
         else:
             # face_count >= 2: Multi-person detection
             student_matched = False
@@ -250,6 +273,8 @@ class ProctoringService:
                         student_matched = True
                     else:
                         unknown_present = True
+                else:
+                    unknown_present = True
             
             if sim_scores:
                 primary_sim = max(sim_scores)
@@ -259,7 +284,80 @@ class ProctoringService:
             else:
                 raw_detection = "MULTIPLE_PERSON"
 
-        # 5. State Machine & Temporal Confirmation
+        # 5. Prohibited Object Detection (Cell Phone, Book, Laptop)
+        prohibited_objects = []
+        try:
+            detector = NanoDetDetector.get_instance()
+            prohibited_objects = detector.detect_prohibited(live_img)
+        except Exception as o_err:
+            logger.debug(f"Object detection skipped: {o_err}")
+
+        if prohibited_objects:
+            if tracker.last_object_violation_at is None or (now - tracker.last_object_violation_at).total_seconds() >= 10.0:
+                labels = [obj[0] for obj in prohibited_objects]
+                first_label, first_conf, first_box = prohibited_objects[0]
+                tracker.last_object_violation_at = now
+
+                rel_obj_evidence = cls.save_evidence_image(
+                    exam_id=exam_id,
+                    student_id=student_user.id,
+                    event_type="UNAUTHORIZED_OBJECT",
+                    image_bytes=live_image_bytes,
+                    timestamp=now
+                )
+
+                obj_ev = ProctoringEvent(
+                    exam_id=exam_id,
+                    exam_attempt_id=attempt.id,
+                    student_id=student_user.id,
+                    event_type=ProctoringEventType.UNAUTHORIZED_OBJECT.value,
+                    severity=EventSeverity.HIGH.value,
+                    review_status=EventReviewStatus.PENDING.value,
+                    detected_at=now,
+                    started_at=now,
+                    ended_at=now,
+                    duration=0.0,
+                    confidence=first_conf,
+                    face_count=face_count,
+                    expected_identity=student_user.name,
+                    detected_identity_status="PROHIBITED_OBJECT",
+                    evidence_path=rel_obj_evidence,
+                    incident_id=str(uuid.uuid4()),
+                    metadata_json={
+                        "detected_objects": labels,
+                        "primary_object": first_label,
+                        "confidence": round(first_conf, 3),
+                        "bounding_box": list(first_box),
+                    }
+                )
+                db.add(obj_ev)
+
+                obj_viol = ExamViolation(
+                    exam_attempt_id=attempt.id,
+                    student_id=student_user.id,
+                    violation_type=ViolationType.UNAUTHORIZED_OBJECT,
+                    timestamp=now,
+                    metadata_json={
+                        "detected_objects": labels,
+                        "evidence_path": rel_obj_evidence,
+                    }
+                )
+                db.add(obj_viol)
+                await db.commit()
+
+                await signaling_manager.broadcast_violation(exam_id, {
+                    "id": obj_ev.id,
+                    "student_id": student_user.id,
+                    "exam_attempt_id": attempt.id,
+                    "violation_type": "UNAUTHORIZED_OBJECT",
+                    "incident_id": obj_ev.incident_id,
+                    "timestamp": now.isoformat(),
+                    "evidence_url": f"/api/v1/proctoring/evidence/{obj_ev.id}",
+                    "student_name": student_user.name,
+                    "metadata": obj_ev.metadata_json,
+                })
+
+        # 6. State Machine & Temporal Confirmation
         event_created = False
         evidence_captured = False
         created_event_id: Optional[str] = None
@@ -328,15 +426,116 @@ class ProctoringService:
             tracker.pending_state_start = None
             tracker.current_state = "NORMAL_VERIFIED"
 
+            # 3D Head Pose & Gaze Estimation
+            pitch, yaw, roll, is_looking_away = 0.0, 0.0, 0.0, False
+            if faces_info:
+                pitch, yaw, roll, is_looking_away = estimate_head_pose(
+                    live_img.shape[:2], faces_info[0][0]
+                )
+
+            if is_looking_away:
+                if tracker.looking_away_started_at is None:
+                    tracker.looking_away_started_at = now
+                elif (now - tracker.looking_away_started_at).total_seconds() >= 3.0:
+                    if tracker.active_looking_away_incident_id is None:
+                        tracker.active_looking_away_incident_id = str(uuid.uuid4())
+                        rel_la_evidence = cls.save_evidence_image(
+                            exam_id=exam_id,
+                            student_id=student_user.id,
+                            event_type="LOOKING_AWAY",
+                            image_bytes=live_image_bytes,
+                            timestamp=now
+                        )
+                        la_event = ProctoringEvent(
+                            exam_id=exam_id,
+                            exam_attempt_id=attempt.id,
+                            student_id=student_user.id,
+                            event_type=ProctoringEventType.LOOKING_AWAY.value,
+                            severity=EventSeverity.MEDIUM.value,
+                            review_status=EventReviewStatus.PENDING.value,
+                            detected_at=now,
+                            started_at=tracker.looking_away_started_at,
+                            confidence=primary_sim,
+                            face_count=1,
+                            expected_identity=student_user.name,
+                            detected_identity_status="LOOKING_AWAY",
+                            evidence_path=rel_la_evidence,
+                            incident_id=tracker.active_looking_away_incident_id,
+                            metadata_json={
+                                "pitch": round(pitch, 2),
+                                "yaw": round(yaw, 2),
+                                "roll": round(roll, 2),
+                            }
+                        )
+                        db.add(la_event)
+
+                        la_violation = ExamViolation(
+                            exam_attempt_id=attempt.id,
+                            student_id=student_user.id,
+                            violation_type=ViolationType.LOOKING_AWAY,
+                            timestamp=now,
+                            metadata_json={
+                                "pitch": round(pitch, 2),
+                                "yaw": round(yaw, 2),
+                                "evidence_path": rel_la_evidence,
+                            }
+                        )
+                        db.add(la_violation)
+                        await db.commit()
+                        tracker.active_looking_away_event_id = la_event.id
+
+                        await signaling_manager.broadcast_violation(exam_id, {
+                            "id": la_event.id,
+                            "student_id": student_user.id,
+                            "exam_attempt_id": attempt.id,
+                            "violation_type": "LOOKING_AWAY",
+                            "incident_id": tracker.active_looking_away_incident_id,
+                            "timestamp": now.isoformat(),
+                            "evidence_url": f"/api/v1/proctoring/evidence/{la_event.id}",
+                            "student_name": student_user.name,
+                            "metadata": la_event.metadata_json,
+                        })
+            else:
+                if tracker.active_looking_away_incident_id is not None:
+                    if tracker.active_looking_away_event_id:
+                        la_ev = await db.get(ProctoringEvent, tracker.active_looking_away_event_id)
+                        if la_ev:
+                            la_ev.ended_at = now
+                            if la_ev.started_at:
+                                la_ev.duration = round((now - la_ev.started_at).total_seconds(), 2)
+                            await db.commit()
+                    tracker.active_looking_away_incident_id = None
+                    tracker.active_looking_away_event_id = None
+                tracker.looking_away_started_at = None
+
+            # Always broadcast real-time candidate presence (person present & verified, plus gaze & object info)
+            try:
+                await signaling_manager.broadcast_student_state(exam_id, student_user.id, {
+                    "type": "candidate_presence",
+                    "student_id": student_user.id,
+                    "attempt_id": attempt.id,
+                    "face_count": face_count,
+                    "state": "NORMAL_VERIFIED",
+                    "looking_away": is_looking_away,
+                    "yaw": round(yaw, 1),
+                    "pitch": round(pitch, 1),
+                    "detected_objects": [obj[0] for obj in prohibited_objects],
+                    "message": "Candidate looking away" if is_looking_away else "1 person present (verified candidate)",
+                    "timestamp": now.isoformat(),
+                })
+            except Exception as b_err:
+                logger.debug(f"Broadcast presence error: {b_err}")
+
+            is_confirmed_suspicious = tracker.active_looking_away_incident_id is not None
             return ContinuousVerificationResponse(
                 state="NORMAL_VERIFIED",
-                is_suspicious=False,
+                is_suspicious=is_confirmed_suspicious,
                 face_count=face_count,
                 similarity=primary_sim,
                 confidence=primary_conf,
-                message="Student verified and present.",
-                event_created=False,
-                evidence_captured=False
+                message="Candidate looking away" if is_confirmed_suspicious else "Student verified and present.",
+                event_created=event_created,
+                evidence_captured=evidence_captured
             )
 
         # Raw detection is suspicious: NO_FACE, MISMATCH, MULTIPLE_PERSON, or MULTIPLE_PERSON_IDENTITY_MISMATCH
@@ -365,6 +564,21 @@ class ProctoringService:
             confirm_duration = settings.MULTIPLE_PERSON_CONFIRM_SECONDS
             event_type = ProctoringEventType.MULTIPLE_PERSON_IDENTITY_MISMATCH
             severity = EventSeverity.CRITICAL
+
+        # Broadcast live candidate presence (person count in exam area)
+        try:
+            await signaling_manager.broadcast_student_state(exam_id, student_user.id, {
+                "type": "candidate_presence",
+                "student_id": student_user.id,
+                "attempt_id": attempt.id,
+                "face_count": face_count,
+                "state": target_state,
+                "detected_objects": [obj[0] for obj in prohibited_objects],
+                "message": f"{face_count} {'person' if face_count == 1 else 'people'} detected in exam area",
+                "timestamp": now.isoformat(),
+            })
+        except Exception as b_err:
+            logger.debug(f"Broadcast presence error: {b_err}")
 
         # Temporal Confirmation Logic
         if tracker.pending_state != target_state:

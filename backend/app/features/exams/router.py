@@ -53,6 +53,13 @@ async def get_exam(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Exam is not published yet")
         if exam.assignment_type == "SELECTED_STUDENTS" and current_user.id not in (exam.assigned_student_ids or []):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not assigned to this exam")
+        if exam.assignment_type == "BATCH":
+            from app.features.students.models import StudentProfile
+            from sqlalchemy import select
+            sp_res = await db.execute(select(StudentProfile).where(StudentProfile.user_id == current_user.id))
+            sp = sp_res.scalar_one_or_none()
+            if not sp or not sp.batch or sp.batch not in (getattr(exam, "assigned_batches", []) or []):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Your batch is not enrolled in this exam")
             
     return ExamService._to_response(exam)
 
@@ -64,7 +71,8 @@ async def update_exam(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN]))
 ):
-    return await ExamService.update_exam(db, exam_id, req, faculty_id=current_user.id)
+    is_admin = current_user.role == UserRole.ADMIN
+    return await ExamService.update_exam(db, exam_id, req, faculty_id=current_user.id, is_admin=is_admin)
 
 
 @router.delete("/{exam_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -73,7 +81,8 @@ async def delete_exam(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN]))
 ):
-    await ExamService.delete_exam(db, exam_id, faculty_id=current_user.id)
+    is_admin = current_user.role == UserRole.ADMIN
+    await ExamService.delete_exam(db, exam_id, faculty_id=current_user.id, is_admin=is_admin)
 
 
 @router.post("/{exam_id}/publish", response_model=ExamResponse)
@@ -82,7 +91,26 @@ async def publish_exam(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN]))
 ):
-    return await ExamService.publish_exam(db, exam_id, faculty_id=current_user.id)
+    is_admin = current_user.role == UserRole.ADMIN
+    return await ExamService.publish_exam(db, exam_id, faculty_id=current_user.id, is_admin=is_admin)
+
+
+@router.post("/{exam_id}/unpublish", response_model=ExamResponse)
+async def unpublish_exam(
+    exam_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN]))
+):
+    is_admin = current_user.role == UserRole.ADMIN
+    return await ExamService.unpublish_exam(db, exam_id, faculty_id=current_user.id, is_admin=is_admin)
+
+
+@router.get("/admin/catalog", response_model=List[dict])
+async def get_admin_global_exams(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.ADMIN]))
+):
+    return await ExamService.get_all_exams_admin(db)
 
 
 @router.post("/{exam_id}/reexam-permissions", response_model=List[ReexamPermissionResponse])

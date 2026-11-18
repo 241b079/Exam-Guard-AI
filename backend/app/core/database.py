@@ -148,14 +148,38 @@ async def init_db():
                 "MEDIA_CONNECTION_LOST",
                 "MEDIA_CONNECTION_FAILED",
                 "STUDENT_REJOINED",
+                "MULTIPLE_PERSON",
+                "MULTIPLE_PERSON_IDENTITY_MISMATCH",
+                "IDENTITY_MISMATCH",
+                "NO_FACE",
+                "TEMPORARY_ABSENCE",
+                "STUDENT_RECOVERED",
+                "LOOKING_AWAY",
+                "UNAUTHORIZED_OBJECT",
+                "AUDIO_ANOMALY",
             ]:
                 try:
                     await auto_conn.execute(text(f"ALTER TYPE violation_type_enum ADD VALUE IF NOT EXISTS '{val}';"))
                 except Exception:
                     pass
 
+            for val in [
+                "LOOKING_AWAY",
+                "UNAUTHORIZED_OBJECT",
+                "AUDIO_ANOMALY",
+            ]:
+                try:
+                    await auto_conn.execute(text(f"ALTER TYPE proctoring_event_type_enum ADD VALUE IF NOT EXISTS '{val}';"))
+                except Exception:
+                    pass
+
             try:
                 await auto_conn.execute(text("DO $$ BEGIN CREATE TYPE attempt_policy_enum AS ENUM ('ONE_ATTEMPT', 'LIMITED_ATTEMPTS', 'UNLIMITED_ATTEMPTS'); EXCEPTION WHEN duplicate_object THEN null; END $$;"))
+            except Exception:
+                pass
+
+            try:
+                await auto_conn.execute(text("ALTER TYPE assignment_type_enum ADD VALUE IF NOT EXISTS 'BATCH';"))
             except Exception:
                 pass
     except Exception as e:
@@ -186,6 +210,7 @@ async def init_db():
             await conn.execute(text("ALTER TABLE exams ADD COLUMN IF NOT EXISTS attempt_policy VARCHAR(50) DEFAULT 'ONE_ATTEMPT';"))
             await conn.execute(text("ALTER TABLE exams ADD COLUMN IF NOT EXISTS max_attempts INTEGER DEFAULT 1;"))
             await conn.execute(text("ALTER TABLE exams ADD COLUMN IF NOT EXISTS max_rejoins INTEGER DEFAULT 2;"))
+            await conn.execute(text("ALTER TABLE exams ADD COLUMN IF NOT EXISTS assigned_batches JSON DEFAULT '[]';"))
 
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS exam_violations (

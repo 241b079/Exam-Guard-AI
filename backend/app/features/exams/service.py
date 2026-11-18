@@ -38,6 +38,7 @@ class ExamService:
             display_countdown=req.display_countdown,
             assignment_type=req.assignment_type,
             assigned_student_ids=req.assigned_student_ids or [],
+            assigned_batches=req.assigned_batches or [],
             availability_type=req.availability_type,
             start_time=req.start_time,
             end_time=req.end_time,
@@ -67,6 +68,11 @@ class ExamService:
     @staticmethod
     async def get_student_exams(db: AsyncSession, student_id: str) -> List[ExamResponse]:
         """Returns published exams available to the logged-in student."""
+        from app.features.students.models import StudentProfile
+        sp_res = await db.execute(select(StudentProfile).where(StudentProfile.user_id == student_id))
+        sp = sp_res.scalar_one_or_none()
+        student_batch = sp.batch if sp else None
+
         result = await db.execute(
             select(Exam)
             .where(Exam.status == ExamStatus.PUBLISHED)
@@ -80,15 +86,18 @@ class ExamService:
             if e.assignment_type == "SELECTED_STUDENTS":
                 if student_id not in (e.assigned_student_ids or []):
                     continue
+            elif e.assignment_type == "BATCH":
+                if not student_batch or student_batch not in (getattr(e, "assigned_batches", []) or []):
+                    continue
             available.append(ExamService._to_response(e))
         return available
 
     @staticmethod
-    async def update_exam(db: AsyncSession, exam_id: str, req: ExamUpdate, faculty_id: str) -> ExamResponse:
+    async def update_exam(db: AsyncSession, exam_id: str, req: ExamUpdate, faculty_id: str, is_admin: bool = False) -> ExamResponse:
         exam = await ExamService.get_by_id(db, exam_id)
         if not exam:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exam not found")
-        if exam.created_by_id != faculty_id:
+        if exam.created_by_id != faculty_id and not is_admin:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to edit this exam")
 
         for key, value in req.model_dump(exclude_unset=True).items():
@@ -99,22 +108,22 @@ class ExamService:
         return ExamService._to_response(exam)
 
     @staticmethod
-    async def delete_exam(db: AsyncSession, exam_id: str, faculty_id: str) -> None:
+    async def delete_exam(db: AsyncSession, exam_id: str, faculty_id: str, is_admin: bool = False) -> None:
         exam = await ExamService.get_by_id(db, exam_id)
         if not exam:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exam not found")
-        if exam.created_by_id != faculty_id:
+        if exam.created_by_id != faculty_id and not is_admin:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this exam")
 
         await db.delete(exam)
         await db.commit()
 
     @staticmethod
-    async def publish_exam(db: AsyncSession, exam_id: str, faculty_id: str) -> ExamResponse:
+    async def publish_exam(db: AsyncSession, exam_id: str, faculty_id: str, is_admin: bool = False) -> ExamResponse:
         exam = await ExamService.get_by_id(db, exam_id)
         if not exam:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exam not found")
-        if exam.created_by_id != faculty_id:
+        if exam.created_by_id != faculty_id and not is_admin:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to publish this exam")
 
         # Validation rules before publishing
@@ -139,6 +148,39 @@ class ExamService:
         return ExamService._to_response(exam)
 
     @staticmethod
+    async def unpublish_exam(db: AsyncSession, exam_id: str, faculty_id: str, is_admin: bool = False) -> ExamResponse:
+        exam = await ExamService.get_by_id(db, exam_id)
+        if not exam:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exam not found")
+        if exam.created_by_id != faculty_id and not is_admin:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to edit this exam")
+        exam.status = ExamStatus.DRAFT
+        await db.commit()
+        await db.refresh(exam)
+        return ExamService._to_response(exam)
+
+    @staticmethod
+    async def get_all_exams_admin(db: AsyncSession) -> List[dict]:
+        result = await db.execute(
+            select(Exam)
+            .options(
+                selectinload(Exam.questions),
+                selectinload(Exam.creator),
+                selectinload(Exam.attempts)
+            )
+            .order_by(Exam.created_at.desc())
+        )
+        exams = result.scalars().all()
+        items = []
+        for e in exams:
+            data = ExamService._to_response(e).model_dump()
+            data["creator_name"] = e.creator.name if e.creator else "Unknown"
+            data["creator_email"] = e.creator.email if e.creator else ""
+            data["total_attempts"] = len(e.attempts) if e.attempts else 0
+            items.append(data)
+        return items
+
+    @staticmethod
     def recalculate_total_marks(exam: Exam) -> float:
         if not exam.questions:
             return 0.0
@@ -160,6 +202,7 @@ class ExamService:
             display_countdown=exam.display_countdown,
             assignment_type=exam.assignment_type,
             assigned_student_ids=exam.assigned_student_ids or [],
+            assigned_batches=getattr(exam, 'assigned_batches', []) or [],
             availability_type=exam.availability_type,
             start_time=exam.start_time,
             end_time=exam.end_time,

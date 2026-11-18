@@ -21,6 +21,7 @@ class NegativeMarkingType(str, enum.Enum):
 class AssignmentType(str, enum.Enum):
     ALL_STUDENTS = "ALL_STUDENTS"
     SELECTED_STUDENTS = "SELECTED_STUDENTS"
+    BATCH = "BATCH"
 
 
 class AvailabilityType(str, enum.Enum):
@@ -66,6 +67,7 @@ class Exam(Base):
         default=AssignmentType.ALL_STUDENTS
     )
     assigned_student_ids: Mapped[list] = mapped_column(JSON, nullable=True, default=list)
+    assigned_batches: Mapped[list] = mapped_column(JSON, nullable=True, default=list)
 
     availability_type: Mapped[AvailabilityType] = mapped_column(
         SQLEnum(AvailabilityType, name="availability_type_enum"),

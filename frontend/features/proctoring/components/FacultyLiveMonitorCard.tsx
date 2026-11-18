@@ -123,6 +123,19 @@ export function FacultyLiveMonitorCard({
     hasLiveScreenStream || monitoring.media_session?.screen_active
   );
 
+  // Derive real-time people count in candidate's exam area
+  const latestViolation = monitoring.recent_violations?.[0];
+  const violationFaceCount =
+    latestViolation?.metadata_json?.face_count ??
+    (latestViolation as any)?.face_count;
+
+  const peopleCount =
+    monitoring.face_count !== undefined
+      ? monitoring.face_count
+      : (violationFaceCount !== undefined
+          ? violationFaceCount
+          : (connectionState === 'connected' ? 1 : 0));
+
   return (
     <Card className="p-5 space-y-4 bg-white border border-[#EBE5DC] rounded-3xl shadow-warm flex flex-col justify-between">
       {/* Hidden audio element for student mic playback */}
@@ -179,12 +192,21 @@ export function FacultyLiveMonitorCard({
             'MULTIPLE_PERSON',
             'MULTIPLE_PERSON_IDENTITY_MISMATCH',
             'TEMPORARY_ABSENCE',
+            'NO_FACE',
             'STUDENT_RECOVERED',
           ].includes(latest.violation_type as string);
 
         if (!isIdentityViolation || !latest) return null;
 
         const isRecovered = (latest.violation_type as string) === 'STUDENT_RECOVERED';
+        const isMultiPerson =
+          (latest.violation_type as string) === 'MULTIPLE_PERSON' ||
+          (latest.violation_type as string) === 'MULTIPLE_PERSON_IDENTITY_MISMATCH';
+
+        const reportedCount =
+          latest.metadata_json?.face_count ??
+          (latest as any)?.face_count ??
+          peopleCount;
 
         return (
           <div
@@ -197,7 +219,13 @@ export function FacultyLiveMonitorCard({
             <div className="flex items-center gap-2 font-bold text-[11px]">
               <AlertTriangle className={`w-3.5 h-3.5 ${isRecovered ? 'text-emerald-600' : 'text-rose-600'}`} />
               <span>
-                {isRecovered ? 'Verified Student Returned' : `Suspicious: ${latest.violation_type.replace(/_/g, ' ')}`}
+                {isRecovered
+                  ? 'Verified Student Returned'
+                  : isMultiPerson
+                  ? `Multiple People Detected: ${reportedCount && reportedCount >= 2 ? reportedCount : 2} People in Exam Area`
+                  : latest.violation_type === 'TEMPORARY_ABSENCE' || latest.violation_type === 'NO_FACE'
+                  ? 'Candidate Absent: 0 People Detected in Exam Area'
+                  : `Suspicious: ${latest.violation_type.replace(/_/g, ' ')}`}
               </span>
             </div>
             <span className="text-[10px] font-mono opacity-80">
@@ -209,6 +237,53 @@ export function FacultyLiveMonitorCard({
 
       {/* Live Stream Viewport */}
       <div className="relative aspect-video w-full rounded-2xl bg-stone-950 overflow-hidden border border-stone-800 flex items-center justify-center">
+        {/* Floating Real-Time AI Badges */}
+        {!isExamSubmitted && connectionState === 'connected' && (
+          <div className="absolute top-3 left-3 z-10 flex flex-col gap-1.5 pointer-events-none">
+            {/* Presence / People Count Badge */}
+            <div
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl backdrop-blur-md text-xs font-bold border shadow-sm transition-all"
+              style={{
+                backgroundColor:
+                  peopleCount === 1
+                    ? 'rgba(6, 78, 59, 0.85)'
+                    : peopleCount >= 2
+                    ? 'rgba(159, 18, 57, 0.9)'
+                    : 'rgba(120, 53, 15, 0.85)',
+                borderColor:
+                  peopleCount === 1
+                    ? 'rgba(52, 211, 153, 0.4)'
+                    : peopleCount >= 2
+                    ? 'rgba(251, 113, 133, 0.6)'
+                    : 'rgba(251, 191, 36, 0.4)',
+                color: '#FFFFFF',
+              }}
+            >
+              <User className="w-3.5 h-3.5" />
+              <span>
+                {peopleCount === 1
+                  ? '1 Person (Candidate Verified)'
+                  : peopleCount >= 2
+                  ? `⚠️ ${peopleCount} People in Exam Area`
+                  : '0 People (No Face Detected)'}
+              </span>
+            </div>
+
+            {/* Looking Away Badge */}
+            {monitoring.looking_away && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl backdrop-blur-md text-xs font-bold bg-amber-950/85 border border-amber-400/50 text-amber-200 shadow-sm animate-pulse">
+                <span>⚠️ Looking Away {monitoring.yaw ? `(Yaw: ${monitoring.yaw}°)` : ''}</span>
+              </div>
+            )}
+
+            {/* Unauthorized Object Badge */}
+            {monitoring.detected_objects && monitoring.detected_objects.length > 0 && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl backdrop-blur-md text-xs font-bold bg-rose-950/90 border border-rose-400/60 text-rose-200 shadow-sm animate-pulse">
+                <span>🚨 Prohibited: {monitoring.detected_objects.join(', ')}</span>
+              </div>
+            )}
+          </div>
+        )}
         {/* Camera View */}
         <video
           ref={cameraVideoRef}
@@ -307,8 +382,36 @@ export function FacultyLiveMonitorCard({
         </div>
       </div>
 
-      {/* Stream Status Indicators Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+      {/* Stream Status & Exam Area Indicators Grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+        <div className="p-2 rounded-xl bg-[#FAF7F2] border border-[#EBE5DC] flex flex-col gap-0.5">
+          <span className="text-[10px] text-stone-500 font-semibold uppercase">Exam Area</span>
+          <span
+            className={`font-bold flex items-center gap-1 text-[11px] ${
+              peopleCount === 1
+                ? 'text-emerald-700'
+                : peopleCount >= 2
+                ? 'text-rose-700'
+                : 'text-amber-700'
+            }`}
+          >
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                peopleCount === 1
+                  ? 'bg-emerald-500'
+                  : peopleCount >= 2
+                  ? 'bg-rose-500 animate-pulse'
+                  : 'bg-amber-500'
+              }`}
+            />
+            {peopleCount === 1
+              ? '1 Person (OK)'
+              : peopleCount >= 2
+              ? `${peopleCount} People (ALERT)`
+              : '0 People (Absent)'}
+          </span>
+        </div>
+
         <div className="p-2 rounded-xl bg-[#FAF7F2] border border-[#EBE5DC] flex flex-col gap-0.5">
           <span className="text-[10px] text-stone-500 font-semibold uppercase">Camera</span>
           <span

@@ -21,7 +21,11 @@ export type ViolationType =
   | 'IDENTITY_MISMATCH'
   | 'MULTIPLE_PERSON'
   | 'MULTIPLE_PERSON_IDENTITY_MISMATCH'
-  | 'TEMPORARY_ABSENCE';
+  | 'TEMPORARY_ABSENCE'
+  | 'NO_FACE'
+  | 'LOOKING_AWAY'
+  | 'UNAUTHORIZED_OBJECT'
+  | 'AUDIO_ANOMALY';
 
 export type MediaSessionStatus =
   | 'WAITING'
@@ -98,6 +102,12 @@ export interface ExamAttempt {
   violation_count?: number;
   rejoin_count?: number;
   max_rejoins?: number;
+  face_count?: number;
+  identity_state?: string;
+  looking_away?: boolean;
+  yaw?: number;
+  pitch?: number;
+  detected_objects?: string[];
   session_token?: string;
 }
 
@@ -174,6 +184,12 @@ export interface AttemptMonitoringResponse {
   media_session?: MediaSessionResponse | null;
   rejoin_count?: number;
   max_rejoins?: number;
+  face_count?: number;
+  identity_state?: string;
+  looking_away?: boolean;
+  yaw?: number;
+  pitch?: number;
+  detected_objects?: string[];
 }
 
 export interface GradebookStudentInfo {

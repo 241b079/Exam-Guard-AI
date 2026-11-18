@@ -21,6 +21,7 @@ export interface UseWebRTCFacultyOptions {
   onStudentJoined?: (payload: any) => void;
   onStudentSubmitted?: (payload: any) => void;
   onStudentLeft?: (payload: any) => void;
+  onPresenceUpdate?: (payload: any) => void;
 }
 
 export function useWebRTCFaculty({
@@ -30,6 +31,7 @@ export function useWebRTCFaculty({
   onStudentJoined,
   onStudentSubmitted,
   onStudentLeft,
+  onPresenceUpdate,
 }: UseWebRTCFacultyOptions) {
   const [studentStreams, setStudentStreams] = useState<Record<string, StudentMediaTracks>>({});
   const [activeStudentIds, setActiveStudentIds] = useState<string[]>([]);
@@ -48,6 +50,7 @@ export function useWebRTCFaculty({
   const onStudentJoinedRef = useRef(onStudentJoined);
   const onStudentSubmittedRef = useRef(onStudentSubmitted);
   const onStudentLeftRef = useRef(onStudentLeft);
+  const onPresenceUpdateRef = useRef(onPresenceUpdate);
   const seenViolationIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -56,7 +59,8 @@ export function useWebRTCFaculty({
     onStudentJoinedRef.current = onStudentJoined;
     onStudentSubmittedRef.current = onStudentSubmitted;
     onStudentLeftRef.current = onStudentLeft;
-  }, [onViolationReceived, onStudentRejoined, onStudentJoined, onStudentSubmitted, onStudentLeft]);
+    onPresenceUpdateRef.current = onPresenceUpdate;
+  }, [onViolationReceived, onStudentRejoined, onStudentJoined, onStudentSubmitted, onStudentLeft, onPresenceUpdate]);
 
   const getFacultyWsUrl = useCallback(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
@@ -390,6 +394,12 @@ export function useWebRTCFaculty({
                 audioStream: null,
               }));
               onStudentLeftRef.current?.(msg);
+            }
+            break;
+
+          case 'candidate_presence':
+            if (msg.student_id) {
+              onPresenceUpdateRef.current?.(msg);
             }
             break;
 

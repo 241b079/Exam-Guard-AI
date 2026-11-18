@@ -1,6 +1,6 @@
 export type ExamStatus = 'DRAFT' | 'PUBLISHED' | 'CLOSED';
 export type NegativeMarkingType = 'NONE' | 'PER_QUESTION';
-export type AssignmentType = 'ALL_STUDENTS' | 'SELECTED_STUDENTS';
+export type AssignmentType = 'ALL_STUDENTS' | 'SELECTED_STUDENTS' | 'BATCH';
 export type AvailabilityType = 'ALWAYS' | 'SCHEDULED';
 export type AttemptPolicyType = 'ONE_ATTEMPT' | 'LIMITED_ATTEMPTS' | 'UNLIMITED_ATTEMPTS';
 
@@ -16,6 +16,7 @@ export interface Exam {
   display_countdown: boolean;
   assignment_type: AssignmentType;
   assigned_student_ids?: string[];
+  assigned_batches?: string[];
   availability_type: AvailabilityType;
   start_time?: string;
   end_time?: string;
@@ -37,6 +38,7 @@ export interface CreateExamPayload {
   display_countdown: boolean;
   assignment_type: AssignmentType;
   assigned_student_ids?: string[];
+  assigned_batches?: string[];
   availability_type: AvailabilityType;
   start_time?: string;
   end_time?: string;

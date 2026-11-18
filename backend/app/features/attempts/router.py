@@ -390,6 +390,7 @@ async def exam_webrtc_signaling_ws(
                                     "violation_type": saved_v.violation_type.value if hasattr(saved_v.violation_type, "value") else str(saved_v.violation_type),
                                     "timestamp": saved_v.timestamp.isoformat() if saved_v.timestamp else None,
                                     "metadata_json": saved_v.metadata_json or {},
+                                    "face_count": (saved_v.metadata_json or {}).get("face_count"),
                                     "created_at": saved_v.created_at.isoformat() if saved_v.created_at else None,
                                 }
                             )

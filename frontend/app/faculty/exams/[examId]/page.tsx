@@ -92,10 +92,19 @@ export default function FacultyExamDetailPage() {
             ...currentRecent,
           ].slice(0, 10);
 
+          const extractedFaceCount =
+            violation.face_count !== undefined
+              ? violation.face_count
+              : (violation.metadata_json?.face_count !== undefined
+                  ? violation.metadata_json.face_count
+                  : item.face_count);
+
           return {
             ...item,
             violation_count: (item.violation_count || 0) + 1,
             recent_violations: updatedRecent,
+            face_count: extractedFaceCount,
+            identity_state: violation.violation_type || item.identity_state,
           };
         }
         return item;
@@ -108,6 +117,29 @@ export default function FacultyExamDetailPage() {
       return next;
     });
   }, [examId]);
+
+  const handlePresenceUpdate = React.useCallback((payload: any) => {
+    setMonitoringData((prev) =>
+      prev.map((item) => {
+        const matches =
+          (payload.attempt_id && item.attempt_id === payload.attempt_id) ||
+          (payload.student_id && item.student.id === payload.student_id);
+
+        if (matches) {
+          return {
+            ...item,
+            face_count: payload.face_count !== undefined ? payload.face_count : item.face_count,
+            identity_state: payload.state || item.identity_state,
+            looking_away: payload.looking_away !== undefined ? payload.looking_away : item.looking_away,
+            yaw: payload.yaw !== undefined ? payload.yaw : item.yaw,
+            pitch: payload.pitch !== undefined ? payload.pitch : item.pitch,
+            detected_objects: payload.detected_objects !== undefined ? payload.detected_objects : item.detected_objects,
+          };
+        }
+        return item;
+      })
+    );
+  }, []);
 
   const handleStudentRejoined = React.useCallback((payload: any) => {
     setMonitoringData((prev) =>
@@ -162,6 +194,7 @@ export default function FacultyExamDetailPage() {
     onStudentRejoined: handleStudentRejoined,
     onStudentJoined: handleStudentJoined,
     onStudentSubmitted: handleStudentSubmitted,
+    onPresenceUpdate: handlePresenceUpdate,
   });
 
   const fetchExam = async () => {

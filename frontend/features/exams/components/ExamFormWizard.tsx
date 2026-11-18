@@ -40,6 +40,8 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
   const [endTime, setEndTime] = useState(initialData?.end_time ? initialData.end_time.slice(0, 16) : '');
 
   const [assignmentType, setAssignmentType] = useState<AssignmentType>(initialData?.assignment_type || 'ALL_STUDENTS');
+  const [assignedBatches, setAssignedBatches] = useState<string[]>(initialData?.assigned_batches || []);
+  const [customBatchInput, setCustomBatchInput] = useState('');
 
   const durationMinutes = (hours * 60) + minutes;
 
@@ -77,6 +79,7 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
       max_rejoins: maxRejoins,
       assignment_type: assignmentType,
       assigned_student_ids: [],
+      assigned_batches: assignmentType === 'BATCH' ? assignedBatches : [],
       availability_type: availabilityType,
       start_time: startTime ? new Date(startTime).toISOString() : undefined,
       end_time: endTime ? new Date(endTime).toISOString() : undefined,
@@ -349,15 +352,113 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
               label="Assigned Target"
               options={[
                 { label: 'All Registered Students', value: 'ALL_STUDENTS' },
+                { label: 'Specific Batches', value: 'BATCH' },
                 { label: 'Selected Students Only', value: 'SELECTED_STUDENTS' },
               ]}
               value={assignmentType}
               onChange={(e) => setAssignmentType(e.target.value as AssignmentType)}
             />
 
+            {assignmentType === 'BATCH' && (
+              <div className="p-4 bg-[#FAF7F2] rounded-2xl border border-[#EBE5DC] space-y-3">
+                <span className="text-xs font-semibold text-stone-700 uppercase tracking-wider block">
+                  Select Enrolled Batches
+                </span>
+                
+                {/* Common quick-select batch chips */}
+                <div className="flex flex-wrap gap-2">
+                  {['Batch A', 'Batch B', 'Batch C', 'Batch 2024', 'Batch 2025'].map((b) => {
+                    const isSelected = assignedBatches.includes(b);
+                    return (
+                      <button
+                        key={b}
+                        type="button"
+                        onClick={() => {
+                          if (isSelected) {
+                            setAssignedBatches(assignedBatches.filter((x) => x !== b));
+                          } else {
+                            setAssignedBatches([...assignedBatches, b]);
+                          }
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
+                          isSelected
+                            ? 'bg-[#C25E1A] text-white shadow-sm'
+                            : 'bg-white text-stone-700 border border-[#EBE5DC] hover:border-stone-400'
+                        }`}
+                      >
+                        {b} {isSelected ? '✓' : '+'}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Custom Batch input */}
+                <div className="flex items-center gap-2 pt-2">
+                  <input
+                    type="text"
+                    placeholder="Add custom batch name..."
+                    value={customBatchInput}
+                    onChange={(e) => setCustomBatchInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const val = customBatchInput.trim();
+                        if (val && !assignedBatches.includes(val)) {
+                          setAssignedBatches([...assignedBatches, val]);
+                          setCustomBatchInput('');
+                        }
+                      }
+                    }}
+                    className="flex-1 px-3 py-2 text-xs rounded-xl border border-[#EBE5DC] bg-white focus:outline-none focus:ring-1 focus:ring-[#C25E1A]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const val = customBatchInput.trim();
+                      if (val && !assignedBatches.includes(val)) {
+                        setAssignedBatches([...assignedBatches, val]);
+                        setCustomBatchInput('');
+                      }
+                    }}
+                    className="px-3 py-2 bg-[#FBECE0] text-[#C25E1A] font-semibold text-xs rounded-xl border border-[#F6D6C0] hover:bg-[#F6D6C0]"
+                  >
+                    Add Batch
+                  </button>
+                </div>
+
+                {/* Selected Batches list */}
+                {assignedBatches.length > 0 ? (
+                  <div className="pt-2">
+                    <p className="text-[11px] text-stone-500 mb-1 font-medium">Assigned Batches:</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {assignedBatches.map((b) => (
+                        <span
+                          key={b}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#FAF0E6] text-[#C25E1A] text-xs font-semibold border border-[#F6D6C0]"
+                        >
+                          {b}
+                          <button
+                            type="button"
+                            onClick={() => setAssignedBatches(assignedBatches.filter((x) => x !== b))}
+                            className="hover:text-red-600 font-bold"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-amber-700 italic">
+                    Please select or type at least one batch above. Students in these batches will have access to this exam.
+                  </p>
+                )}
+              </div>
+            )}
+
             {assignmentType === 'SELECTED_STUDENTS' && (
               <div className="p-4 bg-[#FAF7F2] rounded-2xl border border-[#EBE5DC] text-xs text-amber-800 space-y-2">
-                <p>Selected students mode enabled. All enrolled students will be able to take this exam by default in Phase 2.</p>
+                <p>Selected students mode enabled. Individual enrolled students can be targeted.</p>
               </div>
             )}
           </div>
@@ -385,6 +486,16 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
             <div>
               <span className="text-xs text-stone-500 block uppercase font-semibold">Availability</span>
               <span className="font-semibold text-stone-900">{availabilityType}</span>
+            </div>
+            <div>
+              <span className="text-xs text-stone-500 block uppercase font-semibold">Target Assignment</span>
+              <span className="font-semibold text-stone-900">
+                {assignmentType === 'ALL_STUDENTS'
+                  ? 'All Students'
+                  : assignmentType === 'BATCH'
+                  ? `Batches (${assignedBatches.join(', ') || 'None'})`
+                  : 'Selected Students'}
+              </span>
             </div>
           </div>
 
