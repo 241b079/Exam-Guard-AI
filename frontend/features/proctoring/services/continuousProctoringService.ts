@@ -189,6 +189,9 @@ export interface ExaminationInvestigationResponse {
   limitations_json?: string[];
   limitations_notes?: string | null;
   recommended_action?: string;
+  recommended_verdict?: string | null;
+  auto_disqualification_recommended?: boolean;
+  auto_disqualification_reason?: string | null;
   faculty_decision?: string | null;
   decision_reason?: string | null;
   decision_notes?: string | null;

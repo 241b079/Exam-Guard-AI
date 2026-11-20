@@ -72,6 +72,19 @@ export function PostExamInvestigationModal({
         setDecision(data.faculty_decision);
         setReason(data.decision_reason || '');
         setNotes(data.decision_notes || '');
+      } else {
+        // Dynamic Intelligent Pre-selection based on AI Assessment
+        if (data.auto_disqualification_recommended || data.overall_risk_level === 'CRITICAL_RISK' || data.overall_risk_level === 'HIGH_RISK') {
+          setDecision('DISQUALIFIED');
+          setReason(data.auto_disqualification_reason || data.ai_recommendation || 'Automated integrity assessment: Critical/High policy violations detected.');
+          setPublishResultOnDecision(false);
+        } else if (data.overall_risk_level === 'MODERATE_RISK') {
+          setDecision('SUSPICIOUS');
+          setReason(data.ai_recommendation || 'Moderate telemetry anomalies observed.');
+        } else {
+          setDecision('CLEARED');
+          setReason('No significant malpractice or unauthorized activities detected.');
+        }
       }
       if (data.publication_status === 'PUBLISHED') {
         setPublishResultOnDecision(true);
@@ -471,16 +484,39 @@ export function PostExamInvestigationModal({
                             <div className="space-y-1 flex-1">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="font-bold text-stone-900 text-xs">
-                                  {inc.incident_type === 'UNAUTHORIZED_OBJECT'
-                                    ? `📱 Prohibited Object: ${(() => {
-                                        const obj = (inc as any).metadata?.detected_object_name || (inc as any).metadata?.primary_object || (inc as any).primary_object || 'Cell Phone';
-                                        const u = String(obj).toUpperCase();
-                                        if (u.includes('CELL') || u.includes('PHONE') || u.includes('MOBILE')) return 'Cell Phone (Mobile)';
-                                        if (u.includes('BOOK') || u.includes('NOTE')) return 'Book / Study Material';
-                                        if (u.includes('LAPTOP') || u.includes('COMPUTER')) return 'Secondary Laptop';
-                                        return String(obj).replace(/_/g, ' ');
-                                      })()}`
-                                    : inc.incident_type}
+                                  {(() => {
+                                    const type = inc.incident_type;
+                                    if (type === 'UNAUTHORIZED_OBJECT') {
+                                      const obj = (inc as any).metadata?.detected_object_name || (inc as any).metadata?.primary_object || (inc as any).primary_object || 'Cell Phone';
+                                      const u = String(obj).toUpperCase();
+                                      if (u.includes('CELL') || u.includes('PHONE') || u.includes('MOBILE')) return '📱 Prohibited Object: Cell Phone (Mobile)';
+                                      if (u.includes('BOOK') || u.includes('NOTE')) return '📖 Prohibited Object: Book / Notes';
+                                      if (u.includes('LAPTOP') || u.includes('COMPUTER')) return '💻 Prohibited Object: Secondary Laptop';
+                                      return `📱 Prohibited Object: ${String(obj).replace(/_/g, ' ')}`;
+                                    }
+                                    if (type === 'TEMPORARY_ABSENCE' || type === 'NO_FACE' || type === 'TEMPORARILY_ABSENT') {
+                                      return '👤 Candidate Absent from Camera';
+                                    }
+                                    if (type === 'MULTIPLE_PERSON') {
+                                      return '👥 Multiple Persons Detected';
+                                    }
+                                    if (type === 'MULTIPLE_PERSON_IDENTITY_MISMATCH') {
+                                      return '🚨 Multiple Persons + Impostor Mismatch';
+                                    }
+                                    if (type === 'IDENTITY_MISMATCH') {
+                                      return '⚠️ Candidate Identity Mismatch';
+                                    }
+                                    if (type === 'LOOKING_AWAY') {
+                                      return '👀 Gaze Aversion / Looking Away';
+                                    }
+                                    if (type === 'WINDOW_BLUR' || type === 'PAGE_HIDDEN') {
+                                      return '💻 Browser Window Switch / Tab Focus Lost';
+                                    }
+                                    if (type === 'FULLSCREEN_EXIT') {
+                                      return '🖥️ Lockdown Fullscreen Exit';
+                                    }
+                                    return type;
+                                  })()}
                                 </span>
                                 <Badge variant={inc.severity === 'CRITICAL' ? 'danger' : inc.severity === 'HIGH' ? 'warning' : 'outline'}>
                                   {inc.severity || 'LOW'}
@@ -489,8 +525,14 @@ export function PostExamInvestigationModal({
                                   {inc.ai_classification || 'Suspicious'} (conf: {(((inc.confidence ?? 0) * 100)).toFixed(0)}%)
                                 </span>
                                 {typeof inc.duration_seconds === 'number' && inc.duration_seconds > 0 && (
-                                  <span className="text-[11px] text-stone-500 font-mono">
-                                    Duration: {(inc.duration_seconds ?? 0).toFixed(0)}s
+                                  <span className={`text-[11px] px-2 py-0.5 rounded-full font-mono font-bold ${
+                                    (inc.incident_type === 'TEMPORARY_ABSENCE' || inc.incident_type === 'NO_FACE' || inc.incident_type === 'TEMPORARILY_ABSENT')
+                                      ? 'bg-amber-100 text-amber-900 border border-amber-200'
+                                      : 'bg-stone-100 text-stone-600'
+                                  }`}>
+                                    {(inc.incident_type === 'TEMPORARY_ABSENCE' || inc.incident_type === 'NO_FACE' || inc.incident_type === 'TEMPORARILY_ABSENT')
+                                      ? `⏱️ Off Screen: ${(inc.duration_seconds ?? 0).toFixed(0)}s`
+                                      : `⏱️ ${(inc.duration_seconds ?? 0).toFixed(0)}s`}
                                   </span>
                                 )}
                                 <span className="text-[11px] text-stone-400 ml-auto">
@@ -585,6 +627,34 @@ export function PostExamInvestigationModal({
                 {decisionError && (
                   <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs">
                     {decisionError}
+                  </div>
+                )}
+
+                {(investigation.auto_disqualification_recommended || investigation.overall_risk_level === 'CRITICAL_RISK' || investigation.overall_risk_level === 'HIGH_RISK') && (
+                  <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-warm-xs">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5 font-bold text-red-900">
+                        <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0" />
+                        <span>AI Automated Integrity Recommendation: DISQUALIFY CANDIDATE</span>
+                      </div>
+                      <p className="text-red-800 text-[11px] leading-snug">
+                        {investigation.auto_disqualification_reason || investigation.ai_recommendation || 'High/Critical risk policy infractions identified during automated analysis.'}
+                      </p>
+                    </div>
+                    {decision !== 'DISQUALIFIED' && (
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        onClick={() => {
+                          setDecision('DISQUALIFIED');
+                          setReason(investigation.auto_disqualification_reason || investigation.ai_recommendation || 'Auto-disqualified based on critical examination integrity violations.');
+                          setPublishResultOnDecision(false);
+                        }}
+                        className="text-xs flex-shrink-0 bg-red-600 hover:bg-red-700 text-white border-none font-bold shadow-sm"
+                      >
+                        Apply AI Disqualification
+                      </Button>
+                    )}
                   </div>
                 )}
 

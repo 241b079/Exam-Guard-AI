@@ -209,6 +209,16 @@ async def get_proctoring_evidence_file(
     """
     ev = await ProctoringService.get_proctoring_event(db, event_id)
     if not ev or not ev.evidence_path:
+        # Resilient fallback: event_id may be an incident_id
+        ev_by_inc = await db.execute(
+            select(ProctoringEvent)
+            .where(ProctoringEvent.incident_id == event_id)
+            .where(ProctoringEvent.evidence_path.isnot(None))
+            .order_by(ProctoringEvent.detected_at.asc())
+        )
+        ev = ev_by_inc.scalars().first()
+
+    if not ev or not ev.evidence_path:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evidence not found")
 
     abs_path = ProctoringService.get_absolute_evidence_path(ev.evidence_path)
@@ -565,6 +575,9 @@ def _map_investigation_to_response(inv) -> ExaminationInvestigationResponse:
         evidence_breakdown_json=getattr(inv, "evidence_breakdown_json", {}) or {},
         ai_recommendation=getattr(inv, "ai_recommendation", None) or inv.executive_summary,
         model_version=getattr(inv, "model_version", None) or "v2.1",
+        recommended_verdict=getattr(inv, "recommended_verdict", "CLEARED") or "CLEARED",
+        auto_disqualification_recommended=getattr(inv, "auto_disqualification_recommended", False) or False,
+        auto_disqualification_reason=getattr(inv, "auto_disqualification_reason", None),
         executive_summary=inv.executive_summary,
         incident_timeline_json=inv.incident_timeline_json or [],
         correlations_json=inv.correlations_json or [],

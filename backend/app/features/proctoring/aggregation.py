@@ -29,6 +29,7 @@ CATEGORY_CONFIDENCE_THRESHOLDS: Dict[str, Dict[str, float]] = {
     "AUDIO_ANOMALY": {"high": 0.80, "suspicious": 0.50},
     "NO_FACE": {"high": 0.80, "suspicious": 0.50},
     "TEMPORARY_ABSENCE": {"high": 0.80, "suspicious": 0.50},
+    "TEMPORARILY_ABSENT": {"high": 0.80, "suspicious": 0.50},
     "SUSPICIOUS_ACTIVITY": {"high": 0.85, "suspicious": 0.60},
     "BROWSER_TAB_SWITCH": {"high": 0.90, "suspicious": 0.60},
     "FULLSCREEN_EXIT": {"high": 0.90, "suspicious": 0.60},
@@ -43,8 +44,9 @@ CATEGORY_METADATA: Dict[str, Dict[str, str]] = {
     "MULTIPLE_PERSON_IDENTITY_MISMATCH": {"group": "MULTIPLE_PERSON_IDENTITY_MISMATCH", "label": "Impostor with Multiple Persons"},
     "IDENTITY_MISMATCH": {"group": "IDENTITY_MISMATCH", "label": "Candidate Identity Mismatch"},
     "LOOKING_AWAY": {"group": "LOOKING_AWAY", "label": "Gaze Aversion / Looking Away"},
-    "NO_FACE": {"group": "STUDENT_ABSENT", "label": "Candidate Absence"},
-    "TEMPORARY_ABSENCE": {"group": "STUDENT_ABSENT", "label": "Candidate Absence"},
+    "NO_FACE": {"group": "STUDENT_ABSENT", "label": "Candidate Absence from Camera"},
+    "TEMPORARY_ABSENCE": {"group": "STUDENT_ABSENT", "label": "Candidate Absence from Camera"},
+    "TEMPORARILY_ABSENT": {"group": "STUDENT_ABSENT", "label": "Candidate Absence from Camera"},
     "AUDIO_ANOMALY": {"group": "AUDIO_ANOMALY", "label": "Acoustic / Speech Anomaly"},
     "PAGE_HIDDEN": {"group": "BROWSER_LOCKDOWN", "label": "Browser Tab Lost Focus"},
     "WINDOW_BLUR": {"group": "BROWSER_LOCKDOWN", "label": "Application Window Switch"},
@@ -148,10 +150,14 @@ class ExamIntegrityAggregator:
                 if ev.incident_id == inc.id:
                     matching_ev = ev
                     break
-                # Fallback: same type and within 5 seconds
-                if ev.event_type == inc_type and inc.started_at:
+                # Fallback: same type (including absence aliases) and within 10 seconds
+                is_type_match = (ev.event_type == inc_type) or (
+                    ev.event_type in ("TEMPORARY_ABSENCE", "NO_FACE", "TEMPORARILY_ABSENT") and
+                    inc_type in ("TEMPORARY_ABSENCE", "NO_FACE", "TEMPORARILY_ABSENT")
+                )
+                if is_type_match and inc.started_at:
                     ev_dt = ev.detected_at or ev.started_at or now
-                    if abs((ev_dt - inc.started_at).total_seconds()) <= 5.0:
+                    if abs((ev_dt - inc.started_at).total_seconds()) <= 10.0:
                         matching_ev = ev
                         break
 
@@ -166,12 +172,14 @@ class ExamIntegrityAggregator:
                     evidence_url = f"/api/v1/proctoring/evidence/{matching_ev.id}"
                 elif matching_ev and matching_ev.id:
                     evidence_url = f"/api/v1/proctoring/evidence/{matching_ev.id}"
+                elif inc.id:
+                    evidence_url = f"/api/v1/proctoring/evidence/{inc.id}"
                 else:
                     evidence_url = None
 
             conf = max(float(inc.peak_confidence or 0.0), float(matching_ev.confidence or 0.0) if matching_ev else 0.0)
             if conf <= 0.0:
-                conf = 0.85
+                conf = 0.95 if g_key == "STUDENT_ABSENT" else 0.85
 
             classification = inc.ai_classification or (
                 AIClassification.CONFIRMED.value if conf >= 0.70 else AIClassification.SUSPICIOUS.value
@@ -184,12 +192,25 @@ class ExamIntegrityAggregator:
                     if k not in combined_meta:
                         combined_meta[k] = v
 
+            dur_sec = float(inc.duration_seconds or 0.0)
+            if matching_ev and matching_ev.duration and float(matching_ev.duration) > dur_sec:
+                dur_sec = float(matching_ev.duration)
+            if inc.started_at and inc.ended_at:
+                calc_dur = (inc.ended_at - inc.started_at).total_seconds()
+                if calc_dur > dur_sec:
+                    dur_sec = calc_dur
+
             start_iso = inc.started_at.isoformat() if inc.started_at else now.isoformat()
             explanation = inc.ai_explanation
             if not explanation and matching_ev and matching_ev.ai_explanation:
                 explanation = matching_ev.ai_explanation
             if not explanation:
-                explanation = f"Recorded {c_meta['label']}."
+                if g_key == "STUDENT_ABSENT":
+                    explanation = f"Candidate absent from camera view (Off screen for {int(dur_sec)}s). Dynamic absence risk applied."
+                elif g_key == "MULTIPLE_PERSON":
+                    explanation = f"Multiple persons detected in exam area ({int(dur_sec)}s sustained)."
+                else:
+                    explanation = f"Recorded {c_meta['label']}."
 
             inc_data = {
                 "event_id": ev_id,
@@ -197,7 +218,7 @@ class ExamIntegrityAggregator:
                 "timestamp": start_iso,
                 "started_at": start_iso,
                 "ended_at": inc.ended_at.isoformat() if inc.ended_at else None,
-                "duration_seconds": inc.duration_seconds or 0.0,
+                "duration_seconds": round(dur_sec, 1),
                 "event_type": inc_type,
                 "incident_type": inc_type,
                 "category": g_key,
@@ -384,9 +405,22 @@ class ExamIntegrityAggregator:
             independent_incident_count=independent_incident_count,
         )
 
+        # 6. Evaluate Auto-Disqualification for High & Critical Evidence Categories
+        auto_disq, rec_verdict, disq_reason = cls._evaluate_auto_disqualification(
+            overall_risk=overall_risk,
+            final_risk_score=final_risk_score,
+            category_breakdowns=category_breakdowns,
+            independent_incident_count=independent_incident_count,
+            high_confidence_count=high_confidence_count,
+            suspicious_count=suspicious_count,
+        )
+
         return {
             "overall_risk_level": overall_risk.value,
             "ai_assessment_status": "COMPLETED",
+            "recommended_verdict": rec_verdict,
+            "auto_disqualification_recommended": auto_disq,
+            "auto_disqualification_reason": disq_reason,
             "total_evidence_count": total_evidence_count,
             "independent_incident_count": independent_incident_count,
             "high_confidence_count": high_confidence_count,
@@ -400,6 +434,84 @@ class ExamIntegrityAggregator:
             "ai_recommendation": recommendation,
             "model_version": "v2.1",
         }
+
+    @classmethod
+    def _evaluate_auto_disqualification(
+        cls,
+        overall_risk: OverallRiskLevel,
+        final_risk_score: float,
+        category_breakdowns: Dict[str, Dict[str, Any]],
+        independent_incident_count: int,
+        high_confidence_count: int,
+        suspicious_count: int,
+    ) -> Tuple[bool, str, Optional[str]]:
+        """
+        Evaluates whether an examination attempt warrants automated recommendation
+        for DISQUALIFICATION based on high or critical evidence categories.
+        """
+        reasons = []
+
+        phone_bucket = category_breakdowns.get("UNAUTHORIZED_PHONE", {})
+        phone_high = phone_bucket.get("high_confidence_count", 0)
+        phone_susp = phone_bucket.get("suspicious_count", 0)
+
+        multi_bucket = category_breakdowns.get("MULTIPLE_PERSON", {})
+        multi_high = multi_bucket.get("high_confidence_count", 0)
+
+        impostor_bucket = category_breakdowns.get("MULTIPLE_PERSON_IDENTITY_MISMATCH", {})
+        id_bucket = category_breakdowns.get("IDENTITY_MISMATCH", {})
+        id_high = id_bucket.get("high_confidence_count", 0)
+
+        absence_bucket = category_breakdowns.get("STUDENT_ABSENT", {})
+        absence_items = absence_bucket.get("evidence_items", [])
+        max_absence_seconds = max([float(item.get("duration_seconds") or 0.0) for item in absence_items], default=0.0)
+
+        lockdown_bucket = category_breakdowns.get("BROWSER_LOCKDOWN", {})
+        lockdown_count = lockdown_bucket.get("total_frames", 0)
+
+        # 1. Critical Risk Level
+        if overall_risk == OverallRiskLevel.CRITICAL_RISK or final_risk_score >= 75.0:
+            if len(impostor_bucket.get("evidence_items", [])) > 0 or id_high >= 1:
+                reasons.append("Severe candidate identity mismatch / impostor detected in camera feed")
+            if phone_high >= 2:
+                reasons.append(f"{phone_high} confirmed unauthorized mobile phone detections")
+            if max_absence_seconds >= 60.0:
+                reasons.append(f"Extended unmonitored absence from camera ({int(max_absence_seconds)}s off screen)")
+            if final_risk_score >= 75.0:
+                reasons.append(f"Critical composite integrity risk score ({final_risk_score:.1f}/100)")
+
+            reason_str = "Auto-disqualification recommended due to: " + "; ".join(reasons) if reasons else f"Critical examination integrity score ({final_risk_score:.1f}/100) exceeding policy thresholds."
+            return True, "DISQUALIFIED", reason_str
+
+        # 2. High Risk Level with severe / corroborated categories
+        if overall_risk == OverallRiskLevel.HIGH_RISK or final_risk_score >= 50.0:
+            should_disqualify = False
+
+            if phone_high >= 1:
+                should_disqualify = True
+                reasons.append(f"Confirmed unauthorized mobile phone detection ({phone_high} instance)")
+            if multi_high >= 1 and (phone_susp >= 1 or lockdown_count >= 1 or max_absence_seconds >= 20.0):
+                should_disqualify = True
+                reasons.append("Multiple persons detected corroborated by secondary violation telemetry")
+            if max_absence_seconds >= 30.0:
+                should_disqualify = True
+                reasons.append(f"Prolonged absence from examination view ({int(max_absence_seconds)}s off screen)")
+            if final_risk_score >= 60.0:
+                should_disqualify = True
+                reasons.append(f"High cumulative risk score ({final_risk_score:.1f}/100)")
+            elif (high_confidence_count >= 2 and independent_incident_count >= 2):
+                should_disqualify = True
+                reasons.append(f"Multiple independent high-confidence policy violations ({high_confidence_count} events)")
+
+            if should_disqualify:
+                reason_str = "Auto-disqualification recommended: " + "; ".join(reasons) + "."
+                return True, "DISQUALIFIED", reason_str
+
+        # 3. Moderate / Low risk
+        if overall_risk == OverallRiskLevel.MODERATE_RISK:
+            return False, "SUSPICIOUS", None
+
+        return False, "CLEARED", None
 
     @classmethod
     def _determine_overall_risk(

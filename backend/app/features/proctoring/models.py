@@ -488,6 +488,9 @@ class ExaminationInvestigation(Base):
     evidence_breakdown_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=True)
     ai_recommendation: Mapped[str] = mapped_column(Text, nullable=True)
     model_version: Mapped[str] = mapped_column(String(50), default="v2.1", nullable=True)
+    recommended_verdict: Mapped[Optional[str]] = mapped_column(String(30), default="CLEARED", nullable=True)
+    auto_disqualification_recommended: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    auto_disqualification_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     assessment_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     assessment_completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
 

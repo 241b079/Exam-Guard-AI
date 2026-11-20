@@ -243,6 +243,9 @@ async def init_db():
             await conn.execute(text("ALTER TABLE examination_investigations ADD COLUMN IF NOT EXISTS model_version VARCHAR(50) DEFAULT 'v2.1';"))
             await conn.execute(text("ALTER TABLE examination_investigations ADD COLUMN IF NOT EXISTS assessment_started_at TIMESTAMPTZ;"))
             await conn.execute(text("ALTER TABLE examination_investigations ADD COLUMN IF NOT EXISTS assessment_completed_at TIMESTAMPTZ;"))
+            await conn.execute(text("ALTER TABLE examination_investigations ADD COLUMN IF NOT EXISTS recommended_verdict VARCHAR(30) DEFAULT 'CLEARED';"))
+            await conn.execute(text("ALTER TABLE examination_investigations ADD COLUMN IF NOT EXISTS auto_disqualification_recommended BOOLEAN DEFAULT FALSE;"))
+            await conn.execute(text("ALTER TABLE examination_investigations ADD COLUMN IF NOT EXISTS auto_disqualification_reason TEXT;"))
 
             # Faculty Review Audit extensions
             await conn.execute(text("ALTER TABLE faculty_reviews ADD COLUMN IF NOT EXISTS previous_status VARCHAR(50);"))

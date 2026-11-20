@@ -137,6 +137,9 @@ class PostExaminationInvestigationService:
             investigation.ai_recommendation = executive_summary
             investigation.executive_summary = executive_summary
             investigation.incident_timeline_json = agg_data["timeline_items"]
+            investigation.recommended_verdict = agg_data.get("recommended_verdict", "CLEARED")
+            investigation.auto_disqualification_recommended = agg_data.get("auto_disqualification_recommended", False)
+            investigation.auto_disqualification_reason = agg_data.get("auto_disqualification_reason")
             investigation.limitations_notes = " • ".join(limitations)
             investigation.updated_at = now
             if not investigation.assessment_started_at:
@@ -167,6 +170,9 @@ class PostExaminationInvestigationService:
                 ai_recommendation=executive_summary,
                 executive_summary=executive_summary,
                 incident_timeline_json=agg_data["timeline_items"],
+                recommended_verdict=agg_data.get("recommended_verdict", "CLEARED"),
+                auto_disqualification_recommended=agg_data.get("auto_disqualification_recommended", False),
+                auto_disqualification_reason=agg_data.get("auto_disqualification_reason"),
                 correlations_json=[],
                 score_breakdown_json={},
                 limitations_notes=" • ".join(limitations),

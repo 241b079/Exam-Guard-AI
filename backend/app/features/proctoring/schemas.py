@@ -170,6 +170,9 @@ class ExaminationInvestigationResponse(BaseModel):
     evidence_breakdown_json: Dict[str, Any] = {}
     ai_recommendation: Optional[str] = None
     model_version: Optional[str] = "v2.1"
+    recommended_verdict: Optional[str] = "CLEARED"
+    auto_disqualification_recommended: bool = False
+    auto_disqualification_reason: Optional[str] = None
     faculty_decision: Optional[str] = None
     decision_reason: Optional[str] = None
     decision_notes: Optional[str] = None

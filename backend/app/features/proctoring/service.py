@@ -499,7 +499,34 @@ class ProctoringService:
                         active_ev.duration = duration
                         active_ev.updated_at = now
 
-                # 2. Record RECOVERED event
+                # 2. Update the ProctoringIncident row in DB with final duration and final dynamic risk contribution
+                inc_record = await db.get(ProctoringIncident, incident_id)
+                if inc_record:
+                    from app.features.proctoring.risk_engine import RiskScoringEngine
+                    inc_record.ended_at = now
+                    inc_record.duration_seconds = duration
+                    inc_record.status = "RESOLVED"
+                    if incident_type in ("TEMPORARY_ABSENCE", "NO_FACE", "TEMPORARILY_ABSENT"):
+                        inc_record.ai_explanation = f"Candidate absent from camera view (Off screen for {int(duration)}s). Focus recovered."
+                    elif incident_type in ("MULTIPLE_PERSON", "MULTIPLE_PERSON_IDENTITY_MISMATCH"):
+                        inc_record.ai_explanation = f"Multiple persons condition resolved after {int(duration)}s sustained. Candidate verified solo."
+                    inc_record.risk_contribution = RiskScoringEngine.calculate_incident_contribution(
+                        incident_type=inc_record.incident_type,
+                        confidence=inc_record.peak_confidence,
+                        duration_seconds=duration,
+                        severity=inc_record.severity,
+                        ai_classification=inc_record.ai_classification
+                    )
+                    # Recalculate attempt score with final duration
+                    await RiskScoringEngine.recalculate_attempt_score(
+                        db=db,
+                        attempt_id=attempt.id,
+                        trigger_event_type="RECOVERED",
+                        trigger_incident_id=inc_record.id,
+                        trigger_confidence=1.0
+                    )
+
+                # 3. Record RECOVERED event
                 rec_event = ProctoringEvent(
                     exam_id=exam_id,
                     exam_attempt_id=attempt.id,
@@ -659,16 +686,16 @@ class ProctoringService:
             )
 
         # Raw detection is suspicious: NO_FACE, MISMATCH, MULTIPLE_PERSON, or MULTIPLE_PERSON_IDENTITY_MISMATCH
-        target_state: str = "TEMPORARILY_ABSENT"
-        confirm_duration: float = settings.ABSENCE_GRACE_SECONDS
+        target_state: str = "TEMPORARY_ABSENCE"
+        confirm_duration: float = min(2.5, settings.ABSENCE_GRACE_SECONDS)
         event_type = ProctoringEventType.TEMPORARY_ABSENCE
-        severity = EventSeverity.LOW
+        severity = EventSeverity.MEDIUM
 
         if raw_detection == "NO_FACE":
-            target_state = "TEMPORARILY_ABSENT"
-            confirm_duration = settings.ABSENCE_GRACE_SECONDS
+            target_state = "TEMPORARY_ABSENCE"
+            confirm_duration = min(2.5, settings.ABSENCE_GRACE_SECONDS)
             event_type = ProctoringEventType.TEMPORARY_ABSENCE
-            severity = EventSeverity.LOW
+            severity = EventSeverity.MEDIUM
         elif raw_detection == "MISMATCH":
             target_state = "IDENTITY_MISMATCH"
             confirm_duration = settings.IDENTITY_MISMATCH_CONFIRM_SECONDS
@@ -676,12 +703,12 @@ class ProctoringService:
             severity = EventSeverity.HIGH
         elif raw_detection == "MULTIPLE_PERSON":
             target_state = "MULTIPLE_PERSON"
-            confirm_duration = settings.MULTIPLE_PERSON_CONFIRM_SECONDS
+            confirm_duration = min(2.5, settings.MULTIPLE_PERSON_CONFIRM_SECONDS)
             event_type = ProctoringEventType.MULTIPLE_PERSON
             severity = EventSeverity.HIGH
         elif raw_detection == "MULTIPLE_PERSON_IDENTITY_MISMATCH":
             target_state = "MULTIPLE_PERSON_IDENTITY_MISMATCH"
-            confirm_duration = settings.MULTIPLE_PERSON_CONFIRM_SECONDS
+            confirm_duration = min(2.5, settings.MULTIPLE_PERSON_CONFIRM_SECONDS)
             event_type = ProctoringEventType.MULTIPLE_PERSON_IDENTITY_MISMATCH
             severity = EventSeverity.CRITICAL
 
@@ -731,6 +758,14 @@ class ProctoringService:
                 evidence_captured=False
             )
 
+        # Calculate effective detection confidence
+        if target_state in ("TEMPORARY_ABSENCE", "NO_FACE", "TEMPORARILY_ABSENT"):
+            eff_detection_conf = 0.95
+        elif target_state in ("MULTIPLE_PERSON", "MULTIPLE_PERSON_IDENTITY_MISMATCH"):
+            eff_detection_conf = 0.92
+        else:
+            eff_detection_conf = primary_conf or 0.85
+
         # CONFIRMED SUSPICIOUS EVENT!
         tracker.current_state = target_state
         is_new_incident = (tracker.active_incident_id is None) or (tracker.active_incident_type != target_state)
@@ -738,6 +773,7 @@ class ProctoringService:
         if is_new_incident:
             # Create a new incident
             new_incident_id = str(uuid.uuid4())
+            new_event_id = str(uuid.uuid4())
             tracker.active_incident_id = new_incident_id
             tracker.active_incident_type = target_state
             tracker.incident_started_at = tracker.pending_state_start or now
@@ -755,6 +791,7 @@ class ProctoringService:
             evidence_captured = True
 
             ev = ProctoringEvent(
+                id=new_event_id,
                 exam_id=exam_id,
                 exam_attempt_id=attempt.id,
                 student_id=student_user.id,
@@ -764,17 +801,18 @@ class ProctoringService:
                 detected_at=now,
                 started_at=started_at,
                 duration=round((now - started_at).total_seconds(), 2),
-                confidence=primary_sim,
+                confidence=eff_detection_conf,
                 face_count=face_count,
                 expected_identity=student_user.name,
                 detected_identity_status=raw_detection,
                 evidence_path=rel_evidence_path,
                 incident_id=new_incident_id,
                 metadata_json={
-                    "detection_confidence": primary_conf,
+                    "detection_confidence": primary_conf or eff_detection_conf,
                     "similarity": primary_sim,
                     "face_count": face_count,
                     "confirmation_delay_seconds": round(elapsed_sec, 2),
+                    "evidence_url": f"/api/v1/proctoring/evidence/{new_event_id}",
                 }
             )
             db.add(ev)
@@ -835,12 +873,17 @@ class ProctoringService:
             from app.features.proctoring.risk_engine import RiskScoringEngine
             from app.features.proctoring.models import AIClassification
 
-            ai_class = (
-                AIClassification.CONFIRMED.value
-                if (primary_conf or 0.8) >= 0.70
-                else AIClassification.SUSPICIOUS.value
-            )
-            expl = f"Confirmed proctoring condition: {target_state}. Face count: {face_count}."
+            ai_class = AIClassification.CONFIRMED.value
+            dur_sec = round((now - (tracker.incident_started_at or now)).total_seconds(), 1)
+
+            if target_state in ("TEMPORARY_ABSENCE", "NO_FACE", "TEMPORARILY_ABSENT"):
+                expl = f"Candidate absent from camera view (Off screen for {int(dur_sec)}s). Dynamic absence risk applied."
+            elif target_state in ("MULTIPLE_PERSON", "MULTIPLE_PERSON_IDENTITY_MISMATCH"):
+                expl = f"Multiple persons detected in exam area ({face_count} faces, {int(dur_sec)}s sustained)."
+            else:
+                expl = f"Confirmed proctoring condition: {target_state}. Face count: {face_count}."
+
+            ev_id_url = created_event_id or tracker.active_event_id
             inc_obj, risk_score_obj, _ = await RiskScoringEngine.record_incident_and_update_risk(
                 db=db,
                 exam_id=exam_id,
@@ -849,18 +892,24 @@ class ProctoringService:
                 incident_type=target_state,
                 category="IDENTITY_AND_PRESENCE",
                 severity=severity.value if hasattr(severity, "value") else str(severity),
-                confidence=primary_conf or 0.85,
-                evidence_url=f"/api/v1/proctoring/evidence/{created_event_id or tracker.active_event_id}" if (created_event_id or tracker.active_event_id) else None,
+                confidence=eff_detection_conf,
+                evidence_url=f"/api/v1/proctoring/evidence/{ev_id_url}" if ev_id_url else None,
                 explanation=expl,
-                duration_seconds=round((now - (tracker.incident_started_at or now)).total_seconds(), 2),
+                duration_seconds=dur_sec,
                 metadata={
                     "face_count": face_count,
                     "similarity": primary_sim,
+                    "off_screen_seconds": dur_sec if target_state in ("TEMPORARY_ABSENCE", "NO_FACE", "TEMPORARILY_ABSENT") else None,
                 },
                 existing_incident_id=tracker.active_incident_id,
                 ai_classification=ai_class
             )
             await db.commit()
+            if risk_score_obj:
+                current_risk_score = risk_score_obj.current_score
+                current_risk_level = risk_score_obj.risk_level
+        except Exception as r_err:
+            logger.warning(f"Error updating risk score in continuous proctoring: {r_err}")
             if risk_score_obj:
                 current_risk_score = risk_score_obj.current_score
                 current_risk_level = risk_score_obj.risk_level

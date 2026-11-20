@@ -27,8 +27,9 @@ class RiskScoringEngine:
 
     # Configurable base event weights per specification
     DEFAULT_WEIGHTS: Dict[str, float] = {
-        "NO_FACE": 10.0,
-        "TEMPORARY_ABSENCE": 10.0,
+        "NO_FACE": 12.0,
+        "TEMPORARY_ABSENCE": 12.0,
+        "TEMPORARILY_ABSENT": 12.0,
         "MULTIPLE_PERSON": 25.0,
         "MULTIPLE_PERSON_IDENTITY_MISMATCH": 45.0,
         "IDENTITY_MISMATCH": 40.0,
@@ -75,15 +76,51 @@ class RiskScoringEngine:
         """
         Calculates raw risk contribution for an incident:
         Contribution = BaseWeight * Confidence * DurationMultiplier * ClassificationMultiplier
+        
+        Dynamic Absence Risk:
+        Candidate off-screen seconds scale dynamically with time spent away from camera.
         """
         base_weight = cls.DEFAULT_WEIGHTS.get(incident_type, 10.0)
         if base_weight <= 0.0:
             return 0.0
 
         # Confidence weighting (bounded between 0.3 and 1.0)
-        eff_conf = max(0.3, min(1.0, confidence if confidence > 0.0 else 0.8))
+        eff_conf = max(0.3, min(1.0, confidence if confidence > 0.0 else 0.85))
 
-        # Duration multiplier: sustained incidents scale gradually up to 2x (e.g. 60s sustained)
+        # Dynamic risk rate for candidate off-screen / absence
+        if incident_type in ("NO_FACE", "TEMPORARY_ABSENCE", "TEMPORARILY_ABSENT"):
+            # Off-screen duration dynamic calculation:
+            # Base risk: 12.0 pts
+            # <= 3s: Grace period, base weight only
+            # 3 - 15s: +0.8 pts per second off-screen
+            # 15 - 45s: +1.0 pts per second off-screen
+            # 45 - 90s: +1.2 pts per second off-screen
+            # > 90s: capped at 65.0 pts
+            if duration_seconds <= 3.0:
+                raw_absence_risk = base_weight
+            elif duration_seconds <= 15.0:
+                raw_absence_risk = base_weight + (duration_seconds - 3.0) * 0.8
+            elif duration_seconds <= 45.0:
+                raw_absence_risk = base_weight + (12.0 * 0.8) + (duration_seconds - 15.0) * 1.0
+            elif duration_seconds <= 90.0:
+                raw_absence_risk = base_weight + (12.0 * 0.8) + (30.0 * 1.0) + (duration_seconds - 45.0) * 1.2
+            else:
+                raw_absence_risk = min(65.0, base_weight + (12.0 * 0.8) + (30.0 * 1.0) + (45.0 * 1.2) + (duration_seconds - 90.0) * 0.5)
+
+            class_mult = 1.0 if ai_classification == AIClassification.CONFIRMED.value else 0.7
+            sev_mult = 1.25 if severity == EventSeverity.CRITICAL.value else (1.1 if severity == EventSeverity.HIGH.value else 1.0)
+            return round(raw_absence_risk * eff_conf * class_mult * sev_mult, 1)
+
+        elif incident_type in ("MULTIPLE_PERSON", "MULTIPLE_PERSON_IDENTITY_MISMATCH"):
+            # Dynamic scaling for sustained multiple people presence:
+            # Base weight +0.6 pts/sec sustained beyond 2s
+            extra_dur = max(0.0, duration_seconds - 2.0)
+            dur_risk = base_weight + min(25.0, extra_dur * 0.6)
+            class_mult = 1.0 if ai_classification == AIClassification.CONFIRMED.value else 0.7
+            sev_mult = 1.25 if severity == EventSeverity.CRITICAL.value else (1.1 if severity == EventSeverity.HIGH.value else 1.0)
+            return round(dur_risk * eff_conf * class_mult * sev_mult, 1)
+
+        # Standard incidents (objects, window blurs, tab switches, etc.)
         duration_mult = 1.0
         if duration_seconds > 5.0:
             duration_mult = 1.0 + min(1.0, (duration_seconds - 5.0) / 55.0)
@@ -104,7 +141,7 @@ class RiskScoringEngine:
             sev_mult = 1.1
 
         contribution = base_weight * eff_conf * duration_mult * class_mult * sev_mult
-        return round(contribution, 2)
+        return round(contribution, 1)
 
     @classmethod
     async def get_or_create_risk_score(
