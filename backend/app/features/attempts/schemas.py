@@ -107,6 +107,7 @@ class StudentExamStatusResponse(BaseModel):
     active_attempt_id: Optional[str] = None
     latest_attempt_status: Optional[str] = None
     latest_attempt_number: int = 0
+    total_attempts: int = 0
     reexam_available: bool = False
     can_start_or_resume: bool = True
     time_remaining_seconds: int = 0
@@ -276,6 +277,15 @@ class StudentCompletedResultItem(BaseModel):
     publication_status: Optional[str] = "UNPUBLISHED"
     integrity_status: Optional[str] = "PENDING_REVIEW"
     student_status_message: Optional[str] = None
+    # Disqualification and appeal attributes
+    is_disqualified: bool = False
+    disqualification_reason: Optional[str] = None
+    disqualification_evidence: Optional[str] = None
+    disqualified_at: Optional[datetime] = None
+    is_appealable: bool = False
+    appeal_status: Optional[str] = "NONE"
+    appeal_reason: Optional[str] = None
+    appeal_submitted_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -318,9 +328,40 @@ class AttemptReviewResponse(BaseModel):
     publication_status: Optional[str] = "UNPUBLISHED"
     integrity_status: Optional[str] = "PENDING_REVIEW"
     student_status_message: Optional[str] = None
+    is_disqualified: bool = False
+    disqualification_reason: Optional[str] = None
+    disqualification_evidence: Optional[str] = None
+    is_appealable: bool = False
+    appeal_status: Optional[str] = "NONE"
+    appeal_reason: Optional[str] = None
+    appeal_submitted_at: Optional[datetime] = None
     questions: List[AttemptReviewQuestionItem] = []
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class StudentAppealRequest(BaseModel):
+    reason: str
+
+
+class StudentAppealResponse(BaseModel):
+    message: str
+    attempt_id: str
+    appeal_status: str
+    appeal_submitted_at: datetime
+
+
+class FacultyAppealDecisionRequest(BaseModel):
+    decision: str  # "APPROVED" | "REJECTED"
+    notes: Optional[str] = None
+
+
+class FacultyAppealDecisionResponse(BaseModel):
+    message: str
+    attempt_id: str
+    appeal_status: str
+    publication_status: str
+    integrity_status: str
 
 
 class ManualGradeRequest(BaseModel):

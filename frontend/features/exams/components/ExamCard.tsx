@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Clock, HelpCircle, Award, Settings, Trash2, Play, RefreshCw, CheckCircle2, AlertOctagon } from 'lucide-react';
+import { Clock, HelpCircle, Award, Settings, Trash2, Play, RefreshCw, CheckCircle2, AlertOctagon, History } from 'lucide-react';
 import { Exam } from '../types';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -38,52 +38,100 @@ export const ExamCard: React.FC<ExamCardProps> = ({ exam, isFaculty = false, onD
       );
     }
 
+    const hasAttempts = Boolean((studentStatus?.total_attempts ?? 0) > 0 || (studentStatus?.latest_attempt_number ?? 0) > 0);
+    const attemptCount = studentStatus?.total_attempts || studentStatus?.latest_attempt_number || 1;
+
     if (studentStatus?.has_active_attempt) {
       return (
-        <Link href={`/student/exams/${exam.id}`} className="w-full">
-          <Button variant="primary" size="md" className="w-full text-xs font-semibold gap-1.5 bg-[#C25E1A] hover:bg-[#A94F13] shadow-warm">
-            <Play className="w-3.5 h-3.5 fill-white" /> Resume Exam (Att #{studentStatus.latest_attempt_number})
-          </Button>
-        </Link>
+        <div className="space-y-2 w-full">
+          <Link href={`/student/exams/${exam.id}`} className="w-full block">
+            <Button variant="primary" size="md" className="w-full text-xs font-semibold gap-1.5 bg-[#C25E1A] hover:bg-[#A94F13] shadow-warm">
+              <Play className="w-3.5 h-3.5 fill-white" /> Resume Exam (Att #{studentStatus.latest_attempt_number})
+            </Button>
+          </Link>
+          {hasAttempts && (
+            <Link href={`/student/history?examId=${exam.id}`} className="w-full block">
+              <Button variant="outline" size="sm" className="w-full text-xs gap-1.5 text-stone-700 hover:text-stone-900">
+                <History className="w-3.5 h-3.5 text-[#C25E1A]" /> Past Attempts ({attemptCount})
+              </Button>
+            </Link>
+          )}
+        </div>
       );
     }
 
     if (studentStatus?.reexam_available) {
       return (
-        <Link href={`/student/exams/${exam.id}/instructions`} className="w-full">
-          <Button variant="primary" size="md" className="w-full text-xs font-semibold gap-1.5 bg-emerald-600 hover:bg-emerald-700 shadow-warm">
-            <RefreshCw className="w-3.5 h-3.5" /> Start Re-examination
-          </Button>
-        </Link>
+        <div className="space-y-2 w-full">
+          <Link href={`/student/exams/${exam.id}/instructions`} className="w-full block">
+            <Button variant="primary" size="md" className="w-full text-xs font-semibold gap-1.5 bg-emerald-600 hover:bg-emerald-700 shadow-warm">
+              <RefreshCw className="w-3.5 h-3.5" /> Start Re-examination
+            </Button>
+          </Link>
+          {hasAttempts && (
+            <Link href={`/student/history?examId=${exam.id}`} className="w-full block">
+              <Button variant="outline" size="sm" className="w-full text-xs gap-1.5 text-stone-700 hover:text-stone-900">
+                <History className="w-3.5 h-3.5 text-[#C25E1A]" /> View Past Attempts ({attemptCount})
+              </Button>
+            </Link>
+          )}
+        </div>
       );
     }
 
     if (studentStatus?.latest_attempt_status === 'SUBMITTED') {
       return (
-        <Button variant="secondary" size="md" className="w-full text-xs gap-1.5 opacity-80" disabled>
-          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Submitted (Attempt #{studentStatus.latest_attempt_number})
-        </Button>
+        <div className="space-y-2 w-full">
+          <Link href={`/student/exams/${exam.id}/result`} className="w-full block">
+            <Button variant="outline" size="sm" className="w-full text-xs font-semibold gap-1.5 border-emerald-300 text-emerald-800 bg-emerald-50/50 hover:bg-emerald-100/60">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Latest Score Report (Att #{studentStatus.latest_attempt_number})
+            </Button>
+          </Link>
+          <Link href={`/student/history?examId=${exam.id}`} className="w-full block">
+            <Button variant="secondary" size="sm" className="w-full text-xs gap-1.5 text-stone-700 hover:text-stone-900">
+              <History className="w-3.5 h-3.5 text-[#C25E1A]" /> Attempt History ({attemptCount})
+            </Button>
+          </Link>
+        </div>
       );
     }
 
     if (studentStatus?.latest_attempt_status === 'EXPIRED') {
       return (
-        <Button variant="secondary" size="md" className="w-full text-xs gap-1.5 text-rose-700 bg-rose-50 border-rose-200" disabled>
-          <AlertOctagon className="w-3.5 h-3.5" /> Expired
-        </Button>
+        <div className="space-y-2 w-full">
+          <Button variant="secondary" size="md" className="w-full text-xs gap-1.5 text-rose-700 bg-rose-50 border-rose-200" disabled>
+            <AlertOctagon className="w-3.5 h-3.5" /> Attempt Expired
+          </Button>
+          {hasAttempts && (
+            <Link href={`/student/history?examId=${exam.id}`} className="w-full block">
+              <Button variant="outline" size="sm" className="w-full text-xs gap-1.5 text-stone-700 hover:text-stone-900">
+                <History className="w-3.5 h-3.5 text-[#C25E1A]" /> Attempt History ({attemptCount})
+              </Button>
+            </Link>
+          )}
+        </div>
       );
     }
 
     if (studentStatus && !studentStatus.can_start_or_resume) {
       return (
-        <Button variant="secondary" size="md" className="w-full text-xs opacity-70" disabled>
-          Attempt Limit Reached
-        </Button>
+        <div className="space-y-2 w-full">
+          <Button variant="secondary" size="md" className="w-full text-xs opacity-70" disabled>
+            Attempt Limit Reached
+          </Button>
+          {hasAttempts && (
+            <Link href={`/student/history?examId=${exam.id}`} className="w-full block">
+              <Button variant="outline" size="sm" className="w-full text-xs gap-1.5 text-stone-700 hover:text-stone-900">
+                <History className="w-3.5 h-3.5 text-[#C25E1A]" /> View Attempt History ({attemptCount})
+              </Button>
+            </Link>
+          )}
+        </div>
       );
     }
 
     return (
-      <Link href={`/student/exams/${exam.id}/instructions`} className="w-full">
+      <Link href={`/student/exams/${exam.id}/instructions`} className="w-full block">
         <Button variant="primary" size="md" className="w-full text-xs font-semibold">
           Start Exam
         </Button>

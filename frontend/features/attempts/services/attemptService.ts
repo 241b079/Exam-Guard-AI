@@ -18,6 +18,8 @@ import {
   GradebookEntry,
   ManualGradeRequest,
   ManualGradeResponse,
+  StudentAppealPayload,
+  StudentAppealResponse,
 } from '../types';
 
 export const attemptService = {
@@ -95,8 +97,16 @@ export const attemptService = {
     return fetchApi<AttemptReviewResponse>(url);
   },
 
-  async getStudentResults(): Promise<StudentCompletedResultItem[]> {
-    return fetchApi<StudentCompletedResultItem[]>('/api/v1/student/results');
+  async getStudentResults(examId?: string): Promise<StudentCompletedResultItem[]> {
+    const url = examId ? `/api/v1/student/results?exam_id=${encodeURIComponent(examId)}` : '/api/v1/student/results';
+    return fetchApi<StudentCompletedResultItem[]>(url);
+  },
+
+  async submitAppeal(attemptId: string, reason: string): Promise<StudentAppealResponse> {
+    return fetchApi<StudentAppealResponse>(`/api/v1/student/attempts/${attemptId}/appeal`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
   },
 
   async getExamGradebook(examId: string): Promise<ExamGradebookResponse> {

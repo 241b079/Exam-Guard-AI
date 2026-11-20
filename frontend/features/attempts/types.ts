@@ -135,6 +135,7 @@ export interface StudentExamStatusResponse {
   active_attempt_id?: string;
   latest_attempt_status?: string;
   latest_attempt_number: number;
+  total_attempts?: number;
   reexam_available: boolean;
   can_start_or_resume: boolean;
   time_remaining_seconds: number;
@@ -242,11 +243,22 @@ export interface StudentCompletedResultItem {
   attempt_number: number;
   started_at: string;
   submitted_at?: string;
-  total_score: number;
-  max_possible_score: number;
-  percentage: number;
+  total_score?: number | null;
+  max_possible_score?: number | null;
+  percentage?: number | null;
   status: AttemptStatus;
   evaluation_status: string;
+  publication_status?: string | null;
+  integrity_status?: string | null;
+  student_status_message?: string | null;
+  is_disqualified?: boolean;
+  disqualification_reason?: string | null;
+  disqualification_evidence?: string | null;
+  disqualified_at?: string | null;
+  is_appealable?: boolean;
+  appeal_status?: string | null;
+  appeal_reason?: string | null;
+  appeal_submitted_at?: string | null;
 }
 
 export interface AttemptReviewQuestionItem {
@@ -285,7 +297,25 @@ export interface AttemptReviewResponse {
   publication_status?: string | null;
   integrity_status?: string | null;
   student_status_message?: string | null;
+  is_disqualified?: boolean;
+  disqualification_reason?: string | null;
+  disqualification_evidence?: string | null;
+  is_appealable?: boolean;
+  appeal_status?: string | null;
+  appeal_reason?: string | null;
+  appeal_submitted_at?: string | null;
   questions: AttemptReviewQuestionItem[];
+}
+
+export interface StudentAppealPayload {
+  reason: string;
+}
+
+export interface StudentAppealResponse {
+  message: string;
+  attempt_id: string;
+  appeal_status: string;
+  appeal_submitted_at: string;
 }
 
 export interface ManualGradeRequest {

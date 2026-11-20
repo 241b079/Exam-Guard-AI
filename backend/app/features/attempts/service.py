@@ -38,6 +38,8 @@ from app.features.attempts.schemas import (
     AttemptReviewResponse,
     ManualGradeRequest,
     ManualGradeResponse,
+    StudentAppealResponse,
+    FacultyAppealDecisionResponse,
 )
 
 from app.features.users.models import User, UserRole
@@ -197,6 +199,7 @@ class AttemptService:
             active_attempt_id=active_att.id if active_att else None,
             latest_attempt_status=active_att.status if active_att else (latest_att.status if latest_att else "NOT_STARTED"),
             latest_attempt_number=active_att.attempt_number if active_att else (latest_att.attempt_number if latest_att else 0),
+            total_attempts=total_attempts,
             reexam_available=reexam_available,
             can_start_or_resume=can_start,
             time_remaining_seconds=remaining_seconds,
@@ -1383,27 +1386,56 @@ class AttemptService:
     @staticmethod
     async def get_student_results(
         db: AsyncSession,
-        student_id: str
+        student_id: str,
+        exam_id: Optional[str] = None
     ) -> List[StudentCompletedResultItem]:
+        filters = [
+            ExamAttempt.student_id == student_id,
+            ExamAttempt.status.in_([AttemptStatus.SUBMITTED, AttemptStatus.EXPIRED])
+        ]
+        if exam_id:
+            filters.append(ExamAttempt.exam_id == exam_id)
+
         result = await db.execute(
             select(ExamAttempt)
-            .where(
-                ExamAttempt.student_id == student_id,
-                ExamAttempt.status.in_([AttemptStatus.SUBMITTED, AttemptStatus.EXPIRED])
-            )
+            .where(*filters)
             .options(
                 selectinload(ExamAttempt.exam).selectinload(Exam.questions),
                 selectinload(ExamAttempt.answers)
             )
-            .order_by(ExamAttempt.submitted_at.desc())
+            .order_by(ExamAttempt.submitted_at.desc(), ExamAttempt.started_at.desc())
         )
         attempts = result.scalars().all()
 
+        from app.features.proctoring.models import DisqualificationRecord
+        disq_map = {}
+        if attempts:
+            att_ids = [a.id for a in attempts]
+            disq_res = await db.execute(
+                select(DisqualificationRecord).where(DisqualificationRecord.exam_attempt_id.in_(att_ids))
+            )
+            for d in disq_res.scalars().all():
+                disq_map[d.exam_attempt_id] = d
+
         items: List[StudentCompletedResultItem] = []
         for att in attempts:
+            disq = disq_map.get(att.id)
+            is_disq = (
+                getattr(att, "publication_status", "") == "DISQUALIFIED"
+                or getattr(att, "integrity_status", "") == "DISQUALIFIED"
+                or disq is not None
+            )
             eval_status, _, _ = AttemptService._calc_evaluation(att)
             max_marks = att.max_possible_score or (att.exam.total_marks if att.exam else 0.0)
-            is_pub = (getattr(att, "publication_status", "UNPUBLISHED") == "PUBLISHED")
+            is_pub = (getattr(att, "publication_status", "UNPUBLISHED") == "PUBLISHED" and not is_disq)
+
+            total_score = 0.0 if is_disq else (att.total_score if is_pub else None)
+            pct = 0.0 if is_disq else (AttemptService._calc_percentage(att.total_score, max_marks) if is_pub else None)
+            max_possible = max_marks if (is_pub or is_disq) else None
+
+            pub_status = "DISQUALIFIED" if is_disq else getattr(att, "publication_status", "UNPUBLISHED")
+            integ_status = "DISQUALIFIED" if is_disq else getattr(att, "integrity_status", "PENDING_REVIEW")
+
             items.append(
                 StudentCompletedResultItem(
                     attempt_id=att.id,
@@ -1412,14 +1444,22 @@ class AttemptService:
                     attempt_number=att.attempt_number or 1,
                     started_at=att.started_at,
                     submitted_at=att.submitted_at,
-                    total_score=att.total_score if is_pub else None,
-                    max_possible_score=max_marks if is_pub else None,
-                    percentage=AttemptService._calc_percentage(att.total_score, max_marks) if is_pub else None,
+                    total_score=total_score,
+                    max_possible_score=max_possible,
+                    percentage=pct,
                     status=att.status,
                     evaluation_status=eval_status,
-                    publication_status=getattr(att, "publication_status", "UNPUBLISHED"),
-                    integrity_status=getattr(att, "integrity_status", "PENDING_REVIEW"),
-                    student_status_message=None if is_pub else AttemptService._get_student_integrity_message(att, None)
+                    publication_status=pub_status,
+                    integrity_status=integ_status,
+                    student_status_message=AttemptService._get_student_integrity_message(att, None) if not is_pub else None,
+                    is_disqualified=is_disq,
+                    disqualification_reason=disq.reason if disq else ("Academic integrity policy violation" if is_disq else None),
+                    disqualification_evidence=disq.evidence_summary if disq else None,
+                    disqualified_at=disq.disqualified_at if disq else (att.submitted_at if is_disq else None),
+                    is_appealable=disq.is_appealable if disq else is_disq,
+                    appeal_status=disq.appeal_status if disq else ("NONE" if is_disq else "NONE"),
+                    appeal_reason=getattr(disq, "appeal_reason", None) if disq else None,
+                    appeal_submitted_at=getattr(disq, "appeal_submitted_at", None) if disq else None,
                 )
             )
         return items
@@ -1450,7 +1490,17 @@ class AttemptService:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access results for this exam")
 
         is_faculty_or_admin = (current_user.role in (UserRole.FACULTY, UserRole.ADMIN))
-        is_disqualified = (getattr(attempt, "integrity_status", "") == "DISQUALIFIED") or (getattr(attempt, "publication_status", "") == "DISQUALIFIED")
+        from app.features.proctoring.models import DisqualificationRecord
+        disq_rec_res = await db.execute(
+            select(DisqualificationRecord).where(DisqualificationRecord.exam_attempt_id == attempt.id)
+        )
+        disq_rec = disq_rec_res.scalar_one_or_none()
+
+        is_disqualified = (
+            (getattr(attempt, "integrity_status", "") == "DISQUALIFIED")
+            or (getattr(attempt, "publication_status", "") == "DISQUALIFIED")
+            or disq_rec is not None
+        )
         is_published = ((getattr(attempt, "publication_status", "UNPUBLISHED") == "PUBLISHED" and not is_disqualified) or is_faculty_or_admin)
 
         # Fetch investigation to determine status message for student
@@ -1538,6 +1588,13 @@ class AttemptService:
             publication_status=final_pub_status,
             integrity_status=final_integ_status,
             student_status_message=student_status_msg,
+            is_disqualified=is_disqualified,
+            disqualification_reason=disq_rec.reason if disq_rec else ("Academic integrity policy violation" if is_disqualified else None),
+            disqualification_evidence=disq_rec.evidence_summary if disq_rec else None,
+            is_appealable=disq_rec.is_appealable if disq_rec else is_disqualified,
+            appeal_status=disq_rec.appeal_status if disq_rec else ("NONE" if is_disqualified else "NONE"),
+            appeal_reason=getattr(disq_rec, "appeal_reason", None) if disq_rec else None,
+            appeal_submitted_at=getattr(disq_rec, "appeal_submitted_at", None) if disq_rec else None,
             questions=q_items
         )
 
@@ -1652,5 +1709,139 @@ class AttemptService:
             attempt_max_score=attempt.max_possible_score or attempt.exam.total_marks or 0.0,
             evaluation_status=eval_status,
             message="Grade updated successfully"
+        )
+
+    @staticmethod
+    async def submit_appeal(
+        db: AsyncSession,
+        attempt_id: str,
+        student_id: str,
+        reason: str
+    ) -> StudentAppealResponse:
+        from app.features.proctoring.models import DisqualificationRecord, Notification
+        result = await db.execute(
+            select(ExamAttempt)
+            .where(ExamAttempt.id == attempt_id)
+            .options(selectinload(ExamAttempt.exam))
+        )
+        attempt = result.scalar_one_or_none()
+        if not attempt:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exam attempt not found")
+        if attempt.student_id != student_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to appeal this attempt")
+
+        disq_res = await db.execute(
+            select(DisqualificationRecord).where(DisqualificationRecord.exam_attempt_id == attempt_id)
+        )
+        disq = disq_res.scalar_one_or_none()
+        if not disq:
+            if attempt.publication_status == "DISQUALIFIED" or attempt.integrity_status == "DISQUALIFIED":
+                disq = DisqualificationRecord(
+                    exam_attempt_id=attempt.id,
+                    exam_id=attempt.exam_id,
+                    student_id=student_id,
+                    faculty_id=attempt.exam.created_by_id if attempt.exam else student_id,
+                    reason="Academic integrity policy violation",
+                    evidence_summary="Disqualified based on proctoring evidence review",
+                    final_risk_score=0.0,
+                    is_appealable=True,
+                    appeal_status="NONE"
+                )
+                db.add(disq)
+                await db.flush()
+            else:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only disqualified attempts are eligible for academic appeal")
+
+        if not disq.is_appealable:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This disqualification decision is final and non-appealable")
+
+        if disq.appeal_status == "PENDING_REVIEW":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="An appeal is already under review for this attempt")
+
+        now = datetime.now(timezone.utc)
+        disq.appeal_status = "PENDING_REVIEW"
+        disq.appeal_reason = reason.strip()
+        disq.appeal_submitted_at = now
+
+        # Create notification for faculty
+        st_res = await db.execute(select(User).where(User.id == student_id))
+        student = st_res.scalar_one_or_none()
+        st_name = student.name if student else "Candidate"
+        exam_title = attempt.exam.title if attempt.exam else "Examination"
+
+        notif = Notification(
+            user_id=disq.faculty_id,
+            exam_id=attempt.exam_id,
+            exam_attempt_id=attempt.id,
+            type="INVESTIGATION_ALERT",
+            title=f"Academic Appeal Submitted — {st_name}",
+            message=f"Student {st_name} has requested an appeal for disqualified Attempt #{attempt.attempt_number} in '{exam_title}'. Reason: {reason.strip()[:200]}"
+        )
+        db.add(notif)
+        await db.commit()
+
+        return StudentAppealResponse(
+            message="Appeal request submitted successfully. The review committee and course faculty have been notified.",
+            attempt_id=attempt_id,
+            appeal_status="PENDING_REVIEW",
+            appeal_submitted_at=now
+        )
+
+    @staticmethod
+    async def decide_appeal(
+        db: AsyncSession,
+        attempt_id: str,
+        faculty_id: str,
+        decision: str,
+        notes: Optional[str] = None
+    ) -> FacultyAppealDecisionResponse:
+        from app.features.proctoring.models import DisqualificationRecord, Notification
+        disq_res = await db.execute(
+            select(DisqualificationRecord).where(DisqualificationRecord.exam_attempt_id == attempt_id)
+        )
+        disq = disq_res.scalar_one_or_none()
+        if not disq:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No disqualification record found")
+
+        att_res = await db.execute(
+            select(ExamAttempt)
+            .where(ExamAttempt.id == attempt_id)
+            .options(selectinload(ExamAttempt.answers))
+        )
+        attempt = att_res.scalar_one_or_none()
+        if not attempt:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attempt not found")
+
+        now = datetime.now(timezone.utc)
+        disq.appeal_resolution_notes = notes
+
+        if decision.upper() == "APPROVED":
+            disq.appeal_status = "APPROVED"
+            attempt.publication_status = "UNPUBLISHED"
+            attempt.integrity_status = "CLEARED"
+            total = sum((a.marks_awarded or 0.0) for a in (attempt.answers or []))
+            attempt.total_score = total
+            notif_msg = f"Your appeal for Attempt #{attempt.attempt_number} has been APPROVED by faculty. Disqualification has been cleared."
+        else:
+            disq.appeal_status = "REJECTED"
+            notif_msg = f"Your appeal for Attempt #{attempt.attempt_number} has been reviewed and REJECTED. The disqualification decision stands."
+
+        notif = Notification(
+            user_id=attempt.student_id,
+            exam_id=attempt.exam_id,
+            exam_attempt_id=attempt.id,
+            type="STATUS_UPDATE",
+            title=f"Appeal Verdict: {disq.appeal_status}",
+            message=notif_msg
+        )
+        db.add(notif)
+        await db.commit()
+
+        return FacultyAppealDecisionResponse(
+            message=f"Appeal {decision.lower()} successfully",
+            attempt_id=attempt_id,
+            appeal_status=disq.appeal_status,
+            publication_status=attempt.publication_status,
+            integrity_status=attempt.integrity_status
         )
 

@@ -188,35 +188,47 @@ export default function StudentDashboardPage() {
                 <p className="text-xs text-stone-500 italic">No completed exams yet.</p>
               ) : (
                 <div className="space-y-2">
-                  {completedResults.slice(0, 3).map((res) => (
-                    <div key={res.attempt_id} className="p-3 bg-[#FAF7F2] rounded-2xl border border-[#EBE5DC] flex justify-between items-center text-xs">
-                      <div className="space-y-0.5">
-                        <h4 className="font-bold text-stone-900 truncate max-w-[140px]">{res.exam_title}</h4>
-                        <div className="flex items-center gap-2 text-[10px] text-stone-500">
-                          <span className="font-semibold text-stone-900">{res.total_score} / {res.max_possible_score}</span>
-                          <span>({res.percentage}%)</span>
-                          <span>•</span>
-                          <span className={res.evaluation_status === 'EVALUATED' ? 'text-emerald-700 font-semibold' : 'text-amber-700'}>
-                            {res.evaluation_status === 'EVALUATED' ? 'Graded' : 'Pending'}
-                          </span>
+                  {completedResults.slice(0, 3).map((res) => {
+                    const isDisq = res.is_disqualified || res.publication_status === 'DISQUALIFIED';
+                    const isPub = res.publication_status === 'PUBLISHED' && !isDisq;
+
+                    return (
+                      <div key={res.attempt_id} className={`p-3 rounded-2xl border flex justify-between items-center text-xs ${isDisq ? 'bg-rose-50/70 border-rose-200' : 'bg-[#FAF7F2] border-[#EBE5DC]'}`}>
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-1.5">
+                            <h4 className="font-bold text-stone-900 truncate max-w-[130px]">{res.exam_title}</h4>
+                            <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-stone-200/60 text-stone-600">
+                              Att #{res.attempt_number}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px]">
+                            {isDisq ? (
+                              <span className="font-bold text-rose-700">DISQUALIFIED (Grade 0)</span>
+                            ) : isPub ? (
+                              <>
+                                <span className="font-semibold text-stone-900">{res.total_score} / {res.max_possible_score}</span>
+                                <span className="text-stone-500">({res.percentage}%)</span>
+                              </>
+                            ) : (
+                              <span className="text-amber-800 italic">Withheld (Pending Review)</span>
+                            )}
+                          </div>
                         </div>
+                        <Link href={`/student/exams/${res.exam_id}/result?attemptId=${res.attempt_id}`}>
+                          <Button variant="outline" size="sm" className="text-[11px] py-1 px-2.5">
+                            View
+                          </Button>
+                        </Link>
                       </div>
-                      <Link href={`/student/exams/${res.exam_id}/result?attemptId=${res.attempt_id}`}>
-                        <Button variant="outline" size="sm" className="text-[11px] py-1 px-2.5">
-                          View
-                        </Button>
-                      </Link>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
 
-            {completedResults.length > 0 && (
-              <span className="text-[11px] text-stone-400 block pt-1">
-                Showing {Math.min(3, completedResults.length)} of {completedResults.length} completed
-              </span>
-            )}
+            <Link href="/student/history" className="text-xs text-[#C25E1A] hover:text-[#A94F13] font-semibold inline-flex items-center gap-1 pt-2">
+              View All Examination History <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
           </Card>
 
         </div>

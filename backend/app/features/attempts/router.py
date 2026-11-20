@@ -31,6 +31,10 @@ from app.features.attempts.schemas import (
     AttemptReviewResponse,
     ManualGradeRequest,
     ManualGradeResponse,
+    StudentAppealRequest,
+    StudentAppealResponse,
+    FacultyAppealDecisionRequest,
+    FacultyAppealDecisionResponse,
 )
 from app.features.attempts.service import AttemptService
 from app.features.proctoring.signaling import signaling_manager
@@ -249,10 +253,36 @@ async def update_media_session(
 
 @router.get("/student/results", response_model=List[StudentCompletedResultItem])
 async def get_student_results(
+    exam_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.STUDENT]))
+    current_user: User = Depends(require_roles([UserRole.STUDENT, UserRole.ADMIN]))
 ):
-    return await AttemptService.get_student_results(db, student_id=current_user.id)
+    """Retrieve history of completed examination attempts for the authenticated student."""
+    return await AttemptService.get_student_results(db, student_id=current_user.id, exam_id=exam_id)
+
+
+@router.post("/student/attempts/{attempt_id}/appeal", response_model=StudentAppealResponse)
+async def submit_student_appeal(
+    attempt_id: str,
+    payload: StudentAppealRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.STUDENT, UserRole.ADMIN]))
+):
+    """Submit an academic integrity appeal or review request for a disqualified attempt."""
+    return await AttemptService.submit_appeal(db, attempt_id=attempt_id, student_id=current_user.id, reason=payload.reason)
+
+
+@router.post("/faculty/attempts/{attempt_id}/appeal/decision", response_model=FacultyAppealDecisionResponse)
+async def decide_student_appeal(
+    attempt_id: str,
+    payload: FacultyAppealDecisionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN]))
+):
+    """Adjudicate and record decision on a candidate's academic integrity appeal."""
+    return await AttemptService.decide_appeal(
+        db, attempt_id=attempt_id, faculty_id=current_user.id, decision=payload.decision, notes=payload.notes
+    )
 
 
 @router.get("/exams/{exam_id}/my-result", response_model=AttemptReviewResponse)

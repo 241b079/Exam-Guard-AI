@@ -567,5 +567,8 @@ async def init_db():
             """))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_disqualification_records_attempt ON disqualification_records(exam_attempt_id);"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_disqualification_records_exam ON disqualification_records(exam_id);"))
+            await conn.execute(text("ALTER TABLE disqualification_records ADD COLUMN IF NOT EXISTS appeal_reason TEXT;"))
+            await conn.execute(text("ALTER TABLE disqualification_records ADD COLUMN IF NOT EXISTS appeal_submitted_at TIMESTAMPTZ;"))
+            await conn.execute(text("ALTER TABLE disqualification_records ADD COLUMN IF NOT EXISTS appeal_resolution_notes TEXT;"))
         except Exception as e:
             logger.warning(f"Note: Column migration check skipped or completed: {e}")

@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Shield, LayoutDashboard, FileText, Users, User as UserIcon, ShieldCheck, Activity, Settings } from 'lucide-react';
+import { Shield, LayoutDashboard, FileText, Users, User as UserIcon, ShieldCheck, Activity, Settings, History } from 'lucide-react';
 import { UserRole } from '@/types';
 
 interface SidebarProps {
@@ -32,6 +32,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ role }) => {
     navItems.push({ label: 'My Profile', href: '/faculty/profile', icon: UserIcon });
   } else if (role === 'STUDENT') {
     navItems.push({ label: 'Available Exams', href: '/student/exams', icon: FileText });
+    navItems.push({ label: 'Exam History & Results', href: '/student/history', icon: History });
     navItems.push({ label: 'My Profile', href: '/student/profile', icon: UserIcon });
   } else if (role === 'ADMIN') {
     navItems.push({ label: 'Users', href: '/admin/users', icon: Users });

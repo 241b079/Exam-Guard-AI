@@ -16,12 +16,13 @@ import {
   AlertCircle,
   RefreshCw,
   ShieldAlert,
+  History,
 } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
-import { attemptService, AttemptReviewResponse } from '@/features/attempts';
+import { attemptService, AttemptReviewResponse, StudentAppealModal } from '@/features/attempts';
 import { Loading } from '@/components/shared/Loading';
 
 export default function StudentExamResultPage() {
@@ -33,6 +34,7 @@ export default function StudentExamResultPage() {
   const [result, setResult] = useState<AttemptReviewResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isAppealModalOpen, setIsAppealModalOpen] = useState(false);
 
   const loadResult = async (retryCount = 0) => {
     setIsLoading(true);
@@ -167,6 +169,11 @@ export default function StudentExamResultPage() {
                 <Printer className="w-4 h-4 text-[#C25E1A]" /> Print / Save as PDF
               </Button>
             )}
+            <Link href="/student/history">
+              <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+                <History className="w-3.5 h-3.5 text-[#C25E1A]" /> Exam History
+              </Button>
+            </Link>
             <Link href="/student/dashboard">
               <Button variant="secondary" size="sm" className="gap-1.5 text-xs">
                 <BookOpen className="w-4 h-4" /> Dashboard
@@ -381,14 +388,75 @@ export default function StudentExamResultPage() {
 
         {/* Question-by-Question Review Section */}
         {isDisqualified ? (
-          <div className="p-8 bg-white rounded-3xl border border-rose-200 text-center space-y-3 shadow-warm print-card">
-            <div className="w-12 h-12 rounded-full bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center mx-auto">
-              <ShieldAlert className="w-6 h-6" />
+          <div className="space-y-4">
+            {/* Formal Disqualification Finding & Statement card */}
+            <div className="p-6 rounded-3xl bg-rose-50 border border-rose-200 shadow-warm space-y-4 print-card text-left">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-rose-900 font-bold text-sm">
+                  <ShieldAlert className="w-5 h-5 text-rose-600" />
+                  Faculty Adjudication & Disqualification Reason
+                </div>
+                {result.appeal_status && result.appeal_status !== 'NONE' && (
+                  <span className="text-xs font-bold px-3 py-1 rounded-full bg-amber-100 text-amber-900 border border-amber-300">
+                    Appeal: {result.appeal_status}
+                  </span>
+                )}
+              </div>
+
+              <div className="p-4 rounded-2xl bg-white/90 border border-rose-100 text-xs text-rose-950 space-y-1.5">
+                <span className="text-[10px] uppercase font-bold text-rose-700 tracking-wider block">
+                  Official Sanction Finding Recorded by Faculty:
+                </span>
+                <p className="font-semibold text-sm leading-relaxed">
+                  "{result.disqualification_reason || 'Academic integrity policy violation identified during proctoring review.'}"
+                </p>
+                {result.disqualification_evidence && (
+                  <p className="text-[11px] text-stone-600 pt-1 border-t border-rose-100">
+                    Evidence Summary: {result.disqualification_evidence}
+                  </p>
+                )}
+              </div>
+
+              {result.appeal_reason && (
+                <div className="p-4 rounded-2xl bg-amber-50/80 border border-amber-200 text-xs text-stone-800 space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-amber-800 tracking-wider block">
+                    Your Submitted Appeal Statement:
+                  </span>
+                  <p className="italic">"{result.appeal_reason}"</p>
+                  {result.appeal_submitted_at && (
+                    <span className="text-[10px] text-stone-500 block">
+                      Submitted on: {new Date(result.appeal_submitted_at).toLocaleString()}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                <p className="text-[11px] text-rose-800 max-w-md">
+                  In accordance with institutional academic regulations, you may submit a formal request for review / appeal if you believe this sanction was imposed in error.
+                </p>
+                {result.is_appealable && (!result.appeal_status || result.appeal_status === 'NONE') && (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => setIsAppealModalOpen(true)}
+                    className="gap-2 text-xs bg-rose-700 hover:bg-rose-800 text-white"
+                  >
+                    <ShieldAlert className="w-3.5 h-3.5" /> Request Review / Submit Appeal
+                  </Button>
+                )}
+              </div>
             </div>
-            <h3 className="text-base font-bold font-serif text-stone-900">Question Keys & Responses Withheld</h3>
-            <p className="text-xs text-stone-600 max-w-md mx-auto leading-relaxed">
-              Per university examination regulations, question keys, evaluation breakdowns, and candidate responses are permanently suppressed for disqualified attempts.
-            </p>
+
+            <div className="p-8 bg-white rounded-3xl border border-rose-200 text-center space-y-3 shadow-warm print-card">
+              <div className="w-12 h-12 rounded-full bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center mx-auto">
+                <ShieldAlert className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-bold font-serif text-stone-900">Question Keys & Responses Withheld</h3>
+              <p className="text-xs text-stone-600 max-w-md mx-auto leading-relaxed">
+                Per university examination regulations, question keys, evaluation breakdowns, and candidate responses are permanently suppressed for disqualified attempts.
+              </p>
+            </div>
           </div>
         ) : (
           <div className="space-y-4 pt-2">
@@ -513,6 +581,27 @@ export default function StudentExamResultPage() {
           </Link>
         </div>
       </div>
+
+      {/* Appeal Submission Modal */}
+      <StudentAppealModal
+        isOpen={isAppealModalOpen}
+        onClose={() => setIsAppealModalOpen(false)}
+        attempt={result ? {
+          attempt_id: result.attempt_id,
+          exam_title: result.exam_title,
+          attempt_number: result.attempt_number,
+          disqualification_reason: result.disqualification_reason,
+          disqualification_evidence: result.disqualification_evidence,
+          appeal_status: result.appeal_status,
+          appeal_reason: result.appeal_reason,
+        } : null}
+        onAppealSubmitted={() => {
+          attemptService
+            .getMyExamResult(examId, attemptIdParam)
+            .then((data) => setResult(data))
+            .catch(() => {});
+        }}
+      />
     </DashboardLayout>
   );
 }

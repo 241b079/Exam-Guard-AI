@@ -1,5 +1,6 @@
 import enum
 import uuid
+from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
 from sqlalchemy import String, Text, Float, Integer, Boolean, DateTime, Enum as SQLEnum, ForeignKey, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -615,6 +616,9 @@ class DisqualificationRecord(Base):
     )
     is_appealable: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     appeal_status: Mapped[str] = mapped_column(String(30), default="NONE", nullable=False)
+    appeal_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    appeal_submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    appeal_resolution_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Relationships
     exam = relationship("Exam", lazy="selectin")
