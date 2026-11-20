@@ -305,12 +305,12 @@ export function PostExamInvestigationModal({
                       </span>
                     </div>
                     <div className="text-xs text-stone-500 mt-1">
-                      Risk Score: <strong className="text-stone-900">{((investigation.final_risk_score ?? 0)).toFixed(1)} / 100</strong>
+                      Risk Score: <strong className="text-stone-900">{Number(investigation?.final_risk_score ?? 0).toFixed(1)} / 100</strong>
                     </div>
                   </div>
                   <div className="text-[11px] text-stone-500 flex justify-between pt-2 border-t border-[#EBE5DC]">
-                    <span>Peak: {((investigation.peak_risk_score ?? investigation.final_risk_score) ?? 0).toFixed(1)}</span>
-                    <span>Priority: <strong>{investigation.review_priority || 'LOW'}</strong></span>
+                    <span>Peak: {Number(investigation?.peak_risk_score ?? investigation?.final_risk_score ?? 0).toFixed(1)}</span>
+                    <span>Priority: <strong>{investigation?.review_priority || 'LOW'}</strong></span>
                   </div>
                 </div>
 
@@ -522,7 +522,7 @@ export function PostExamInvestigationModal({
                                   {inc.severity || 'LOW'}
                                 </Badge>
                                 <span className="text-[11px] px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 font-medium">
-                                  {inc.ai_classification || 'Suspicious'} (conf: {(((inc.confidence ?? 0) * 100)).toFixed(0)}%)
+                                  {inc.ai_classification || 'Suspicious'} (conf: {Number((inc?.confidence ?? 0) * 100).toFixed(0)}%)
                                 </span>
                                 {typeof inc.duration_seconds === 'number' && inc.duration_seconds > 0 && (
                                   <span className={`text-[11px] px-2 py-0.5 rounded-full font-mono font-bold ${
@@ -531,8 +531,8 @@ export function PostExamInvestigationModal({
                                       : 'bg-stone-100 text-stone-600'
                                   }`}>
                                     {(inc.incident_type === 'TEMPORARY_ABSENCE' || inc.incident_type === 'NO_FACE' || inc.incident_type === 'TEMPORARILY_ABSENT')
-                                      ? `⏱️ Off Screen: ${(inc.duration_seconds ?? 0).toFixed(0)}s`
-                                      : `⏱️ ${(inc.duration_seconds ?? 0).toFixed(0)}s`}
+                                      ? `⏱️ Off Screen: ${Number(inc?.duration_seconds ?? 0).toFixed(0)}s`
+                                      : `⏱️ ${Number(inc?.duration_seconds ?? 0).toFixed(0)}s`}
                                   </span>
                                 )}
                                 <span className="text-[11px] text-stone-400 ml-auto">
@@ -545,7 +545,7 @@ export function PostExamInvestigationModal({
                               </p>
 
                               <div className="flex items-center gap-3 pt-1 text-[11px] text-stone-500">
-                                <span>Risk Contribution: <strong>+{((inc.risk_contribution ?? 0)).toFixed(1)} pts</strong></span>
+                                <span>Risk Contribution: <strong>+{Number(inc?.risk_contribution ?? 0).toFixed(1)} pts</strong></span>
                                 {inc.review_status && inc.review_status !== 'PENDING' && (
                                   <span className="font-bold text-stone-700">
                                     Review Status: {inc.review_status}

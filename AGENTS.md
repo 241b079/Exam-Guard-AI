@@ -53,3 +53,31 @@ Whenever an AI agent or test runner creates database entities (users, exams, att
 
 - The student exam list (`/student` or `/dashboard`) must always reflect only authentic faculty-scheduled exams.
 - If any test exam appears in the student section, identify its `id` and remove it immediately along with any cascaded test records (`exam_attempts`, `exam_violations`, `proctoring_events`).
+
+---
+
+## 4. Absolute Protection of Faculty-Created Exams & No Blanket Deletion
+
+### Strict Rule:
+**NEVER delete, modify, or truncate exams or questions created by authentic faculty.**
+
+1. **No Blanket Deletion Queries**:
+   - Queries like `DELETE FROM exams WHERE title NOT IN (...)` are **strictly forbidden**. They delete genuine exams whenever faculty creates a new exam with a new title.
+   - Deletions in test cleanup must **strictly target only synthetic IDs** created during that specific test run (`WHERE id = ANY(:created_exam_ids)`), or where `created_by_id` belongs to a synthetic test user (`email LIKE 'temp_%'`).
+
+2. **Authentic Faculty Exams are Immutable to AI Agents**:
+   - Any exam where `created_by_id` belongs to an authentic faculty account (`faculty@gmail.com`, `faculty1@gmail.com`, etc.) must never be deleted by automated test runners, fixtures, or scripts.
+
+---
+
+## 5. Prohibition on AI-Generated History on Faculty Exams
+
+### Strict Rule:
+**AI agents MUST NOT create synthetic attempts, fake test submissions, or mock proctoring history on any exam created by authentic faculty.**
+
+1. **No Test History on Faculty Exams**:
+   - Do not inject mock exam attempts, test answers, or simulated violations into authentic faculty exams (e.g. `Math 1`, `Data Structure and algorithms`, `gk`, etc.).
+   - All testing requiring exam attempts, submission workflows, or proctoring violations **MUST create their own temporary synthetic exam** and tear it down immediately in `try...finally`.
+
+2. **Purity of Faculty Gradebooks & History**:
+   - The gradebook, submissions, and proctoring history of authentic faculty exams must belong 100% to genuine student activity. AI test runners must never pollute them with dummy submissions or mock incidents.
