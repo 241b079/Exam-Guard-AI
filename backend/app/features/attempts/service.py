@@ -730,6 +730,13 @@ class AttemptService:
         except Exception:
             pass
 
+        # Immediately guarantee StudentRiskScore exists with verified baseline score
+        try:
+            from app.features.proctoring.risk_engine import RiskScoringEngine
+            await RiskScoringEngine.get_or_create_risk_score(db, exam.id, attempt.id, student_id)
+        except Exception as rs_err:
+            logger.warning(f"Error ensuring risk score on submit: {rs_err}")
+
         # Offload Post-Examination AI Investigation report synthesis to background task
         # so student submission returns in milliseconds without blocking on heavy AI dossier generation
         try:
@@ -1067,15 +1074,20 @@ class AttemptService:
 
             rs_obj = risk_scores_map.get(att.id)
             inv_obj = inv_map.get(att.id)
-            r_score = rs_obj.current_score if rs_obj else 0.0
-            r_level = rs_obj.risk_level if rs_obj else "LOW"
-            i_count = rs_obj.incident_count if rs_obj else 0
-            inv_status = inv_obj.investigation_status if inv_obj else None
+            r_score = rs_obj.current_score if rs_obj else (inv_obj.final_risk_score if inv_obj else 0.0)
+            r_level = rs_obj.risk_level if rs_obj else (inv_obj.risk_classification if inv_obj else "LOW")
+            i_count = rs_obj.incident_count if rs_obj else (inv_obj.total_incidents if inv_obj else 0)
+            inv_status = inv_obj.investigation_status if inv_obj else ("CLEARED" if r_score == 0.0 else "PENDING_REVIEW")
 
             # New AI Assessment & Publication fields
-            overall_risk = inv_obj.overall_risk_level if inv_obj and inv_obj.overall_risk_level else (
-                "HIGH_RISK" if r_level in ["HIGH", "CRITICAL"] else ("MODERATE_RISK" if r_level == "MEDIUM" else "LOW_RISK")
-            )
+            if inv_obj and inv_obj.overall_risk_level and inv_obj.overall_risk_level != "INSUFFICIENT_EVIDENCE":
+                overall_risk = inv_obj.overall_risk_level
+            elif inv_obj and inv_obj.overall_risk_level == "INSUFFICIENT_EVIDENCE" and (r_score == 0.0 and len(att.violations or []) == 0):
+                overall_risk = "LOW_RISK"
+            else:
+                overall_risk = (
+                    "HIGH_RISK" if r_level in ["HIGH", "CRITICAL"] else ("MODERATE_RISK" if r_level == "MEDIUM" else "LOW_RISK")
+                )
             high_conf = inv_obj.high_confidence_count if inv_obj else 0
             suspicious_c = inv_obj.low_confidence_count if inv_obj else 0
 

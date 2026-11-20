@@ -106,19 +106,26 @@ export default function FacultyExamDetailPage() {
       };
       const diff = riskRank(b) - riskRank(a);
       if (diff !== 0) return diff;
-      return (b.risk_score || 0) - (a.risk_score || 0);
+      const scoreDiff = (b.risk_score || 0) - (a.risk_score || 0);
+      if (scoreDiff !== 0) return scoreDiff;
+      // Secondary tie-breaker: Newest attempt number and submission time first!
+      const attemptNumDiff = (b.attempt_number || 0) - (a.attempt_number || 0);
+      if (attemptNumDiff !== 0) return attemptNumDiff;
+      const dateA = new Date(a.submitted_at || a.started_at || 0).getTime();
+      const dateB = new Date(b.submitted_at || b.started_at || 0).getTime();
+      return dateB - dateA;
     });
 
     if (riskFilter === 'HIGH_CRITICAL') {
       return list.filter((m) => {
         const r = (m.overall_risk_level || m.risk_level || '').toUpperCase();
-        return r.includes('HIGH') || r.includes('CRITICAL');
+        return r.includes('HIGH') || r.includes('CRITICAL') || (m.risk_score || 0) >= 50;
       });
     }
     if (riskFilter === 'MODERATE') {
       return list.filter((m) => {
         const r = (m.overall_risk_level || m.risk_level || '').toUpperCase();
-        return r.includes('MODERATE') || r.includes('MEDIUM');
+        return r.includes('MODERATE') || r.includes('MEDIUM') || ((m.risk_score || 0) >= 30 && (m.risk_score || 0) < 50);
       });
     }
     if (riskFilter === 'PENDING') {
@@ -128,7 +135,13 @@ export default function FacultyExamDetailPage() {
       return list.filter((m) => m.investigation_status === 'VIOLATION_CONFIRMED' || m.investigation_status === 'DISQUALIFIED');
     }
     if (riskFilter === 'CLEARED') {
-      return list.filter((m) => m.investigation_status === 'CLEARED');
+      return list.filter(
+        (m) =>
+          m.investigation_status === 'CLEARED' ||
+          (m.risk_score || 0) === 0 ||
+          (m.overall_risk_level || m.risk_level || '').toUpperCase().includes('LOW') ||
+          (m.overall_risk_level || '').toUpperCase().includes('NO_SIGNIFICANT')
+      );
     }
     if (riskFilter === 'UNPUBLISHED') {
       return list.filter((m) => m.publication_status !== 'PUBLISHED');
@@ -261,17 +274,11 @@ export default function FacultyExamDetailPage() {
   }, [examId]);
 
   const handleStudentSubmitted = React.useCallback((payload: any) => {
-    // Immediately evict student from live monitoring grid upon submission / auto-submit
-    setMonitoringData((prev) =>
-      prev.filter(
-        (item) =>
-          item.attempt_id !== payload.attempt_id &&
-          item.student.id !== payload.student_id
-      )
-    );
-    // Refresh gradebook so the submitted candidate immediately appears in Submissions & Gradebook
+    // When a student submits their exam, refresh monitoring immediately so the completed attempt
+    // appears in the Risk Scoring list with its final risk score (even if 0.0), and gradebook updates.
+    fetchMonitoring();
     fetchGradebook();
-  }, []);
+  }, [examId]);
 
   // WebRTC Live Monitoring for Students
   const {

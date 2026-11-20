@@ -534,9 +534,10 @@ class ExamIntegrityAggregator:
         Crucial Invariant: Suspicious or low-confidence evidence NEVER downgrades stronger evidence.
         """
         # 1. Check for Insufficient Evidence
-        exam_duration = getattr(attempt.exam, "duration_minutes", 60) if attempt.exam else 60
-        if exam_duration >= 10 and total_evidence_count < 2 and independent_incident_count == 0:
-            # Entire exam had no visual verification frames
+        # Only mark INSUFFICIENT_EVIDENCE if the candidate never completed identity verification and had zero proctoring telemetry
+        is_verified = getattr(attempt, "identity_verified", False)
+        has_media = getattr(attempt, "media_session", None) is not None
+        if not is_verified and not has_media and total_evidence_count == 0 and independent_incident_count == 0 and final_risk_score == 0.0:
             return OverallRiskLevel.INSUFFICIENT_EVIDENCE
 
         # Count category-specific high-confidence detections
