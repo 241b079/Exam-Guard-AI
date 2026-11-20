@@ -57,10 +57,24 @@ export async function fetchApi<T>(endpoint: string, options: RequestOptions = {}
     }
   }
 
-  let response = await fetch(url, {
-    ...options,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...options,
+      headers,
+    });
+  } catch (netErr: any) {
+    // Retry once after 350ms on transient network drop
+    await new Promise((r) => setTimeout(r, 350));
+    try {
+      response = await fetch(url, {
+        ...options,
+        headers,
+      });
+    } catch {
+      throw new Error(netErr?.message || 'Network error: Failed to fetch');
+    }
+  }
 
   // Automatic Token Refresh on 401 Unauthorized
   if (response.status === 401 && typeof window !== 'undefined') {

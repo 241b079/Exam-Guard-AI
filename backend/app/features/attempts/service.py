@@ -590,7 +590,8 @@ class AttemptService:
     async def submit_attempt(
         db: AsyncSession,
         attempt_id: str,
-        student_id: str
+        student_id: str,
+        background_tasks: Optional[Any] = None
     ) -> SubmitAttemptResponse:
         result = await db.execute(
             select(ExamAttempt)
@@ -686,12 +687,29 @@ class AttemptService:
         except Exception:
             pass
 
-        # Generate Post-Examination AI Investigation report upon submission
+        # Reset in-memory session tracker for this attempt so subsequent attempts start fresh
+        try:
+            from app.features.proctoring.service import ProctoringService
+            ProctoringService.reset_tracker(attempt.exam_id, attempt.student_id, attempt.id)
+        except Exception:
+            pass
+
+        # Offload Post-Examination AI Investigation report synthesis to background task
+        # so student submission returns in milliseconds without blocking on heavy AI dossier generation
         try:
             from app.features.proctoring.investigation import PostExaminationInvestigationService
-            await PostExaminationInvestigationService.generate_investigation_report(db, attempt.id)
+            if background_tasks is not None:
+                background_tasks.add_task(
+                    PostExaminationInvestigationService.generate_investigation_report_background,
+                    attempt.id
+                )
+            else:
+                import asyncio
+                asyncio.create_task(
+                    PostExaminationInvestigationService.generate_investigation_report_background(attempt.id)
+                )
         except Exception as inv_err:
-            logger.warning(f"Error generating post-examination investigation report: {inv_err}")
+            logger.warning(f"Error scheduling post-examination investigation report: {inv_err}")
 
         return AttemptService._to_submit_response(attempt)
 

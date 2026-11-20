@@ -49,6 +49,7 @@ export default function StudentExaminationPage() {
   const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const lastSavedRef = useRef<Record<string, { opt?: string; text?: string; rev?: boolean }>>({});
 
   // Load Exam and Attempt
   useEffect(() => {
@@ -73,6 +74,11 @@ export default function StudentExaminationPage() {
         const map: Record<string, Answer> = {};
         (attData.answers || []).forEach((a) => {
           map[a.question_id] = a;
+          lastSavedRef.current[a.question_id] = {
+            opt: a.selected_option || '',
+            text: a.answer_text || '',
+            rev: a.is_marked_for_review || false,
+          };
         });
         setAnswersMap(map);
 
@@ -115,6 +121,17 @@ export default function StudentExaminationPage() {
       const txt = textOverride !== undefined ? textOverride : answerText;
       const rev = reviewOverride !== undefined ? reviewOverride : isMarkedReview;
 
+      // Skip redundant HTTP save if nothing changed
+      const last = lastSavedRef.current[currentQuestion.id];
+      if (
+        last &&
+        last.opt === opt &&
+        last.text === txt &&
+        last.rev === rev
+      ) {
+        return;
+      }
+
       setIsSaving(true);
       try {
         const saved = await attemptService.saveAnswer(attempt.id, {
@@ -123,6 +140,8 @@ export default function StudentExaminationPage() {
           answer_text: txt,
           is_marked_for_review: rev,
         });
+
+        lastSavedRef.current[currentQuestion.id] = { opt, text: txt, rev };
 
         setAnswersMap((prev) => ({
           ...prev,
@@ -283,7 +302,7 @@ export default function StudentExaminationPage() {
   }, [attempt?.id, attempt?.status, isSubmitting, isLoading, requestCameraAndMic, requestScreenShare, requestFullscreen]);
 
   // Hook for student WebRTC peer connection & signaling to faculty
-  const { connectionState, facultyConnected, sendViolation } = useWebRTCStudent({
+  const { connectionState, facultyConnected, sendViolation, disconnect: disconnectWebRTC } = useWebRTCStudent({
     examId,
     attemptId: attempt?.id || '',
     cameraStream: cameraStream || cameraStreamRef.current,
@@ -403,7 +422,8 @@ export default function StudentExaminationPage() {
     lastResult: continuousIdentityResult,
   } = useContinuousIdentityMonitoring({
     examId,
-    isActive: isExamActive && Boolean(cameraReady),
+    attemptId: attempt?.id,
+    isActive: isExamActive && Boolean(cameraReady) && Boolean(attempt?.id),
     videoElement: localCamPipRef.current || videoNode,
     onSuspiciousEventConfirmed: (result) => {
       // Notify real-time proctoring channel without interrupting exam
@@ -447,15 +467,58 @@ export default function StudentExaminationPage() {
     }
   };
 
-  const handleFinalSubmit = async () => {
-    if (!attempt) return;
-    setIsSubmitting(true);
+  const teardownAllMediaAndProctoring = useCallback(() => {
+    // 1. Immediately disconnect WebRTC peer connections and signaling
     try {
-      await saveCurrentAnswer();
-      await attemptService.submitAttempt(attempt.id);
+      disconnectWebRTC?.();
+    } catch {}
+
+    // 2. Turn off camera, microphone, and screen share tracks immediately
+    try {
       stopAllStreams();
-      await exitFullscreen();
-      router.push(`/student/exams/${examId}/result`);
+    } catch {}
+
+    // 3. Clear video element references and pause playback so camera indicator light goes off
+    if (localCamPipRef.current) {
+      try {
+        localCamPipRef.current.pause();
+        localCamPipRef.current.srcObject = null;
+      } catch {}
+    }
+    if (videoNode) {
+      try {
+        videoNode.pause();
+        videoNode.srcObject = null;
+      } catch {}
+    }
+
+    // 4. Exit fullscreen lockdown immediately
+    try {
+      exitFullscreen().catch(() => {});
+    } catch {}
+  }, [disconnectWebRTC, stopAllStreams, videoNode, exitFullscreen]);
+
+  const handleFinalSubmit = async () => {
+    if (!attempt || isSubmitting) return;
+    setIsSubmitting(true);
+
+    // Immediately stop camera, microphone, screen sharing, and streaming
+    teardownAllMediaAndProctoring();
+
+    try {
+      // 1. Quick flush if current answer changed (bounded by 400ms race so it never delays submission)
+      try {
+        await Promise.race([
+          saveCurrentAnswer(),
+          new Promise((resolve) => setTimeout(resolve, 400)),
+        ]);
+      } catch {}
+
+      // 2. Submit attempt (fast server-side grading and background report generation)
+      await attemptService.submitAttempt(attempt.id);
+
+      // 3. Instant navigation to result page with attemptId parameter
+      router.push(`/student/exams/${examId}/result?attemptId=${attempt.id}`);
     } catch (err: any) {
       alert(err.message || 'Failed to submit exam');
       setIsSubmitting(false);
@@ -463,18 +526,20 @@ export default function StudentExaminationPage() {
   };
 
   const handleTimeExpired = useCallback(async () => {
-    if (!attempt || attempt.status === 'SUBMITTED') return;
+    if (!attempt || attempt.status === 'SUBMITTED' || isSubmitting) return;
+    setIsSubmitting(true);
+
+    // Immediately turn off camera share and proctoring
+    teardownAllMediaAndProctoring();
+
     try {
       await attemptService.submitAttempt(attempt.id);
-      stopAllStreams();
-      await exitFullscreen();
-      router.push(`/student/exams/${examId}/result`);
     } catch {
-      stopAllStreams();
-      await exitFullscreen();
-      router.push(`/student/exams/${examId}/result`);
+      // Fallback
+    } finally {
+      router.push(`/student/exams/${examId}/result?attemptId=${attempt.id}`);
     }
-  }, [attempt, examId, router, exitFullscreen, stopAllStreams]);
+  }, [attempt, examId, router, teardownAllMediaAndProctoring, isSubmitting]);
 
 
   if (isLoading || isQLoading) {

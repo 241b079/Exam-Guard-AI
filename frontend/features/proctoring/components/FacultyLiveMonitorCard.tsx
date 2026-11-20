@@ -296,6 +296,15 @@ export function FacultyLiveMonitorCard({
                   ? 'Verified Student Returned'
                   : isMultiPerson
                   ? `Multiple People Detected: ${reportedCount && reportedCount >= 2 ? reportedCount : 2} People in Exam Area`
+                  : (latest.violation_type as string) === 'UNAUTHORIZED_OBJECT'
+                  ? `Prohibited Object: 📱 ${(() => {
+                      const obj = (latest as any).metadata?.detected_object_name || (latest as any).metadata?.primary_object || (latest as any).primary_object || 'Cell Phone';
+                      const u = String(obj).toUpperCase();
+                      if (u.includes('CELL') || u.includes('PHONE') || u.includes('MOBILE')) return 'Cell Phone (Mobile)';
+                      if (u.includes('BOOK') || u.includes('NOTE')) return 'Book / Study Material';
+                      if (u.includes('LAPTOP') || u.includes('COMPUTER')) return 'Secondary Laptop / Device';
+                      return String(obj).replace(/_/g, ' ');
+                    })()}`
                   : latest.violation_type === 'TEMPORARY_ABSENCE' || latest.violation_type === 'NO_FACE'
                   ? 'Candidate Absent: 0 People Detected in Exam Area'
                   : `Suspicious: ${latest.violation_type.replace(/_/g, ' ')}`}
@@ -591,7 +600,18 @@ export function FacultyLiveMonitorCard({
                 key={v.id}
                 className="flex items-center justify-between py-1 px-2.5 rounded-lg bg-stone-50 border border-stone-200 text-stone-700 text-[11px]"
               >
-                <span className="font-mono font-semibold text-rose-700">{v.violation_type}</span>
+                <span className="font-mono font-semibold text-rose-700">
+                  {v.violation_type === 'UNAUTHORIZED_OBJECT'
+                    ? `📱 ${(() => {
+                        const obj = (v as any).metadata_json?.detected_object_name || (v as any).metadata_json?.primary_object || (v as any).metadata?.detected_object_name || (v as any).metadata?.primary_object || 'Cell Phone';
+                        const u = String(obj).toUpperCase();
+                        if (u.includes('CELL') || u.includes('PHONE') || u.includes('MOBILE')) return 'Cell Phone (Mobile)';
+                        if (u.includes('BOOK') || u.includes('NOTE')) return 'Book / Study Material';
+                        if (u.includes('LAPTOP') || u.includes('COMPUTER')) return 'Secondary Laptop';
+                        return String(obj).replace(/_/g, ' ');
+                      })()}`
+                    : v.violation_type}
+                </span>
                 <span className="text-[10px] text-stone-400">
                   {new Date(v.timestamp).toLocaleTimeString()}
                 </span>

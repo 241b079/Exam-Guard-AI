@@ -176,6 +176,8 @@ export function useWebRTCStudent({
           JSON.stringify({
             type: 'violation',
             violation_type: violationType,
+            attempt_id: attemptId,
+            exam_attempt_id: attemptId,
             metadata,
             timestamp: new Date().toISOString(),
           })
@@ -184,7 +186,7 @@ export function useWebRTCStudent({
         console.warn('Failed to dispatch violation via WebSocket:', err);
       }
     }
-  }, []);
+  }, [attemptId]);
 
   /**
    * Initiate WebRTC offer to an authorized faculty client
@@ -398,9 +400,8 @@ export function useWebRTCStudent({
   const connectSignaling = useCallback(() => {
     if (typeof window === 'undefined' || !examId) return;
 
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
+    if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
+      return;
     }
 
     try {
@@ -439,6 +440,26 @@ export function useWebRTCStudent({
     }
   }, [examId, getSignalingWsUrl, handleSignalingMessage, sendMediaStatus]);
 
+  // Immediately terminate WebRTC and WebSocket upon exam completion or submit
+  const disconnect = useCallback(() => {
+    isMountedRef.current = false;
+    if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+    if (wsRef.current) {
+      try {
+        wsRef.current.close();
+      } catch {}
+      wsRef.current = null;
+    }
+    peerConnectionsRef.current.forEach((pc) => {
+      try {
+        pc.close();
+      } catch {}
+    });
+    peerConnectionsRef.current.clear();
+    pendingIceCandidatesRef.current.clear();
+    inFlightOffersRef.current.clear();
+  }, []);
+
   // Sync tracks and notify faculty when cameraStream or screenStream is updated
   useEffect(() => {
     peerConnectionsRef.current.forEach((pc) => {
@@ -454,18 +475,9 @@ export function useWebRTCStudent({
     connectSignaling();
 
     return () => {
-      isMountedRef.current = false;
-      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-      peerConnectionsRef.current.forEach((pc) => pc.close());
-      peerConnectionsRef.current.clear();
-      pendingIceCandidatesRef.current.clear();
-      inFlightOffersRef.current.clear();
+      disconnect();
     };
-  }, [connectSignaling, connectSFU]);
+  }, [examId, attemptId, connectSignaling, connectSFU, disconnect]);
 
   return {
     connectionState: isSfuConnected ? 'connected' : connectionState,
@@ -476,6 +488,7 @@ export function useWebRTCStudent({
       connectSFU().catch(() => {});
       connectSignaling();
     },
+    disconnect,
     sendViolation,
     sendMediaStatus,
   };

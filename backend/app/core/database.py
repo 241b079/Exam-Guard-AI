@@ -347,9 +347,22 @@ async def init_db():
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_events_exam_id ON proctoring_events(exam_id);"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_events_student_id ON proctoring_events(student_id);"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_events_attempt_id ON proctoring_events(exam_attempt_id);"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_events_attempt_student ON proctoring_events(exam_attempt_id, student_id);"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_events_incident_id ON proctoring_events(incident_id);"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_events_type ON proctoring_events(event_type);"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_events_review_status ON proctoring_events(review_status);"))
+
+            # Safe backfill for historical proctoring events missing exam_attempt_id
+            await conn.execute(text("""
+                UPDATE proctoring_events pe
+                SET exam_attempt_id = ea.id
+                FROM exam_attempts ea
+                WHERE pe.exam_attempt_id IS NULL
+                  AND pe.student_id = ea.student_id
+                  AND pe.exam_id = ea.exam_id
+                  AND pe.detected_at >= ea.started_at
+                  AND (ea.submitted_at IS NULL OR pe.detected_at <= ea.submitted_at + INTERVAL '5 minutes');
+            """))
 
             # Evidence-Based Cheating Detection & Risk Scoring Tables
             await conn.execute(text("""
@@ -381,6 +394,7 @@ async def init_db():
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_incidents_attempt ON proctoring_incidents(exam_attempt_id);"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_incidents_exam ON proctoring_incidents(exam_id);"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_incidents_student ON proctoring_incidents(student_id);"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_incidents_attempt_student ON proctoring_incidents(exam_attempt_id, student_id);"))
 
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS student_risk_scores (

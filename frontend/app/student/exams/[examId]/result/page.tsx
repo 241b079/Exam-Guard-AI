@@ -14,6 +14,7 @@ import {
   X,
   FileText,
   AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/Button';
@@ -32,16 +33,22 @@ export default function StudentExamResultPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const loadResult = async () => {
+  const loadResult = async (retryCount = 0) => {
     setIsLoading(true);
     setError(null);
     try {
       const data = await attemptService.getMyExamResult(examId, attemptIdParam);
       setResult(data);
     } catch (err: any) {
-      setError(err.message || 'Failed to load examination result');
+      if (retryCount < 2) {
+        setTimeout(() => loadResult(retryCount + 1), 1000);
+      } else {
+        setError(err.message || 'Failed to load examination result');
+      }
     } finally {
-      setIsLoading(false);
+      if (retryCount === 0) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -73,7 +80,10 @@ export default function StudentExamResultPage() {
               Unable to Retrieve Result
             </div>
             <p className="text-xs text-rose-700">{error || 'Result unavailable for this exam attempt.'}</p>
-            <div className="pt-2">
+            <div className="pt-2 flex items-center gap-2">
+              <Button variant="primary" size="sm" onClick={() => loadResult(0)} className="text-xs gap-1.5">
+                <RefreshCw className="w-3.5 h-3.5" /> Try Again
+              </Button>
               <Link href="/student/dashboard">
                 <Button variant="outline" size="sm" className="text-xs gap-1.5">
                   <ArrowLeft className="w-3.5 h-3.5" /> Return to Dashboard

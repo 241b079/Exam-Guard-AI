@@ -10,6 +10,7 @@ import { IDENTITY_MONITORING_CONFIG } from '../config/identityMonitoring';
 
 export interface UseContinuousIdentityMonitoringOptions {
   examId: string;
+  attemptId?: string | null;
   isActive: boolean;
   videoElement: HTMLVideoElement | null;
   samplingIntervalMs?: number;
@@ -19,6 +20,7 @@ export interface UseContinuousIdentityMonitoringOptions {
 
 export function useContinuousIdentityMonitoring({
   examId,
+  attemptId,
   isActive,
   videoElement,
   samplingIntervalMs = IDENTITY_MONITORING_CONFIG.FRAME_SAMPLING_INTERVAL_MS,
@@ -98,7 +100,7 @@ export function useContinuousIdentityMonitoring({
 
       if (!blob || !isActive) return;
 
-      const res = await continuousProctoringService.verifyContinuousFrame(examId, blob);
+      const res = await continuousProctoringService.verifyContinuousFrame(examId, blob, attemptId);
 
       setLastResult(res);
       setCurrentState(res.state);
@@ -116,7 +118,7 @@ export function useContinuousIdentityMonitoring({
       inFlightRef.current = false;
       setIsProcessing(false);
     }
-  }, [examId, isActive, videoElement]);
+  }, [examId, attemptId, isActive, videoElement]);
 
   // Main continuous sampling loop
   useEffect(() => {

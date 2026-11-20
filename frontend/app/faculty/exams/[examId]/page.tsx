@@ -64,7 +64,7 @@ export default function FacultyExamDetailPage() {
   const fetchMonitoring = async () => {
     setIsLoadingMonitoring(true);
     try {
-      const data = await attemptService.getExamAttemptsMonitoring(examId);
+      const data = await attemptService.getExamAttemptsMonitoring(examId, false);
       setMonitoringData(data);
     } catch {
       // Ignore if user lacks permissions or network hiccup

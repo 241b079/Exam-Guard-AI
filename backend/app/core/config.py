@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     APP_ENV: str = "development"
     SECRET_KEY: str = Field(..., min_length=16, description="JWT Secret key")
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     
     DATABASE_URL: str = Field(..., description="PostgreSQL async connection string")

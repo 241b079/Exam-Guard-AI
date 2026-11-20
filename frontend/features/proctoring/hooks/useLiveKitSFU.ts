@@ -43,9 +43,24 @@ export function useLiveKitSFU({
 
   const roomRef = useRef<Room | null>(null);
   const isMountedRef = useRef(true);
+  const isConnectingRef = useRef(false);
+  const hasConnectedRef = useRef(false);
   const publicationsRef = useRef<Map<string, LocalTrackPublication>>(new Map());
   const remoteTracksStoreRef = useRef<Map<string, { camera?: MediaStream; screen?: MediaStream; audio?: MediaStream }>>(new Map());
   const remotePublicationsMapRef = useRef<Map<string, RemoteTrackPublication[]>>(new Map());
+
+  // Store callbacks in refs to prevent infinite reconnect cascades
+  const onTrackSubscribedRef = useRef(onTrackSubscribed);
+  const onTrackUnsubscribedRef = useRef(onTrackUnsubscribed);
+  const onStudentDisconnectedRef = useRef(onStudentDisconnected);
+  const onSfuStatusChangeRef = useRef(onSfuStatusChange);
+
+  useEffect(() => {
+    onTrackSubscribedRef.current = onTrackSubscribed;
+    onTrackUnsubscribedRef.current = onTrackUnsubscribed;
+    onStudentDisconnectedRef.current = onStudentDisconnected;
+    onSfuStatusChangeRef.current = onSfuStatusChange;
+  });
 
   // Extract pure student ID from identity (e.g. "stu_UUID" -> "UUID")
   const parseStudentId = (identity: string): string => {
@@ -66,11 +81,29 @@ export function useLiveKitSFU({
   }, []);
 
   /**
+   * Disconnect SFU session cleanly
+   */
+  const disconnectSFU = useCallback(() => {
+    hasConnectedRef.current = false;
+    isConnectingRef.current = false;
+    if (roomRef.current) {
+      try {
+        roomRef.current.disconnect();
+      } catch {}
+      roomRef.current = null;
+    }
+    setIsSfuConnected(false);
+    setIsSfuActive(false);
+  }, []);
+
+  /**
    * Connect to the SFU room
    */
   const connectSFU = useCallback(async () => {
     if (typeof window === 'undefined' || !examId) return false;
+    if (hasConnectedRef.current || isConnectingRef.current) return isSfuConnected;
 
+    isConnectingRef.current = true;
     try {
       setSfuError(null);
       // 1. Fetch SFU access token and server endpoint from backend
@@ -78,7 +111,8 @@ export function useLiveKitSFU({
       if (!sfuConfig.sfu_enabled) {
         setIsSfuActive(false);
         setIsSfuConnected(false);
-        onSfuStatusChange?.(false, false);
+        hasConnectedRef.current = false;
+        onSfuStatusChangeRef.current?.(false, false);
         return false;
       }
 
@@ -121,13 +155,13 @@ export function useLiveKitSFU({
 
             if (isScreen) {
               studentStreams.screen = stream;
-              onTrackSubscribed?.(studentId, stream, 'screen');
+              onTrackSubscribedRef.current?.(studentId, stream, 'screen');
             } else if (publication.kind === Track.Kind.Video) {
               studentStreams.camera = stream;
-              onTrackSubscribed?.(studentId, stream, 'camera');
+              onTrackSubscribedRef.current?.(studentId, stream, 'camera');
             } else if (publication.kind === Track.Kind.Audio) {
               studentStreams.audio = stream;
-              onTrackSubscribed?.(studentId, stream, 'audio');
+              onTrackSubscribedRef.current?.(studentId, stream, 'audio');
             }
           }
         );
@@ -140,11 +174,11 @@ export function useLiveKitSFU({
             const isScreen = trackName.includes('screen') || publication.source === Track.Source.ScreenShare;
 
             if (isScreen) {
-              onTrackUnsubscribed?.(studentId, 'screen');
+              onTrackUnsubscribedRef.current?.(studentId, 'screen');
             } else if (publication.kind === Track.Kind.Video) {
-              onTrackUnsubscribed?.(studentId, 'camera');
+              onTrackUnsubscribedRef.current?.(studentId, 'camera');
             } else if (publication.kind === Track.Kind.Audio) {
-              onTrackUnsubscribed?.(studentId, 'audio');
+              onTrackUnsubscribedRef.current?.(studentId, 'audio');
             }
           }
         );
@@ -153,7 +187,7 @@ export function useLiveKitSFU({
           const studentId = parseStudentId(participant.identity);
           remoteTracksStoreRef.current.delete(studentId);
           remotePublicationsMapRef.current.delete(studentId);
-          onStudentDisconnected?.(studentId);
+          onStudentDisconnectedRef.current?.(studentId);
         });
       }
 
@@ -162,14 +196,15 @@ export function useLiveKitSFU({
         if (!isMountedRef.current) return;
         const connected = state === ConnectionState.Connected;
         setIsSfuConnected(connected);
-        onSfuStatusChange?.(connected, true);
+        onSfuStatusChangeRef.current?.(connected, true);
       });
 
       // 4. Connect to SFU media server
       await room.connect(sfuConfig.server_url, sfuConfig.token);
+      hasConnectedRef.current = true;
       setIsSfuActive(true);
       setIsSfuConnected(true);
-      onSfuStatusChange?.(true, true);
+      onSfuStatusChangeRef.current?.(true, true);
 
       // 5. If Student, publish camera and screen tracks with simulcast
       if (role === 'student' && room.localParticipant) {
@@ -207,13 +242,16 @@ export function useLiveKitSFU({
       return true;
     } catch (err: any) {
       console.warn('SFU connection failed, will use P2P mesh fallback:', err.message || err);
+      hasConnectedRef.current = false;
       setSfuError(err.message || 'SFU unreachable');
       setIsSfuActive(false);
       setIsSfuConnected(false);
-      onSfuStatusChange?.(false, false);
+      onSfuStatusChangeRef.current?.(false, false);
       return false;
+    } finally {
+      isConnectingRef.current = false;
     }
-  }, [examId, role, attemptId, cameraStream, screenStream, onTrackSubscribed, onTrackUnsubscribed, onStudentDisconnected, onSfuStatusChange]);
+  }, [examId, role, attemptId, cameraStream, screenStream]);
 
   /**
    * Publish dynamically updated tracks (e.g. when screen share starts during exam)
@@ -243,18 +281,16 @@ export function useLiveKitSFU({
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
-      if (roomRef.current) {
-        roomRef.current.disconnect();
-        roomRef.current = null;
-      }
+      disconnectSFU();
     };
-  }, []);
+  }, [disconnectSFU]);
 
   return {
     isSfuConnected,
     isSfuActive,
     sfuError,
     connectSFU,
+    disconnectSFU,
     setCandidateStreamQuality,
   };
 }

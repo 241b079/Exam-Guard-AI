@@ -1,6 +1,6 @@
 import logging
 from typing import List, Optional
-from fastapi import APIRouter, Depends, status, WebSocket, WebSocketDisconnect, Query
+from fastapi import APIRouter, Depends, status, WebSocket, WebSocketDisconnect, Query, BackgroundTasks
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -170,10 +170,16 @@ async def save_answer(
 @router.post("/attempts/{attempt_id}/submit", response_model=SubmitAttemptResponse)
 async def submit_attempt(
     attempt_id: str,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([UserRole.STUDENT]))
 ):
-    return await AttemptService.submit_attempt(db, attempt_id, student_id=current_user.id)
+    return await AttemptService.submit_attempt(
+        db=db,
+        attempt_id=attempt_id,
+        student_id=current_user.id,
+        background_tasks=background_tasks
+    )
 
 
 @router.post("/attempts/{attempt_id}/violations", response_model=ViolationResponse, status_code=status.HTTP_201_CREATED)

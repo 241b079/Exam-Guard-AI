@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { getApiUrl } from '@/lib/api';
 import {
   continuousProctoringService,
   ExaminationInvestigationResponse,
@@ -348,7 +349,18 @@ export function PostExamInvestigationModal({
                           <div className="flex items-start justify-between gap-3">
                             <div className="space-y-1 flex-1">
                               <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-bold text-stone-900 text-xs">{inc.incident_type}</span>
+                                <span className="font-bold text-stone-900 text-xs">
+                                  {inc.incident_type === 'UNAUTHORIZED_OBJECT'
+                                    ? `📱 Prohibited Object: ${(() => {
+                                        const obj = (inc as any).metadata?.detected_object_name || (inc as any).metadata?.primary_object || (inc as any).primary_object || 'Cell Phone';
+                                        const u = String(obj).toUpperCase();
+                                        if (u.includes('CELL') || u.includes('PHONE') || u.includes('MOBILE')) return 'Cell Phone (Mobile)';
+                                        if (u.includes('BOOK') || u.includes('NOTE')) return 'Book / Study Material';
+                                        if (u.includes('LAPTOP') || u.includes('COMPUTER')) return 'Secondary Laptop';
+                                        return String(obj).replace(/_/g, ' ');
+                                      })()}`
+                                    : inc.incident_type}
+                                </span>
                                 <Badge variant={inc.severity === 'CRITICAL' ? 'danger' : inc.severity === 'HIGH' ? 'warning' : 'outline'}>
                                   {inc.severity}
                                 </Badge>
@@ -381,10 +393,16 @@ export function PostExamInvestigationModal({
 
                             {/* Actions & Evidence */}
                             <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
-                              {inc.evidence_url && (
+                              {(inc.evidence_url || (inc as any).primary_evidence_url) && (
                                 <button
                                   type="button"
-                                  onClick={() => setPreviewImageUrl(continuousProctoringService.getEvidenceImageUrl(inc.incident_id))}
+                                  onClick={() => {
+                                    const rawUrl = inc.evidence_url || (inc as any).primary_evidence_url;
+                                    const targetUrl = rawUrl.startsWith('http') || rawUrl.startsWith('/')
+                                      ? (rawUrl.startsWith('/') ? `${getApiUrl()}${rawUrl}` : rawUrl)
+                                      : continuousProctoringService.getEvidenceImageUrl(rawUrl);
+                                    setPreviewImageUrl(targetUrl);
+                                  }}
                                   className="text-[11px] font-bold text-red-600 hover:text-red-700 flex items-center gap-1 bg-red-50 px-2.5 py-1 rounded-xl border border-red-100"
                                 >
                                   <Camera className="w-3.5 h-3.5" />

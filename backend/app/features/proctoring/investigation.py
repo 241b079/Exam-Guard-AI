@@ -35,6 +35,19 @@ class PostExaminationInvestigationService:
     """
 
     @classmethod
+    async def generate_investigation_report_background(cls, attempt_id: str) -> None:
+        """
+        Background task runner that acquires an independent database session to synthesize
+        the post-examination investigation report without delaying the student submission endpoint.
+        """
+        from app.core.database import AsyncSessionLocal
+        try:
+            async with AsyncSessionLocal() as session:
+                await cls.generate_investigation_report(session, attempt_id)
+        except Exception as inv_err:
+            logger.warning(f"Background investigation generation error for attempt {attempt_id}: {inv_err}")
+
+    @classmethod
     async def generate_investigation_report(
         cls,
         db: AsyncSession,
@@ -109,6 +122,7 @@ class PostExaminationInvestigationService:
                 "duration_seconds": round(inc.duration_seconds, 1),
                 "peak_confidence": round(inc.peak_confidence, 2),
                 "primary_evidence_url": inc.primary_evidence_url,
+                "evidence_url": inc.primary_evidence_url,
                 "ai_explanation": inc.ai_explanation or f"Incident of type {inc.incident_type} observed.",
                 "risk_contribution": round(inc.risk_contribution, 1),
                 "review_status": inc.review_status,

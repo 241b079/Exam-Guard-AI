@@ -6,14 +6,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 
 from app.core.database import get_db
+from app.core.logging import logger
 from app.core.security import decode_token
 from app.features.auth.dependencies import get_current_user, require_roles
 from app.features.users.models import User, UserRole
 from app.features.exams.models import Exam
+from app.features.attempts.models import ExamAttempt, AttemptStatus
 from app.features.proctoring.models import (
     ProctoringEvent,
     ProctoringEventType,
     EventReviewStatus,
+    EventSeverity,
 )
 from app.features.proctoring.schemas import (
     ContinuousVerificationResponse,
@@ -34,13 +37,33 @@ def _map_event_to_response(ev: ProctoringEvent) -> ProctoringEventResponse:
     student_name = ev.expected_identity or (ev.student.name if ev.student else None)
     student_email = ev.student.email if ev.student else None
     student_roll = None
+    if ev.student:
+        if hasattr(ev.student, "student_profile") and ev.student.student_profile and hasattr(ev.student.student_profile, "roll_number"):
+            student_roll = ev.student.student_profile.roll_number
+        elif hasattr(ev.student, "roll_number") and ev.student.roll_number:
+            student_roll = ev.student.roll_number
+
     reviewer_name = ev.reviewed_by.name if ev.reviewed_by else None
     evidence_url = f"/api/v1/proctoring/evidence/{ev.id}" if ev.evidence_path else None
+
+    # Examination and Attempt metadata
+    exam_title = ev.exam.title if ev.exam else None
+    attempt_num = ev.attempt.attempt_number if ev.attempt else None
+    attempt_started = ev.attempt.started_at if ev.attempt else None
+    attempt_submitted = ev.attempt.submitted_at if ev.attempt else None
+    attempt_status_val = None
+    if ev.attempt and hasattr(ev.attempt, "status"):
+        attempt_status_val = ev.attempt.status.value if hasattr(ev.attempt.status, "value") else str(ev.attempt.status)
 
     return ProctoringEventResponse(
         id=ev.id,
         exam_id=ev.exam_id,
+        exam_title=exam_title,
         exam_attempt_id=ev.exam_attempt_id,
+        attempt_number=attempt_num,
+        attempt_started_at=attempt_started,
+        attempt_submitted_at=attempt_submitted,
+        attempt_status=attempt_status_val,
         student_id=ev.student_id,
         student_name=student_name,
         student_email=student_email,
@@ -71,6 +94,7 @@ def _map_event_to_response(ev: ProctoringEvent) -> ProctoringEventResponse:
 async def continuous_verify_frame(
     exam_id: str = Form(...),
     file: UploadFile = File(...),
+    attempt_id: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles([UserRole.STUDENT]))
 ):
@@ -90,13 +114,15 @@ async def continuous_verify_frame(
         db=db,
         student_user=current_user,
         exam_id=exam_id,
-        live_image_bytes=image_bytes
+        live_image_bytes=image_bytes,
+        attempt_id=attempt_id
     )
 
 
 @router.get("/events/{exam_id}", response_model=ProctoringEventsListResponse)
 async def list_exam_proctoring_events(
     exam_id: str,
+    attempt_id: Optional[str] = Query(None),
     student_id: Optional[str] = Query(None),
     review_status: Optional[EventReviewStatus] = Query(None),
     event_type: Optional[ProctoringEventType] = Query(None),
@@ -124,6 +150,7 @@ async def list_exam_proctoring_events(
         db=db,
         exam_id=exam_id,
         student_id=student_id,
+        attempt_id=attempt_id,
         review_status=review_status.value if review_status else None,
         event_type=event_type.value if event_type else None,
         skip=skip,
@@ -140,6 +167,7 @@ async def list_exam_proctoring_events(
 async def list_student_proctoring_events(
     exam_id: str,
     student_id: str,
+    attempt_id: Optional[str] = Query(None),
     review_status: Optional[EventReviewStatus] = Query(None),
     event_type: Optional[ProctoringEventType] = Query(None),
     skip: int = Query(0, ge=0),
@@ -150,6 +178,7 @@ async def list_student_proctoring_events(
     """Convenience endpoint to retrieve proctoring events for a specific student."""
     return await list_exam_proctoring_events(
         exam_id=exam_id,
+        attempt_id=attempt_id,
         student_id=student_id,
         review_status=review_status,
         event_type=event_type,
@@ -214,9 +243,13 @@ async def get_proctoring_evidence_file(
             # If token is malformed, still allow by UUID for faculty image rendering
             pass
 
+    media_type = (
+        "video/webm" if abs_path.endswith(".webm")
+        else ("video/mp4" if abs_path.endswith(".mp4") else "image/jpeg")
+    )
     return FileResponse(
         abs_path,
-        media_type="image/jpeg",
+        media_type=media_type,
         content_disposition_type="inline",
         filename=os.path.basename(abs_path),
         headers={"Cache-Control": "private, max-age=86400"}
@@ -419,6 +452,25 @@ async def list_exam_investigations(
     if current_user.role == UserRole.FACULTY and exam.created_by_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized for this exam")
 
+    # Verify all submitted/expired attempts have an investigation dossier synthesized
+    submitted_res = await db.execute(
+        select(ExamAttempt.id).where(
+            ExamAttempt.exam_id == exam_id,
+            ExamAttempt.status.in_([AttemptStatus.SUBMITTED, AttemptStatus.EXPIRED])
+        )
+    )
+    submitted_ids = {row[0] for row in submitted_res.fetchall()}
+    existing_res = await db.execute(
+        select(ExaminationInvestigation.exam_attempt_id).where(ExaminationInvestigation.exam_id == exam_id)
+    )
+    existing_ids = {row[0] for row in existing_res.fetchall()}
+    missing_ids = submitted_ids - existing_ids
+    for missing_id in missing_ids:
+        try:
+            await PostExaminationInvestigationService.generate_investigation_report(db, missing_id)
+        except Exception as e:
+            logger.warning(f"Error generating investigation report on list for {missing_id}: {e}")
+
     stmt = (
         select(ExaminationInvestigation)
         .where(ExaminationInvestigation.exam_id == exam_id)
@@ -591,4 +643,67 @@ async def submit_faculty_investigation_decision(
         generated_at=inv.generated_at,
         updated_at=inv.updated_at,
     )
+
+
+@router.post("/evidence-upload")
+async def upload_proctoring_evidence(
+    exam_id: str = Form(...),
+    attempt_id: str = Form(...),
+    event_type: str = Form(...),
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.STUDENT]))
+):
+    """
+    Continuous Proctoring Evidence Ingestion:
+    Accepts snapshot images or short recorded video clips during active exams
+    and archives them into the candidate's evidence collection in the background.
+    """
+    import uuid
+    from datetime import datetime, timezone
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty evidence file")
+
+    filename_lower = (file.filename or "").lower()
+    ext = "webm" if filename_lower.endswith(".webm") else ("mp4" if filename_lower.endswith(".mp4") else "jpg")
+
+    rel_path = ProctoringService.save_evidence_clip(
+        exam_id=exam_id,
+        student_id=current_user.id,
+        event_type=event_type,
+        clip_bytes=content,
+        ext=ext
+    )
+
+    # Automatically create a ProctoringEvent and link to attempt
+    now = datetime.now(timezone.utc)
+    ev = ProctoringEvent(
+        exam_id=exam_id,
+        exam_attempt_id=attempt_id,
+        student_id=current_user.id,
+        event_type=event_type,
+        severity=EventSeverity.MEDIUM.value,
+        review_status=EventReviewStatus.PENDING.value,
+        detected_at=now,
+        started_at=now,
+        ended_at=now,
+        duration=0.0,
+        confidence=0.90,
+        face_count=1,
+        expected_identity=current_user.name,
+        detected_identity_status="EVIDENCE_RECORDED",
+        evidence_path=rel_path,
+        incident_id=str(uuid.uuid4()),
+        metadata_json={"source": "candidate_evidence_capture", "filename": file.filename}
+    )
+    db.add(ev)
+    await db.commit()
+    await db.refresh(ev)
+
+    return {
+        "event_id": ev.id,
+        "evidence_path": rel_path,
+        "evidence_url": f"/api/v1/proctoring/evidence/{ev.id}"
+    }
 

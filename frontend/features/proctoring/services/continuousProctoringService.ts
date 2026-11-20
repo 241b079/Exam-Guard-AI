@@ -26,7 +26,12 @@ export interface ContinuousVerificationResult {
 export interface ProctoringEventItem {
   id: string;
   exam_id: string;
+  exam_title?: string | null;
   exam_attempt_id?: string | null;
+  attempt_number?: number | null;
+  attempt_started_at?: string | null;
+  attempt_submitted_at?: string | null;
+  attempt_status?: string | null;
   student_id: string;
   student_name?: string | null;
   student_email?: string | null;
@@ -161,9 +166,16 @@ export const continuousProctoringService = {
   /**
    * Submits a sampled camera frame for continuous live identity verification
    */
-  async verifyContinuousFrame(examId: string, imageBlob: Blob): Promise<ContinuousVerificationResult> {
+  async verifyContinuousFrame(
+    examId: string,
+    imageBlob: Blob,
+    attemptId?: string | null
+  ): Promise<ContinuousVerificationResult> {
     const formData = new FormData();
     formData.append('exam_id', examId);
+    if (attemptId) {
+      formData.append('attempt_id', attemptId);
+    }
     formData.append('file', imageBlob, 'frame.jpg');
 
     return fetchApi<ContinuousVerificationResult>('/api/v1/proctoring/continuous-verify', {
@@ -178,6 +190,7 @@ export const continuousProctoringService = {
   async listProctoringEvents(
     examId: string,
     params?: {
+      attemptId?: string;
       studentId?: string;
       reviewStatus?: string;
       eventType?: string;
@@ -186,6 +199,7 @@ export const continuousProctoringService = {
     }
   ): Promise<ProctoringEventsListResponse> {
     const query = new URLSearchParams();
+    if (params?.attemptId) query.append('attempt_id', params.attemptId);
     if (params?.studentId) query.append('student_id', params.studentId);
     if (params?.reviewStatus) query.append('review_status', params.reviewStatus);
     if (params?.eventType) query.append('event_type', params.eventType);

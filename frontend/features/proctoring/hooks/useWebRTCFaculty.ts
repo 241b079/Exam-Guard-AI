@@ -508,9 +508,8 @@ export function useWebRTCFaculty({
   const connectSignaling = useCallback(() => {
     if (typeof window === 'undefined' || !examId) return;
 
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
+    if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
+      return;
     }
 
     try {
@@ -549,7 +548,7 @@ export function useWebRTCFaculty({
       peerConnectionsRef.current.clear();
       pendingIceCandidatesRef.current.clear();
     };
-  }, [connectSignaling, connectSFU]);
+  }, [examId, connectSFU, connectSignaling]);
 
   return {
     studentStreams,

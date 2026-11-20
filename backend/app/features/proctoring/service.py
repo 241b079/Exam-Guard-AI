@@ -59,20 +59,32 @@ class SessionMonitoringTracker:
 class ProctoringService:
     # Memory cache for student profiles: user_id -> 128-d face embedding
     _profile_feature_cache: Dict[str, np.ndarray] = {}
-    # Memory cache for active session state machines: (exam_id, student_id) -> SessionMonitoringTracker
-    _session_trackers: Dict[Tuple[str, str], SessionMonitoringTracker] = {}
+    # Memory cache for active session state machines: (exam_id, student_id, attempt_id) -> SessionMonitoringTracker
+    _session_trackers: Dict[Tuple, SessionMonitoringTracker] = {}
 
     @classmethod
-    def get_tracker(cls, exam_id: str, student_id: str) -> SessionMonitoringTracker:
+    def get_tracker(cls, exam_id: str, student_id: str, attempt_id: Optional[str] = None) -> SessionMonitoringTracker:
+        if attempt_id:
+            key = (exam_id, student_id, attempt_id)
+            if key not in cls._session_trackers:
+                cls._session_trackers[key] = SessionMonitoringTracker()
+            return cls._session_trackers[key]
+
+        # Backward compatibility: if attempt_id is omitted, find any active tracker for this exam & student
+        for k, tracker in cls._session_trackers.items():
+            if len(k) == 3 and k[0] == exam_id and k[1] == student_id:
+                return tracker
+
         key = (exam_id, student_id)
         if key not in cls._session_trackers:
             cls._session_trackers[key] = SessionMonitoringTracker()
         return cls._session_trackers[key]
 
     @classmethod
-    def reset_tracker(cls, exam_id: str, student_id: str):
-        key = (exam_id, student_id)
-        cls._session_trackers.pop(key, None)
+    def reset_tracker(cls, exam_id: str, student_id: str, attempt_id: Optional[str] = None):
+        if attempt_id:
+            cls._session_trackers.pop((exam_id, student_id, attempt_id), None)
+        cls._session_trackers.pop((exam_id, student_id), None)
 
     @classmethod
     def get_or_load_profile_feature(cls, student_user_id: str, profile_url: str) -> Optional[np.ndarray]:
@@ -141,6 +153,49 @@ class ProctoringService:
         )
 
     @classmethod
+    def save_evidence_clip(
+        cls,
+        exam_id: str,
+        student_id: str,
+        event_type: str,
+        clip_bytes: bytes,
+        ext: str = "webm",
+        timestamp: Optional[datetime] = None
+    ) -> str:
+        """
+        Organizes video clip evidence storage in structure:
+        proctoring-evidence/exam_{examId}/student_{studentId}/{date}/{timestamp}_{eventType}_{uuid_short}.{ext}
+        """
+        now = timestamp or datetime.now(timezone.utc)
+        date_folder = now.strftime("%Y-%m-%d")
+        time_prefix = now.strftime("%H-%M-%S")
+        safe_event = cls.sanitize_filename_part(event_type)
+        safe_exam = cls.sanitize_filename_part(exam_id)
+        safe_student = cls.sanitize_filename_part(student_id)
+        suffix = uuid.uuid4().hex[:6]
+
+        rel_dir = os.path.join(
+            settings.EVIDENCE_DIR,
+            f"exam_{safe_exam}",
+            f"student_{safe_student}",
+            date_folder
+        )
+        os.makedirs(rel_dir, exist_ok=True)
+
+        filename = f"{time_prefix}_{safe_event}_{suffix}.{ext}"
+        full_path = os.path.join(rel_dir, filename)
+
+        with open(full_path, "wb") as f:
+            f.write(clip_bytes)
+
+        return os.path.join(
+            f"exam_{safe_exam}",
+            f"student_{safe_student}",
+            date_folder,
+            filename
+        )
+
+    @classmethod
     def detect_all_faces_and_features(
         cls, img: np.ndarray
     ) -> Tuple[int, List[Tuple[np.ndarray, float, np.ndarray]]]:
@@ -189,6 +244,7 @@ class ProctoringService:
         student_user: User,
         exam_id: str,
         live_image_bytes: bytes,
+        attempt_id: Optional[str] = None,
         client_timestamp: Optional[datetime] = None
     ) -> ContinuousVerificationResponse:
         """
@@ -203,14 +259,26 @@ class ProctoringService:
         now = datetime.now(timezone.utc)
 
         # 1. Exam and Attempt Lifecycle Verification
-        att_res = await db.execute(
-            select(ExamAttempt).where(
-                ExamAttempt.exam_id == exam_id,
-                ExamAttempt.student_id == student_user.id,
-                ExamAttempt.status == AttemptStatus.IN_PROGRESS
-            ).order_by(ExamAttempt.started_at.desc())
-        )
-        attempt = att_res.scalars().first()
+        if attempt_id:
+            att_res = await db.execute(
+                select(ExamAttempt).where(
+                    ExamAttempt.id == attempt_id,
+                    ExamAttempt.exam_id == exam_id,
+                    ExamAttempt.student_id == student_user.id,
+                    ExamAttempt.status == AttemptStatus.IN_PROGRESS
+                )
+            )
+            attempt = att_res.scalar_one_or_none()
+        else:
+            att_res = await db.execute(
+                select(ExamAttempt).where(
+                    ExamAttempt.exam_id == exam_id,
+                    ExamAttempt.student_id == student_user.id,
+                    ExamAttempt.status == AttemptStatus.IN_PROGRESS
+                ).order_by(ExamAttempt.started_at.desc())
+            )
+            attempt = att_res.scalars().first()
+
         if not attempt:
             # Active monitoring only while exam is IN_PROGRESS
             return ContinuousVerificationResponse(
@@ -236,7 +304,7 @@ class ProctoringService:
         # 4. Detect faces
         face_count, faces_info = cls.detect_all_faces_and_features(live_img)
 
-        tracker = cls.get_tracker(exam_id, student_user.id)
+        tracker = cls.get_tracker(exam_id, student_user.id, attempt.id)
         threshold = settings.FACE_VERIFICATION_THRESHOLD
 
         primary_sim: Optional[float] = None
@@ -294,8 +362,16 @@ class ProctoringService:
 
         if prohibited_objects:
             if tracker.last_object_violation_at is None or (now - tracker.last_object_violation_at).total_seconds() >= 10.0:
+                OBJECT_FRIENDLY_NAMES = {
+                    "CELL_PHONE": "Cell Phone (Mobile)",
+                    "BOOK": "Book / Notes",
+                    "LAPTOP": "Secondary Laptop / Device",
+                }
                 labels = [obj[0] for obj in prohibited_objects]
                 first_label, first_conf, first_box = prohibited_objects[0]
+                pretty_object_name = OBJECT_FRIENDLY_NAMES.get(first_label, first_label.replace("_", " ").title())
+                pretty_labels = [OBJECT_FRIENDLY_NAMES.get(l, l.replace("_", " ").title()) for l in labels]
+                calibrated_conf = detector.calibrate_confidence(first_conf)
                 tracker.last_object_violation_at = now
 
                 rel_obj_evidence = cls.save_evidence_image(
@@ -317,17 +393,21 @@ class ProctoringService:
                     started_at=now,
                     ended_at=now,
                     duration=0.0,
-                    confidence=first_conf,
+                    confidence=calibrated_conf,
                     face_count=face_count,
                     expected_identity=student_user.name,
-                    detected_identity_status="PROHIBITED_OBJECT",
+                    detected_identity_status=f"DETECTED: {pretty_object_name}",
                     evidence_path=rel_obj_evidence,
                     incident_id=str(uuid.uuid4()),
                     metadata_json={
                         "detected_objects": labels,
+                        "detected_object_names": pretty_labels,
                         "primary_object": first_label,
-                        "confidence": round(first_conf, 3),
+                        "detected_object_name": pretty_object_name,
+                        "confidence": round(calibrated_conf, 3),
+                        "raw_confidence": round(first_conf, 3),
                         "bounding_box": list(first_box),
+                        "description": f"Prohibited exam material detected: {pretty_object_name} ({int(calibrated_conf * 100)}% confidence)",
                     }
                 )
                 db.add(obj_ev)
@@ -339,10 +419,43 @@ class ProctoringService:
                     timestamp=now,
                     metadata_json={
                         "detected_objects": labels,
+                        "detected_object_name": pretty_object_name,
+                        "primary_object": first_label,
                         "evidence_path": rel_obj_evidence,
+                        "bounding_box": list(first_box),
+                        "confidence": round(calibrated_conf, 3),
                     }
                 )
                 db.add(obj_viol)
+
+                try:
+                    from app.features.proctoring.risk_engine import RiskScoringEngine
+                    from app.features.proctoring.models import AIClassification
+
+                    await RiskScoringEngine.record_incident_and_update_risk(
+                        db=db,
+                        exam_id=exam_id,
+                        attempt_id=attempt.id,
+                        student_id=student_user.id,
+                        incident_type="UNAUTHORIZED_OBJECT",
+                        category="PROHIBITED_ITEMS",
+                        severity="HIGH",
+                        confidence=calibrated_conf,
+                        evidence_url=f"/api/v1/proctoring/evidence/{obj_ev.id}",
+                        explanation=f"Prohibited exam material detected in workspace: {pretty_object_name} (AI certainty: {int(calibrated_conf * 100)}%).",
+                        duration_seconds=0.0,
+                        metadata={
+                            "primary_object": first_label,
+                            "detected_object_name": pretty_object_name,
+                            "raw_confidence": round(first_conf, 3),
+                            "bounding_box": list(first_box),
+                        },
+                        existing_incident_id=obj_ev.incident_id,
+                        ai_classification=AIClassification.CONFIRMED.value if calibrated_conf >= 0.70 else AIClassification.SUSPICIOUS.value,
+                    )
+                except Exception as r_err:
+                    logger.warning(f"Failed to record object incident into risk engine: {r_err}")
+
                 await db.commit()
 
                 await signaling_manager.broadcast_violation(exam_id, {
@@ -354,6 +467,9 @@ class ProctoringService:
                     "timestamp": now.isoformat(),
                     "evidence_url": f"/api/v1/proctoring/evidence/{obj_ev.id}",
                     "student_name": student_user.name,
+                    "primary_object": pretty_object_name,
+                    "detected_object_name": pretty_object_name,
+                    "confidence": calibrated_conf,
                     "metadata": obj_ev.metadata_json,
                 })
 
@@ -767,6 +883,7 @@ class ProctoringService:
         db: AsyncSession,
         exam_id: str,
         student_id: Optional[str] = None,
+        attempt_id: Optional[str] = None,
         review_status: Optional[str] = None,
         event_type: Optional[str] = None,
         skip: int = 0,
@@ -775,6 +892,8 @@ class ProctoringService:
         query = select(ProctoringEvent).where(ProctoringEvent.exam_id == exam_id)
         if student_id:
             query = query.where(ProctoringEvent.student_id == student_id)
+        if attempt_id:
+            query = query.where(ProctoringEvent.exam_attempt_id == attempt_id)
         if review_status:
             query = query.where(ProctoringEvent.review_status == review_status)
         if event_type:
@@ -789,8 +908,10 @@ class ProctoringService:
         # Order by detected_at descending
         query = (
             query.options(
-                selectinload(ProctoringEvent.student),
-                selectinload(ProctoringEvent.reviewed_by)
+                selectinload(ProctoringEvent.student).selectinload(User.student_profile),
+                selectinload(ProctoringEvent.reviewed_by),
+                selectinload(ProctoringEvent.attempt),
+                selectinload(ProctoringEvent.exam),
             )
             .order_by(desc(ProctoringEvent.detected_at))
             .offset(skip)
@@ -807,8 +928,10 @@ class ProctoringService:
             select(ProctoringEvent)
             .where(ProctoringEvent.id == event_id)
             .options(
-                selectinload(ProctoringEvent.student),
-                selectinload(ProctoringEvent.reviewed_by)
+                selectinload(ProctoringEvent.student).selectinload(User.student_profile),
+                selectinload(ProctoringEvent.reviewed_by),
+                selectinload(ProctoringEvent.attempt),
+                selectinload(ProctoringEvent.exam),
             )
         )
         return res.scalar_one_or_none()
@@ -820,16 +943,49 @@ class ProctoringService:
         reviewer_user: User,
         patch: ProctoringEventReviewPatch
     ) -> ProctoringEvent:
-        ev = await db.get(ProctoringEvent, event_id)
+        res = await db.execute(
+            select(ProctoringEvent)
+            .where(ProctoringEvent.id == event_id)
+            .options(
+                selectinload(ProctoringEvent.student).selectinload(User.student_profile),
+                selectinload(ProctoringEvent.reviewed_by),
+                selectinload(ProctoringEvent.attempt),
+                selectinload(ProctoringEvent.exam),
+            )
+        )
+        ev = res.scalar_one_or_none()
         if not ev:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proctoring event not found")
 
-        ev.review_status = patch.review_status.value if hasattr(patch.review_status, "value") else str(patch.review_status)
+        status_val = patch.review_status.value if hasattr(patch.review_status, "value") else str(patch.review_status)
+        ev.review_status = status_val
         if patch.review_comment is not None:
             ev.review_comment = patch.review_comment
         ev.reviewed_by_id = reviewer_user.id
         ev.reviewed_at = datetime.now(timezone.utc)
         ev.updated_at = datetime.now(timezone.utc)
+
+        # Synchronize corresponding ProctoringIncident and recalculate attempt dynamic risk score
+        if ev.incident_id:
+            from app.features.proctoring.models import ProctoringIncident
+            inc = await db.get(ProctoringIncident, ev.incident_id)
+            if inc:
+                inc.review_status = status_val
+                if ev.review_comment:
+                    inc.review_comment = ev.review_comment
+                inc.updated_at = datetime.now(timezone.utc)
+                if ev.exam_attempt_id:
+                    try:
+                        from app.features.proctoring.risk_engine import RiskScoringEngine
+                        await RiskScoringEngine.recalculate_attempt_score(
+                            db=db,
+                            attempt_id=ev.exam_attempt_id,
+                            trigger_event_type=ev.event_type,
+                            trigger_incident_id=inc.id,
+                            reason=f"Event {ev.id} reviewed as {status_val}"
+                        )
+                    except Exception as r_err:
+                        logger.warning(f"Error recalculating risk on event review: {r_err}")
 
         await db.commit()
         await db.refresh(ev)

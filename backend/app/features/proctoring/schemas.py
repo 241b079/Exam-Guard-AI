@@ -31,7 +31,12 @@ class ContinuousVerificationResponse(BaseModel):
 class ProctoringEventResponse(BaseModel):
     id: str
     exam_id: str
+    exam_title: Optional[str] = None
     exam_attempt_id: Optional[str] = None
+    attempt_number: Optional[int] = None
+    attempt_started_at: Optional[datetime] = None
+    attempt_submitted_at: Optional[datetime] = None
+    attempt_status: Optional[str] = None
     student_id: str
     student_name: Optional[str] = None
     student_email: Optional[str] = None
