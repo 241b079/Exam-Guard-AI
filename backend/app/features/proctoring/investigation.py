@@ -21,9 +21,12 @@ from app.features.proctoring.models import (
     InvestigationStatus,
     ReviewPriority,
     RiskLevel,
+    OverallRiskLevel,
     AIClassification,
 )
 from app.features.proctoring.risk_engine import RiskScoringEngine
+from app.features.proctoring.aggregation import ExamIntegrityAggregator
+from app.features.proctoring.notification_service import NotificationService
 
 
 class PostExaminationInvestigationService:
@@ -31,7 +34,8 @@ class PostExaminationInvestigationService:
     Automated Post-Examination AI Investigation Dossier & Faculty Review Engine.
     
     Generates structured, objective evidence reports after an exam attempt is submitted
-    and enables faculty to review timeline, validate/reject incidents, and render final decisions.
+    and enables faculty to review timeline, validate/reject incidents, render final decisions,
+    and authorize result publication.
     """
 
     @classmethod
@@ -55,7 +59,7 @@ class PostExaminationInvestigationService:
     ) -> ExaminationInvestigation:
         """
         Synthesizes all proctoring evidence, incident groupings, and score history
-        into an authoritative post-exam investigation dossier.
+        into an authoritative post-exam investigation dossier using ExamIntegrityAggregator.
         """
         now = datetime.now(timezone.utc)
 
@@ -65,7 +69,7 @@ class PostExaminationInvestigationService:
             .where(ExamAttempt.id == attempt_id)
             .options(
                 selectinload(ExamAttempt.exam),
-                selectinload(ExamAttempt.student).selectinload(User.student_profile)
+                selectinload(ExamAttempt.student)
             )
         )
         attempt = att_res.scalar_one_or_none()
@@ -75,120 +79,69 @@ class PostExaminationInvestigationService:
         exam: Exam = attempt.exam
         student: User = attempt.student
 
-        # 2. Fetch Risk Score
-        risk_res = await db.execute(
-            select(StudentRiskScore).where(StudentRiskScore.exam_attempt_id == attempt_id)
-        )
-        risk_score_record = risk_res.scalar_one_or_none()
-        final_risk = risk_score_record.current_score if risk_score_record else 0.0
-        risk_class = (
-            risk_score_record.risk_level
-            if risk_score_record
-            else RiskScoringEngine.get_risk_classification(final_risk)
-        )
+        # 2. Run Intelligent Cheating Assessment & Multi-Factor Aggregation
+        agg_data = await ExamIntegrityAggregator.aggregate_attempt_assessment(db, attempt)
 
-        # 3. Fetch all Incidents
-        inc_res = await db.execute(
-            select(ProctoringIncident)
-            .where(ProctoringIncident.exam_attempt_id == attempt_id)
-            .order_by(ProctoringIncident.started_at.asc())
-        )
-        incidents = inc_res.scalars().all()
+        final_risk = agg_data["final_risk_score"]
+        overall_risk_str = agg_data["overall_risk_level"]
+        risk_class = RiskScoringEngine.get_risk_classification(final_risk)
 
-        total_incidents = len(incidents)
-        confirmed_count = sum(1 for i in incidents if i.ai_classification == AIClassification.CONFIRMED.value)
-        suspicious_count = sum(1 for i in incidents if i.ai_classification == AIClassification.SUSPICIOUS.value)
-        inconclusive_count = sum(1 for i in incidents if i.ai_classification == AIClassification.INCONCLUSIVE.value)
-        interruption_count = sum(1 for i in incidents if i.incident_type == "MONITORING_INTERRUPTED")
-
-        # 4. Construct Chronological Incident Timeline
-        timeline = []
-        exam_start = attempt.started_at
-        for inc in incidents:
-            rel_seconds = max(0, int((inc.started_at - exam_start).total_seconds())) if exam_start else 0
-            rel_min = rel_seconds // 60
-            rel_sec = rel_seconds % 60
-            offset_str = f"+{rel_min:02d}m {rel_sec:02d}s"
-
-            timeline.append({
-                "incident_id": inc.id,
-                "incident_type": inc.incident_type,
-                "category": inc.category,
-                "severity": inc.severity,
-                "ai_classification": inc.ai_classification,
-                "offset_time": offset_str,
-                "started_at": inc.started_at.isoformat(),
-                "ended_at": inc.ended_at.isoformat() if inc.ended_at else None,
-                "duration_seconds": round(inc.duration_seconds, 1),
-                "peak_confidence": round(inc.peak_confidence, 2),
-                "primary_evidence_url": inc.primary_evidence_url,
-                "evidence_url": inc.primary_evidence_url,
-                "ai_explanation": inc.ai_explanation or f"Incident of type {inc.incident_type} observed.",
-                "risk_contribution": round(inc.risk_contribution, 1),
-                "review_status": inc.review_status,
-                "review_comment": inc.review_comment,
-            })
-
-        # 5. Cross-Incident Correlation Analysis
-        correlations = cls._analyze_incident_correlations(incidents)
-
-        # 6. Score Breakdown by category
-        breakdown: Dict[str, float] = {}
-        for inc in incidents:
-            if inc.review_status != "FALSE_POSITIVE":
-                breakdown[inc.incident_type] = round(
-                    breakdown.get(inc.incident_type, 0.0) + inc.risk_contribution, 1
-                )
-
-        # 7. Formulate Limitations & Uncertainty Notes
-        limitations = []
-        if interruption_count > 0:
-            limitations.append(f"{interruption_count} temporary camera or network monitoring interruption(s) occurred. Technical interruptions were not counted toward cheating risk.")
-        if inconclusive_count > 0:
-            limitations.append(f"{inconclusive_count} detection(s) marked inconclusive due to lighting or camera occlusion.")
-        if not limitations:
-            limitations.append("Camera, audio, and browser integrity telemetry remained continuous without unmonitored gaps.")
-
-        # 8. Determine Recommended Faculty Review Priority
-        if final_risk >= 75.0 or any(i.incident_type == "MULTIPLE_PERSON_IDENTITY_MISMATCH" for i in incidents):
-            review_priority = ReviewPriority.URGENT.value
-        elif final_risk >= 50.0 or any(i.incident_type == "IDENTITY_MISMATCH" for i in incidents):
-            review_priority = ReviewPriority.HIGH.value
-        elif final_risk >= 30.0 or total_incidents >= 3:
+        # 3. Determine Recommended Faculty Review Priority
+        if overall_risk_str in (OverallRiskLevel.CRITICAL_RISK.value, OverallRiskLevel.HIGH_RISK.value) or final_risk >= 50.0:
+            review_priority = ReviewPriority.URGENT.value if final_risk >= 75.0 else ReviewPriority.HIGH.value
+        elif overall_risk_str == OverallRiskLevel.MODERATE_RISK.value or final_risk >= 30.0:
             review_priority = ReviewPriority.MEDIUM.value
         else:
             review_priority = ReviewPriority.LOW.value
 
-        # 9. AI Executive Summary (Objective & Non-Accusatory)
-        summary = (
-            f"Examination session for {student.name} ({student.email}) lasted {exam.duration_minutes} minutes. "
-            f"AI telemetry observed {total_incidents} suspicious event(s) resulting in a final Cheating Risk Score of "
-            f"{final_risk}/100 ({risk_class}). Breakdown: {confirmed_count} confirmed, {suspicious_count} suspicious, "
-            f"{inconclusive_count} inconclusive. Recommended faculty review priority: {review_priority}. "
-            f"Final determination is reserved exclusively for the instructor."
+        # 4. Formulate Limitations & Uncertainty Notes
+        interruption_count = sum(
+            1 for item in agg_data["timeline_items"]
+            if item.get("category_group") == "TECHNICAL_INTERRUPTION"
         )
+        inconclusive_count = agg_data["low_confidence_count"]
 
-        # 10. Check for existing investigation record to update or insert
+        limitations = []
+        if interruption_count > 0:
+            limitations.append(f"{interruption_count} temporary camera or network monitoring interruption(s) occurred. Technical interruptions were not counted toward cheating risk.")
+        if inconclusive_count > 0:
+            limitations.append(f"{inconclusive_count} detection(s) marked low-confidence / inconclusive due to lighting or camera occlusion.")
+        if not limitations:
+            limitations.append("Camera, audio, and browser integrity telemetry remained continuous without unmonitored gaps.")
+
+        # 5. Check for existing investigation record to update or insert
         inv_res = await db.execute(
             select(ExaminationInvestigation).where(ExaminationInvestigation.exam_attempt_id == attempt_id)
         )
         investigation = inv_res.scalar_one_or_none()
 
+        executive_summary = agg_data["ai_recommendation"]
+
         if investigation:
             investigation.final_risk_score = final_risk
             investigation.risk_classification = risk_class
             investigation.review_priority = review_priority
-            investigation.total_incidents = total_incidents
-            investigation.confirmed_count = confirmed_count
-            investigation.suspicious_count = suspicious_count
+            investigation.total_incidents = agg_data["independent_incident_count"]
+            investigation.confirmed_count = agg_data["high_confidence_count"]
+            investigation.suspicious_count = agg_data["suspicious_count"]
             investigation.inconclusive_count = inconclusive_count
             investigation.monitoring_interruption_count = interruption_count
-            investigation.executive_summary = summary
-            investigation.incident_timeline_json = timeline
-            investigation.correlations_json = correlations
-            investigation.score_breakdown_json = breakdown
+            investigation.overall_risk_level = overall_risk_str
+            investigation.ai_assessment_status = "COMPLETED"
+            investigation.total_evidence_count = agg_data["total_evidence_count"]
+            investigation.independent_incident_count = agg_data["independent_incident_count"]
+            investigation.high_confidence_count = agg_data["high_confidence_count"]
+            investigation.low_confidence_count = agg_data["low_confidence_count"]
+            investigation.resolved_count = agg_data["resolved_count"]
+            investigation.evidence_breakdown_json = agg_data["evidence_breakdown_json"]
+            investigation.ai_recommendation = executive_summary
+            investigation.executive_summary = executive_summary
+            investigation.incident_timeline_json = agg_data["timeline_items"]
             investigation.limitations_notes = " • ".join(limitations)
             investigation.updated_at = now
+            if not investigation.assessment_started_at:
+                investigation.assessment_started_at = attempt.submitted_at or now
+            investigation.assessment_completed_at = now
         else:
             investigation = ExaminationInvestigation(
                 id=str(uuid.uuid4()),
@@ -198,63 +151,54 @@ class PostExaminationInvestigationService:
                 final_risk_score=final_risk,
                 risk_classification=risk_class,
                 review_priority=review_priority,
-                total_incidents=total_incidents,
-                confirmed_count=confirmed_count,
-                suspicious_count=suspicious_count,
+                total_incidents=agg_data["independent_incident_count"],
+                confirmed_count=agg_data["high_confidence_count"],
+                suspicious_count=agg_data["suspicious_count"],
                 inconclusive_count=inconclusive_count,
                 monitoring_interruption_count=interruption_count,
-                executive_summary=summary,
-                incident_timeline_json=timeline,
-                correlations_json=correlations,
-                score_breakdown_json=breakdown,
+                overall_risk_level=overall_risk_str,
+                ai_assessment_status="COMPLETED",
+                total_evidence_count=agg_data["total_evidence_count"],
+                independent_incident_count=agg_data["independent_incident_count"],
+                high_confidence_count=agg_data["high_confidence_count"],
+                low_confidence_count=agg_data["low_confidence_count"],
+                resolved_count=agg_data["resolved_count"],
+                evidence_breakdown_json=agg_data["evidence_breakdown_json"],
+                ai_recommendation=executive_summary,
+                executive_summary=executive_summary,
+                incident_timeline_json=agg_data["timeline_items"],
+                correlations_json=[],
+                score_breakdown_json={},
                 limitations_notes=" • ".join(limitations),
                 investigation_status=InvestigationStatus.PENDING_REVIEW.value,
+                model_version="v2.1",
+                assessment_started_at=attempt.started_at or now,
+                assessment_completed_at=now,
                 generated_at=now,
                 updated_at=now,
             )
             db.add(investigation)
 
+        # Sync attempt integrity status
+        if investigation.investigation_status == InvestigationStatus.PENDING_REVIEW.value:
+            attempt.integrity_status = "PENDING_REVIEW"
+
         await db.commit()
         await db.refresh(investigation)
+
+        # Dispatch notification to faculty if high risk or critical risk detected
+        if overall_risk_str in (OverallRiskLevel.HIGH_RISK.value, OverallRiskLevel.CRITICAL_RISK.value):
+            await NotificationService.create_notification(
+                db=db,
+                user_id=exam.created_by_id,
+                notif_type="HIGH_RISK_ALERT",
+                title=f"High Risk Exam Submission: {student.name}",
+                message=f"Candidate {student.name} submitted {exam.title} with AI Assessment: {overall_risk_str.replace('_', ' ').title()}.",
+                exam_id=exam.id,
+                exam_attempt_id=attempt.id
+            )
+
         return investigation
-
-    @classmethod
-    def _analyze_incident_correlations(cls, incidents: List[ProctoringIncident]) -> List[Dict[str, Any]]:
-        """
-        Identifies co-occurring patterns across different telemetry streams
-        (e.g., looking away + tab switch, or multiple people + voice activity).
-        """
-        correlations = []
-        n = len(incidents)
-        for i in range(n):
-            for j in range(i + 1, n):
-                inc_a = incidents[i]
-                inc_b = incidents[j]
-                time_diff = abs((inc_a.started_at - inc_b.started_at).total_seconds())
-
-                if time_diff <= 15.0 and inc_a.incident_type != inc_b.incident_type:
-                    # Pattern 1: Tab switch + Looking away (potential secondary monitor / notes lookup)
-                    if {inc_a.incident_type, inc_b.incident_type} & {"PAGE_HIDDEN", "WINDOW_BLUR", "FULLSCREEN_EXIT"} and \
-                       {inc_a.incident_type, inc_b.incident_type} & {"LOOKING_AWAY"}:
-                        correlations.append({
-                            "pattern": "DUAL_MONITOR_OR_REFERENCE_LOOKUP",
-                            "description": "Candidate exited active exam window simultaneously with looking away from screen.",
-                            "incidents": [inc_a.id, inc_b.id],
-                            "time_window_seconds": round(time_diff, 1),
-                            "confidence_weight": 0.85
-                        })
-                    # Pattern 2: Multi-person + Audio anomaly
-                    elif {inc_a.incident_type, inc_b.incident_type} & {"MULTIPLE_PERSON", "MULTIPLE_PERSON_IDENTITY_MISMATCH"} and \
-                         {inc_a.incident_type, inc_b.incident_type} & {"AUDIO_ANOMALY"}:
-                        correlations.append({
-                            "pattern": "VERBAL_COLLABORATION",
-                            "description": "Secondary person presence coincided with acoustic anomaly in room.",
-                            "incidents": [inc_a.id, inc_b.id],
-                            "time_window_seconds": round(time_diff, 1),
-                            "confidence_weight": 0.90
-                        })
-
-        return correlations
 
     @classmethod
     async def submit_faculty_decision(
@@ -265,14 +209,16 @@ class PostExaminationInvestigationService:
         decision: str,
         reason: Optional[str] = None,
         notes: Optional[str] = None,
-        incident_reviews: Optional[Dict[str, str]] = None
+        incident_reviews: Optional[Dict[str, str]] = None,
+        publish_result: bool = False
     ) -> ExaminationInvestigation:
         """
         Applies faculty post-exam decision:
-        - CLEARED: Clears student, confirms standard evaluation.
-        - VIOLATION_CONFIRMED: Flags confirmed policy violation with review notes.
+        - CLEARED: Clears candidate, confirms academic integrity.
+        - CONFIRMED_VIOLATION / VIOLATION_CONFIRMED: Flags confirmed policy violation with review notes.
         - DISQUALIFIED: Formal disqualification requiring mandatory justification.
-        - FALSE_POSITIVE adjustments: Updates incident review status and recalculates risk score.
+        - UNDER_INVESTIGATION / INVESTIGATION_REQUIRED: Escalates for further review.
+        - Individual evidence actions: CONFIRM_VIOLATION, FALSE_POSITIVE, DISMISS, REQUEST_INVESTIGATION, ESCALATE.
         """
         now = datetime.now(timezone.utc)
 
@@ -287,25 +233,53 @@ class PostExaminationInvestigationService:
         )
         investigation = inv_res.scalar_one_or_none()
         if not investigation:
-            # Generate if not exists yet
             investigation = await cls.generate_investigation_report(db, attempt_id)
 
-        # 2. Authorization check
         exam: Exam = investigation.exam
+        attempt: ExamAttempt = investigation.attempt
+
+        # 2. Authorization check
         if faculty_user.role == UserRole.FACULTY and exam.created_by_id != faculty_user.id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized to review investigations for this exam"
             )
 
-        # 3. Handle individual incident validations / false-positive rejections
+        previous_status = investigation.investigation_status
+
+        # Standardize decision label
+        norm_decision = decision.upper()
+        if norm_decision in ("CONFIRMED_VIOLATION", "VIOLATION_CONFIRMED"):
+            canonical_decision = InvestigationStatus.VIOLATION_CONFIRMED.value
+        elif norm_decision in ("CLEARED", "CLEAR"):
+            canonical_decision = InvestigationStatus.CLEARED.value
+        elif norm_decision in ("DISQUALIFIED", "DISQUALIFY"):
+            canonical_decision = InvestigationStatus.DISQUALIFIED.value
+        elif norm_decision in ("UNDER_INVESTIGATION", "INVESTIGATION_REQUIRED"):
+            canonical_decision = InvestigationStatus.UNDER_INVESTIGATION.value
+        elif norm_decision in ("PENDING_REVIEW", "PENDING"):
+            canonical_decision = InvestigationStatus.PENDING_REVIEW.value
+        else:
+            canonical_decision = decision
+
+        # 3. Handle individual incident/evidence validations or false-positive adjustments
         recalculate_needed = False
+        related_evidence_ids = []
         if incident_reviews:
-            for inc_id, inc_status in incident_reviews.items():
-                inc_item = await db.get(ProctoringIncident, inc_id)
+            for item_id, rev_status in incident_reviews.items():
+                related_evidence_ids.append(item_id)
+                # Check if it's a ProctoringIncident
+                inc_item = await db.get(ProctoringIncident, item_id)
                 if inc_item and inc_item.exam_attempt_id == attempt_id:
-                    inc_item.review_status = inc_status
-                    if inc_status == "FALSE_POSITIVE":
+                    inc_item.review_status = rev_status
+                    if rev_status == "FALSE_POSITIVE":
+                        recalculate_needed = True
+
+                # Check if it's a ProctoringEvent
+                ev_item = await db.get(ProctoringEvent, item_id)
+                if ev_item and ev_item.exam_attempt_id == attempt_id:
+                    ev_item.review_status = rev_status
+                    if rev_status == "FALSE_POSITIVE":
                         recalculate_needed = True
 
         if recalculate_needed:
@@ -317,14 +291,13 @@ class PostExaminationInvestigationService:
             )
 
         # 4. Handle Disqualification Decision
-        if decision == InvestigationStatus.DISQUALIFIED.value:
+        if canonical_decision == InvestigationStatus.DISQUALIFIED.value:
             if not reason or not reason.strip():
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Explicit justification reason is mandatory when disqualifying a student."
                 )
 
-            # Check for existing disqualification record
             disq_res = await db.execute(
                 select(DisqualificationRecord).where(DisqualificationRecord.exam_attempt_id == attempt_id)
             )
@@ -345,33 +318,78 @@ class PostExaminationInvestigationService:
                 )
                 db.add(disq_rec)
 
-            # Update Attempt: mark total_score zeroed and disqualified
-            attempt: ExamAttempt = investigation.attempt
             if attempt:
                 attempt.total_score = 0.0
+                attempt.integrity_status = "DISQUALIFIED"
+                attempt.publication_status = "DISQUALIFIED"
 
             investigation.investigation_status = InvestigationStatus.DISQUALIFIED.value
 
-        elif decision in (InvestigationStatus.CLEARED.value, InvestigationStatus.VIOLATION_CONFIRMED.value, InvestigationStatus.UNDER_INVESTIGATION.value, InvestigationStatus.INCONCLUSIVE.value):
-            investigation.investigation_status = decision
+        else:
+            investigation.investigation_status = canonical_decision
+            if attempt:
+                attempt.integrity_status = canonical_decision
 
-        # 5. Record FacultyReview audit trail
+        # 5. Handle Result Publication if requested (Never for DISQUALIFIED)
+        if publish_result and attempt and canonical_decision != InvestigationStatus.DISQUALIFIED.value:
+            attempt.publication_status = "PUBLISHED"
+            attempt.published_at = now
+            attempt.published_by_id = faculty_user.id
+
+            await NotificationService.create_notification(
+                db=db,
+                user_id=attempt.student_id,
+                notif_type="RESULT_PUBLISHED",
+                title=f"Result Published: {exam.title}",
+                message=f"Your examination result for {exam.title} has been authorized and published by faculty.",
+                exam_id=exam.id,
+                exam_attempt_id=attempt.id
+            )
+
+        # 6. Record FacultyReview audit trail (Immutable)
         review_audit = FacultyReview(
             id=str(uuid.uuid4()),
             investigation_id=investigation.id,
             exam_attempt_id=attempt_id,
             faculty_id=faculty_user.id,
-            decision=decision,
+            decision=canonical_decision,
             reason=reason,
             notes=notes,
             incident_adjustments_json=incident_reviews or {},
+            previous_status=previous_status,
+            new_status=canonical_decision,
+            related_evidence_ids_json=related_evidence_ids,
             created_at=now
         )
         db.add(review_audit)
+
+        # 7. Notify student of integrity review outcome
+        if canonical_decision == InvestigationStatus.CLEARED.value:
+            msg = "Your examination integrity review has been completed. Your result will be available once the faculty publishes it."
+            await NotificationService.create_notification(
+                db=db,
+                user_id=investigation.student_id,
+                notif_type="REVIEW_COMPLETED",
+                title=f"Integrity Review Cleared: {exam.title}",
+                message=msg,
+                exam_id=exam.id,
+                exam_attempt_id=attempt.id
+            )
+        elif canonical_decision in (InvestigationStatus.VIOLATION_CONFIRMED.value, InvestigationStatus.DISQUALIFIED.value):
+            msg = "Your examination has been referred for an academic integrity review. Please check the examination status or contact your faculty for further information."
+            await NotificationService.create_notification(
+                db=db,
+                user_id=investigation.student_id,
+                notif_type="REVIEW_COMPLETED",
+                title=f"Integrity Notice: {exam.title}",
+                message=msg,
+                exam_id=exam.id,
+                exam_attempt_id=attempt.id
+            )
 
         investigation.updated_at = now
         await db.commit()
         await db.refresh(investigation)
 
-        # Regenerate report with updated scores/timeline
+        # Re-aggregate to keep evidence timeline and counts consistent with faculty actions
         return await cls.generate_investigation_report(db, attempt_id)

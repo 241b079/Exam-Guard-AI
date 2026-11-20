@@ -59,6 +59,7 @@ async def test_gradebook_results_and_manual_grading_flow():
             status=ExamStatus.PUBLISHED,
             attempt_policy=AttemptPolicyType.ONE_ATTEMPT,
             max_attempts=1,
+            auto_publish_results=True,
             created_by_id=faculty_id
         )
         db.add(exam)

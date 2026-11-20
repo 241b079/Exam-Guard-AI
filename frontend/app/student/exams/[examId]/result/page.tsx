@@ -15,6 +15,7 @@ import {
   FileText,
   AlertCircle,
   RefreshCw,
+  ShieldAlert,
 } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/Button';
@@ -96,8 +97,16 @@ export default function StudentExamResultPage() {
     );
   }
 
+  const isDisqualified = result.integrity_status === 'DISQUALIFIED' || result.publication_status === 'DISQUALIFIED';
   const isEvaluated = result.evaluation_status === 'EVALUATED';
-  const percentage = result.percentage ?? (result.max_possible_score > 0 ? Math.round((result.total_score / result.max_possible_score) * 100) : 0);
+  const isPublished = result.publication_status === 'PUBLISHED' && !isDisqualified;
+  const percentage = isDisqualified
+    ? 0
+    : result.percentage !== null && result.percentage !== undefined
+    ? result.percentage
+    : (result.total_score !== null && result.total_score !== undefined && result.max_possible_score > 0
+        ? Math.round((result.total_score / result.max_possible_score) * 100)
+        : null);
 
   return (
     <DashboardLayout title="Exam Result & Score Report">
@@ -148,14 +157,16 @@ export default function StudentExamResultPage() {
             <ArrowLeft className="w-4 h-4" /> Back to Student Dashboard
           </Link>
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handlePrint}
-              className="gap-2 text-xs font-semibold shadow-warm-sm hover:bg-[#FAF7F2]"
-            >
-              <Printer className="w-4 h-4 text-[#C25E1A]" /> Print / Save as PDF
-            </Button>
+            {isPublished && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handlePrint}
+                className="gap-2 text-xs font-semibold shadow-warm-sm hover:bg-[#FAF7F2]"
+              >
+                <Printer className="w-4 h-4 text-[#C25E1A]" /> Print / Save as PDF
+              </Button>
+            )}
             <Link href="/student/dashboard">
               <Button variant="secondary" size="sm" className="gap-1.5 text-xs">
                 <BookOpen className="w-4 h-4" /> Dashboard
@@ -163,6 +174,51 @@ export default function StudentExamResultPage() {
             </Link>
           </div>
         </div>
+
+        {/* Post-Submission Status Notification Banner */}
+        {result.student_status_message && (
+          <div
+            className={`p-5 rounded-3xl border shadow-warm flex items-start gap-3.5 ${
+              isDisqualified
+                ? 'bg-rose-50 border-rose-200 text-rose-950'
+                : isPublished
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
+                : result.publication_status === 'HELD'
+                ? 'bg-amber-50 border-amber-200 text-amber-950'
+                : 'bg-stone-50 border-stone-200 text-stone-900'
+            }`}
+          >
+            <div className="p-2 rounded-2xl bg-white/80 shadow-warm-sm flex-shrink-0">
+              {isDisqualified ? (
+                <ShieldAlert className="w-5 h-5 text-rose-600" />
+              ) : isPublished ? (
+                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+              ) : (
+                <Clock className="w-5 h-5 text-stone-600" />
+              )}
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider">
+                  {isDisqualified
+                    ? 'Examination Disqualified'
+                    : isPublished
+                    ? 'Official Result Released'
+                    : 'Examination Processing Notice'}
+                </span>
+                <Badge
+                  variant={isDisqualified ? 'danger' : isPublished ? 'success' : 'outline'}
+                  className="text-[10px]"
+                >
+                  {isDisqualified ? 'DISQUALIFIED' : result.publication_status || 'AWAITING_PUBLICATION'}
+                </Badge>
+              </div>
+              <p className="text-xs leading-relaxed text-stone-700 font-medium">
+                {result.student_status_message}
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Printable Score Report Card */}
         <div className="p-8 bg-white rounded-3xl border border-[#EBE5DC] text-center space-y-4 shadow-warm print-card">
@@ -175,22 +231,32 @@ export default function StudentExamResultPage() {
               </div>
               <div className="text-right text-xs text-stone-500">
                 <p>Report Date: {new Date().toLocaleDateString()}</p>
-                <p>Status: {result.status}</p>
+                <p>Status: {isDisqualified ? 'DISQUALIFIED' : result.status}</p>
               </div>
             </div>
           </div>
 
-          <div className="w-16 h-16 rounded-full bg-[#DEF7EC] border border-[#BCF0DA] text-[#03543F] flex items-center justify-center mx-auto shadow-warm-sm no-print">
-            <CheckCircle2 className="w-10 h-10" />
+          <div
+            className={`w-16 h-16 rounded-full border flex items-center justify-center mx-auto shadow-warm-sm no-print ${
+              isDisqualified
+                ? 'bg-rose-100 border-rose-200 text-rose-700'
+                : 'bg-[#DEF7EC] border-[#BCF0DA] text-[#03543F]'
+            }`}
+          >
+            {isDisqualified ? (
+              <ShieldAlert className="w-10 h-10" />
+            ) : (
+              <CheckCircle2 className="w-10 h-10" />
+            )}
           </div>
 
           <div className="space-y-1">
             <div className="flex items-center justify-center gap-2">
-              <Badge variant={result.status === 'SUBMITTED' ? 'success' : 'faculty'}>
-                {result.status === 'SUBMITTED' ? 'Exam Completed' : result.status}
+              <Badge variant={isDisqualified ? 'danger' : result.status === 'SUBMITTED' ? 'success' : 'faculty'}>
+                {isDisqualified ? 'Attempt Disqualified' : result.status === 'SUBMITTED' ? 'Exam Completed' : result.status}
               </Badge>
-              <Badge variant={isEvaluated ? 'success' : 'student'}>
-                {isEvaluated ? 'Evaluation Complete' : 'Manual Review Pending'}
+              <Badge variant={isDisqualified ? 'danger' : isPublished ? 'success' : 'student'}>
+                {isDisqualified ? 'Grade 0 Finalized' : isPublished ? 'Results Published' : 'Publication Pending'}
               </Badge>
             </div>
             <h1 className="text-2xl md:text-3xl font-bold font-serif text-stone-900 tracking-tight">
@@ -216,55 +282,117 @@ export default function StudentExamResultPage() {
           </div>
         </div>
 
-        {/* Score Breakdown Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 print-card">
-          <Card className="space-y-1 text-center bg-white border-[#EBE5DC]">
-            <span className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Total Score</span>
-            <p className="text-2xl md:text-3xl font-bold font-serif text-[#C25E1A]">
-              {result.total_score} <span className="text-sm font-normal text-stone-500">/ {result.max_possible_score}</span>
-            </p>
-          </Card>
+        {/* Score Breakdown Grid: Controlled display based on publication status & disqualification */}
+        {isDisqualified ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 print-card">
+            <Card className="space-y-1 text-center bg-rose-50/60 border-rose-200 p-5">
+              <span className="text-[11px] font-semibold text-rose-700 uppercase tracking-wider">Finalized Grade</span>
+              <p className="text-3xl font-bold font-serif text-rose-700">
+                0 <span className="text-sm font-normal text-stone-500">/ {result.max_possible_score || 0}</span>
+              </p>
+              <p className="text-[11px] text-rose-600 font-semibold uppercase">Disqualified (0%)</p>
+            </Card>
 
-          <Card className="space-y-1 text-center bg-white border-[#EBE5DC]">
-            <span className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Percentage</span>
-            <p className="text-2xl md:text-3xl font-bold font-serif text-stone-900">
-              {percentage}%
-            </p>
-          </Card>
+            <Card className="space-y-1 text-center bg-white border-[#EBE5DC] p-5">
+              <span className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Responses Status</span>
+              <p className="text-xl font-bold text-stone-900">Voided</p>
+              <p className="text-[11px] text-stone-500">{result.attempted_questions} questions recorded</p>
+            </Card>
 
-          <Card className="space-y-1 text-center bg-white border-[#EBE5DC]">
-            <span className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Questions</span>
-            <p className="text-2xl md:text-3xl font-bold font-serif text-stone-900">
-              {result.attempted_questions} <span className="text-sm font-normal text-stone-500">/ {result.total_questions}</span>
-            </p>
-          </Card>
+            <Card className="space-y-1 text-center bg-rose-50/40 border-rose-200 p-5">
+              <span className="text-[11px] font-semibold text-rose-700 uppercase tracking-wider">Academic Integrity Status</span>
+              <p className="text-lg font-bold text-rose-800">Policy Infraction</p>
+              <p className="text-[11px] text-rose-600">Disqualification confirmed by faculty</p>
+            </Card>
+          </div>
+        ) : isPublished ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 print-card">
+            <Card className="space-y-1 text-center bg-white border-[#EBE5DC]">
+              <span className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Total Score</span>
+              <p className="text-2xl md:text-3xl font-bold font-serif text-[#C25E1A]">
+                {result.total_score} <span className="text-sm font-normal text-stone-500">/ {result.max_possible_score}</span>
+              </p>
+            </Card>
 
-          <Card className="space-y-1 text-center bg-white border-[#EBE5DC]">
-            <span className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Correct MCQs</span>
-            <p className="text-2xl md:text-3xl font-bold font-serif text-emerald-800">
-              {result.correct_mcq_count}
-            </p>
-          </Card>
-        </div>
+            <Card className="space-y-1 text-center bg-white border-[#EBE5DC]">
+              <span className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Percentage</span>
+              <p className="text-2xl md:text-3xl font-bold font-serif text-stone-900">
+                {percentage}%
+              </p>
+            </Card>
+
+            <Card className="space-y-1 text-center bg-white border-[#EBE5DC]">
+              <span className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Questions</span>
+              <p className="text-2xl md:text-3xl font-bold font-serif text-stone-900">
+                {result.attempted_questions} <span className="text-sm font-normal text-stone-500">/ {result.total_questions}</span>
+              </p>
+            </Card>
+
+            <Card className="space-y-1 text-center bg-white border-[#EBE5DC]">
+              <span className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Correct MCQs</span>
+              <p className="text-2xl md:text-3xl font-bold font-serif text-emerald-800">
+                {result.correct_mcq_count ?? 0}
+              </p>
+            </Card>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 print-card">
+            <Card className="space-y-1 text-center bg-white border-[#EBE5DC] p-5">
+              <span className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Submission Record</span>
+              <p className="text-lg font-bold text-stone-900">Recorded Securely</p>
+              <p className="text-[11px] text-stone-500">Attempt #{result.attempt_number} captured</p>
+            </Card>
+
+            <Card className="space-y-1 text-center bg-white border-[#EBE5DC] p-5">
+              <span className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Questions Attempted</span>
+              <p className="text-2xl font-bold text-stone-900">
+                {result.attempted_questions} <span className="text-sm font-normal text-stone-500">/ {result.total_questions}</span>
+              </p>
+              <p className="text-[11px] text-stone-500">All responses saved</p>
+            </Card>
+
+            <Card className="space-y-1 text-center bg-amber-50/60 border-amber-200 p-5">
+              <span className="text-[11px] font-semibold text-amber-700 uppercase tracking-wider">Evaluated Marks</span>
+              <p className="text-lg font-bold text-amber-900">Withheld Pending Review</p>
+              <p className="text-[11px] text-amber-700">Official marks will be published after authorization</p>
+            </Card>
+          </div>
+        )}
 
         {/* Evaluation Status Banner */}
         <div className="p-4 bg-[#FAF7F2] rounded-2xl border border-[#EBE5DC] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-stone-700 print-card">
           <div className="space-y-0.5">
-            <span className="font-semibold text-stone-900">Grading Status:</span>
+            <span className="font-semibold text-stone-900">Academic Review & Publication:</span>
             <p className="text-stone-500">
-              {isEvaluated
-                ? 'All multiple-choice and descriptive questions have been evaluated.'
-                : 'Objective MCQs were graded automatically. Short-answer/descriptive responses are awaiting instructor manual evaluation.'}
+              {isDisqualified
+                ? 'This candidate attempt was formally disqualified by course faculty for examination misconduct.'
+                : isPublished
+                ? 'All questions and academic integrity checks have been validated and released by course faculty.'
+                : 'Responses and automated evaluations are stored securely. Faculty authorization is required before individual marks are published.'}
             </p>
           </div>
-          <Badge variant={isEvaluated ? 'success' : 'student'} className="self-start sm:self-auto whitespace-nowrap">
-            {isEvaluated ? 'Fully Evaluated' : 'Evaluation In Progress'}
+          <Badge
+            variant={isDisqualified ? 'danger' : isPublished ? 'success' : 'student'}
+            className="self-start sm:self-auto whitespace-nowrap"
+          >
+            {isDisqualified ? 'DISQUALIFIED' : isPublished ? 'Results Published' : 'Withheld for Review'}
           </Badge>
         </div>
 
         {/* Question-by-Question Review Section */}
-        <div className="space-y-4 pt-2">
-          <div className="flex items-center justify-between">
+        {isDisqualified ? (
+          <div className="p-8 bg-white rounded-3xl border border-rose-200 text-center space-y-3 shadow-warm print-card">
+            <div className="w-12 h-12 rounded-full bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center mx-auto">
+              <ShieldAlert className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-bold font-serif text-stone-900">Question Keys & Responses Withheld</h3>
+            <p className="text-xs text-stone-600 max-w-md mx-auto leading-relaxed">
+              Per university examination regulations, question keys, evaluation breakdowns, and candidate responses are permanently suppressed for disqualified attempts.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-4 pt-2">
+            <div className="flex items-center justify-between">
             <h2 className="text-lg font-bold font-serif text-stone-900 flex items-center gap-2">
               <FileText className="w-5 h-5 text-[#C25E1A]" />
               Detailed Responses & Answer Breakdown
@@ -279,7 +407,9 @@ export default function StudentExamResultPage() {
               const isMCQ = q.question_type === 'MCQ';
               const isShort = q.question_type === 'SHORT_ANSWER';
               const hasAnswered = isMCQ ? !!q.selected_option : !!q.answer_text;
-              const marksDisplay = q.marks_awarded !== null && q.marks_awarded !== undefined
+              const marksDisplay = !isPublished
+                ? 'Kept Securely'
+                : q.marks_awarded !== null && q.marks_awarded !== undefined
                 ? `${q.marks_awarded} / ${q.max_marks}`
                 : isShort
                 ? 'Pending Review'
@@ -369,6 +499,7 @@ export default function StudentExamResultPage() {
             })}
           </div>
         </div>
+        )}
 
         {/* Action Button (Hidden in Print) */}
         <div className="text-center pt-4 pb-8 no-print flex justify-center gap-3">

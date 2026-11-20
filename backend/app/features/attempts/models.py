@@ -66,6 +66,13 @@ class ExamAttempt(Base):
     session_token: Mapped[str] = mapped_column(String(64), nullable=True, index=True)
     last_active_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Controlled Result Publication & Integrity Status
+    evaluation_status: Mapped[str] = mapped_column(String(50), default="EVALUATED", nullable=False)
+    integrity_status: Mapped[str] = mapped_column(String(50), default="PENDING_REVIEW", nullable=False)
+    publication_status: Mapped[str] = mapped_column(String(50), default="UNPUBLISHED", nullable=False, index=True)
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    published_by_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -80,7 +87,8 @@ class ExamAttempt(Base):
 
     # Relationships
     exam = relationship("Exam", back_populates="attempts")
-    student = relationship("User", lazy="selectin")
+    student = relationship("User", foreign_keys=[student_id], lazy="selectin")
+    published_by = relationship("User", foreign_keys=[published_by_id], lazy="selectin")
     answers = relationship("Answer", back_populates="attempt", cascade="all, delete-orphan", lazy="selectin")
     violations = relationship("ExamViolation", back_populates="attempt", cascade="all, delete-orphan", lazy="selectin")
     media_session = relationship("ExamMediaSession", back_populates="attempt", uselist=False, cascade="all, delete-orphan", lazy="selectin")

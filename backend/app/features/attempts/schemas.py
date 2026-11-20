@@ -51,6 +51,13 @@ class AttemptResponse(BaseModel):
     risk_level: Optional[str] = "LOW"
     incident_count: Optional[int] = 0
     investigation_status: Optional[str] = None
+    overall_risk_level: Optional[str] = "LOW_RISK"
+    high_confidence_count: Optional[int] = 0
+    suspicious_count: Optional[int] = 0
+    publication_status: Optional[str] = "UNPUBLISHED"
+    integrity_status: Optional[str] = "PENDING_REVIEW"
+    evaluated_score: Optional[float] = None
+    max_possible_score: Optional[float] = None
     session_token: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -84,6 +91,13 @@ class StudentActiveExamSummary(BaseModel):
     risk_level: Optional[str] = "LOW"
     incident_count: Optional[int] = 0
     investigation_status: Optional[str] = None
+    overall_risk_level: Optional[str] = "LOW_RISK"
+    high_confidence_count: Optional[int] = 0
+    suspicious_count: Optional[int] = 0
+    publication_status: Optional[str] = "UNPUBLISHED"
+    integrity_status: Optional[str] = "PENDING_REVIEW"
+    evaluated_score: Optional[float] = None
+    max_possible_score: Optional[float] = None
     identity_verified: bool = False
 
 
@@ -104,6 +118,13 @@ class StudentExamStatusResponse(BaseModel):
     risk_level: Optional[str] = "LOW"
     incident_count: Optional[int] = 0
     investigation_status: Optional[str] = None
+    overall_risk_level: Optional[str] = "LOW_RISK"
+    high_confidence_count: Optional[int] = 0
+    suspicious_count: Optional[int] = 0
+    publication_status: Optional[str] = "UNPUBLISHED"
+    integrity_status: Optional[str] = "PENDING_REVIEW"
+    evaluated_score: Optional[float] = None
+    max_possible_score: Optional[float] = None
 
 
 class SubmitAttemptResponse(BaseModel):
@@ -115,9 +136,12 @@ class SubmitAttemptResponse(BaseModel):
     submitted_at: datetime
     total_questions: int
     attempted_questions: int
-    correct_mcq_count: int
-    total_score: float
-    max_possible_score: float
+    correct_mcq_count: Optional[int] = None
+    total_score: Optional[float] = None
+    max_possible_score: Optional[float] = None
+    publication_status: Optional[str] = "UNPUBLISHED"
+    integrity_status: Optional[str] = "PENDING_REVIEW"
+    student_status_message: Optional[str] = None
     short_answer_status: str = "Pending Review"
 
 
@@ -188,6 +212,13 @@ class AttemptMonitoringResponse(BaseModel):
     risk_level: Optional[str] = "LOW"
     incident_count: Optional[int] = 0
     investigation_status: Optional[str] = None
+    overall_risk_level: Optional[str] = "LOW_RISK"
+    high_confidence_count: Optional[int] = 0
+    suspicious_count: Optional[int] = 0
+    publication_status: Optional[str] = "UNPUBLISHED"
+    integrity_status: Optional[str] = "PENDING_REVIEW"
+    evaluated_score: Optional[float] = None
+    max_possible_score: Optional[float] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -237,11 +268,14 @@ class StudentCompletedResultItem(BaseModel):
     attempt_number: int = 1
     started_at: datetime
     submitted_at: Optional[datetime] = None
-    total_score: float
-    max_possible_score: float
-    percentage: float
+    total_score: Optional[float] = None
+    max_possible_score: Optional[float] = None
+    percentage: Optional[float] = None
     status: AttemptStatus
     evaluation_status: str  # "EVALUATED" | "NEEDS_GRADING"
+    publication_status: Optional[str] = "UNPUBLISHED"
+    integrity_status: Optional[str] = "PENDING_REVIEW"
+    student_status_message: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -274,13 +308,16 @@ class AttemptReviewResponse(BaseModel):
     status: AttemptStatus
     started_at: datetime
     submitted_at: Optional[datetime] = None
-    total_score: float
-    max_possible_score: float
-    percentage: float
+    total_score: Optional[float] = None
+    max_possible_score: Optional[float] = None
+    percentage: Optional[float] = None
     evaluation_status: str
     total_questions: int
     attempted_questions: int
-    correct_mcq_count: int
+    correct_mcq_count: Optional[int] = None
+    publication_status: Optional[str] = "UNPUBLISHED"
+    integrity_status: Optional[str] = "PENDING_REVIEW"
+    student_status_message: Optional[str] = None
     questions: List[AttemptReviewQuestionItem] = []
 
     model_config = ConfigDict(from_attributes=True)

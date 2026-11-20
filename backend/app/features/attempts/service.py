@@ -657,6 +657,15 @@ class AttemptService:
         attempt.total_score = max(0.0, total_score)
         attempt.max_possible_score = max_possible_score
 
+        # Set evaluation and publication status
+        attempt.evaluation_status = "EVALUATED" if attempted_count == len(questions) and not any(q.question_type == QuestionType.SHORT_ANSWER for q in questions) else "NEEDS_GRADING"
+        attempt.integrity_status = "PENDING_REVIEW"
+        if getattr(exam, "auto_publish_results", False):
+            attempt.publication_status = "PUBLISHED"
+            attempt.published_at = now
+        else:
+            attempt.publication_status = "UNPUBLISHED"
+
         # Close media session upon submission so live stream is torn down and not reported as active
         media_res = await db.execute(
             select(ExamMediaSession).where(ExamMediaSession.exam_attempt_id == attempt_id)
@@ -671,6 +680,30 @@ class AttemptService:
 
         await db.commit()
         await db.refresh(attempt)
+
+        # Dispatch submission notifications to student and faculty
+        try:
+            from app.features.proctoring.notification_service import NotificationService
+            await NotificationService.create_notification(
+                db=db,
+                user_id=student_id,
+                notif_type="EXAM_SUBMITTED",
+                title=f"Exam Submitted: {exam.title}",
+                message="Your examination has been submitted successfully. Your examination integrity assessment is being processed.",
+                exam_id=exam.id,
+                exam_attempt_id=attempt.id
+            )
+            await NotificationService.create_notification(
+                db=db,
+                user_id=exam.created_by_id,
+                notif_type="NEW_SUBMISSION",
+                title=f"New Submission: {exam.title}",
+                message=f"Candidate submitted attempt #{attempt.attempt_number} for {exam.title}.",
+                exam_id=exam.id,
+                exam_attempt_id=attempt.id
+            )
+        except Exception:
+            pass
 
         # Broadcast real-time student_submitted event to evict candidate from live faculty monitoring grid
         try:
@@ -735,6 +768,9 @@ class AttemptService:
                 if ans.answer_text and ans.answer_text.strip():
                     attempted_count += 1
 
+        is_published = (getattr(attempt, "publication_status", "UNPUBLISHED") == "PUBLISHED")
+        msg = AttemptService._get_student_integrity_message(attempt, None)
+
         return SubmitAttemptResponse(
             attempt_id=attempt.id,
             exam_id=attempt.exam_id,
@@ -745,8 +781,11 @@ class AttemptService:
             total_questions=len(questions),
             attempted_questions=attempted_count,
             correct_mcq_count=correct_mcq_count,
-            total_score=attempt.total_score or 0.0,
-            max_possible_score=attempt.max_possible_score or sum(q.marks for q in questions),
+            total_score=(attempt.total_score or 0.0) if is_published else None,
+            max_possible_score=(attempt.max_possible_score or sum(q.marks for q in questions)) if is_published else None,
+            publication_status=getattr(attempt, "publication_status", "UNPUBLISHED"),
+            integrity_status=getattr(attempt, "integrity_status", "PENDING_REVIEW"),
+            student_status_message=msg,
             short_answer_status="Pending Review"
         )
 
@@ -1030,6 +1069,13 @@ class AttemptService:
             i_count = rs_obj.incident_count if rs_obj else 0
             inv_status = inv_obj.investigation_status if inv_obj else None
 
+            # New AI Assessment & Publication fields
+            overall_risk = inv_obj.overall_risk_level if inv_obj and inv_obj.overall_risk_level else (
+                "HIGH_RISK" if r_level in ["HIGH", "CRITICAL"] else ("MODERATE_RISK" if r_level == "MEDIUM" else "LOW_RISK")
+            )
+            high_conf = inv_obj.high_confidence_count if inv_obj else 0
+            suspicious_c = inv_obj.low_confidence_count if inv_obj else 0
+
             monitoring_data.append(
                 AttemptMonitoringResponse(
                     attempt_id=att.id,
@@ -1050,6 +1096,13 @@ class AttemptService:
                     risk_level=r_level,
                     incident_count=i_count,
                     investigation_status=inv_status,
+                    overall_risk_level=overall_risk,
+                    high_confidence_count=high_conf,
+                    suspicious_count=suspicious_c,
+                    publication_status=att.publication_status or "UNPUBLISHED",
+                    integrity_status=att.integrity_status or "CLEARED",
+                    evaluated_score=att.total_score,
+                    max_possible_score=att.max_possible_score,
                 )
             )
         return monitoring_data
@@ -1277,6 +1330,57 @@ class AttemptService:
         return entries
 
     @staticmethod
+    def _get_student_integrity_message(attempt: ExamAttempt, investigation: Optional[Any] = None) -> str:
+        pub_status = getattr(attempt, "publication_status", "UNPUBLISHED")
+        integ_status = getattr(attempt, "integrity_status", "PENDING_REVIEW")
+
+        # Case 0: Disqualified Attempt (Highest Priority)
+        if integ_status == "DISQUALIFIED" or pub_status == "DISQUALIFIED":
+            return (
+                "This examination attempt has been formally disqualified by course faculty due to confirmed academic integrity policy infractions. "
+                "A grade of zero (0) has been permanently recorded and detailed responses have been voided."
+            )
+
+        # Case 2: Review completed, cleared, results published
+        if pub_status == "PUBLISHED":
+            return "Your examination assessment is complete. Your verified results are now available."
+
+        # Case 4: Disciplinary inquiry
+        if integ_status in ("VIOLATION_CONFIRMED",):
+            return (
+                "Your examination record has been referred for formal academic integrity review. "
+                "Results for this examination are withheld pending the outcome of the inquiry. "
+                "You will be contacted via your registered university email."
+            )
+
+        # Case 3: Under detailed review / high risk
+        if integ_status == "UNDER_INVESTIGATION" or (
+            investigation and (
+                getattr(investigation, "overall_risk_level", "") in ("HIGH_RISK", "CRITICAL_RISK")
+                or getattr(investigation, "final_risk_score", 0.0) >= 50.0
+            )
+        ):
+            return (
+                "Your examination attempt is currently undergoing detailed academic review. "
+                "Please allow additional time for processing. "
+                "Your department will notify you if any clarification is required."
+            )
+
+        # Case 5: Results withheld pending batch release / initial review cleared
+        if integ_status in ("CLEARED", "CLEAR"):
+            return (
+                "Your submission was received successfully and initial review is complete. "
+                "Examination results will be published once all candidate assessments for this course are finalized."
+            )
+
+        # Case 1: Submitted, awaiting review
+        return (
+            "Your examination submission has been received. "
+            "Your responses have been recorded and your examination is queued for routine integrity and academic assessment. "
+            "Results will be published after verification."
+        )
+
+    @staticmethod
     async def get_student_results(
         db: AsyncSession,
         student_id: str
@@ -1299,6 +1403,7 @@ class AttemptService:
         for att in attempts:
             eval_status, _, _ = AttemptService._calc_evaluation(att)
             max_marks = att.max_possible_score or (att.exam.total_marks if att.exam else 0.0)
+            is_pub = (getattr(att, "publication_status", "UNPUBLISHED") == "PUBLISHED")
             items.append(
                 StudentCompletedResultItem(
                     attempt_id=att.id,
@@ -1307,11 +1412,14 @@ class AttemptService:
                     attempt_number=att.attempt_number or 1,
                     started_at=att.started_at,
                     submitted_at=att.submitted_at,
-                    total_score=att.total_score or 0.0,
-                    max_possible_score=max_marks,
-                    percentage=AttemptService._calc_percentage(att.total_score, max_marks),
+                    total_score=att.total_score if is_pub else None,
+                    max_possible_score=max_marks if is_pub else None,
+                    percentage=AttemptService._calc_percentage(att.total_score, max_marks) if is_pub else None,
                     status=att.status,
-                    evaluation_status=eval_status
+                    evaluation_status=eval_status,
+                    publication_status=getattr(att, "publication_status", "UNPUBLISHED"),
+                    integrity_status=getattr(att, "integrity_status", "PENDING_REVIEW"),
+                    student_status_message=None if is_pub else AttemptService._get_student_integrity_message(att, None)
                 )
             )
         return items
@@ -1340,6 +1448,18 @@ class AttemptService:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this student result")
         if current_user.role == UserRole.FACULTY and attempt.exam.created_by_id != current_user.id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access results for this exam")
+
+        is_faculty_or_admin = (current_user.role in (UserRole.FACULTY, UserRole.ADMIN))
+        is_disqualified = (getattr(attempt, "integrity_status", "") == "DISQUALIFIED") or (getattr(attempt, "publication_status", "") == "DISQUALIFIED")
+        is_published = ((getattr(attempt, "publication_status", "UNPUBLISHED") == "PUBLISHED" and not is_disqualified) or is_faculty_or_admin)
+
+        # Fetch investigation to determine status message for student
+        from app.features.proctoring.models import ExaminationInvestigation
+        inv_res = await db.execute(
+            select(ExaminationInvestigation).where(ExaminationInvestigation.exam_attempt_id == attempt.id)
+        )
+        inv = inv_res.scalar_one_or_none()
+        student_status_msg = AttemptService._get_student_integrity_message(attempt, inv)
 
         exam = attempt.exam
         questions = sorted(exam.questions or [], key=lambda q: q.order_index)
@@ -1372,16 +1492,16 @@ class AttemptService:
                     question_type=q.question_type.value if hasattr(q.question_type, "value") else str(q.question_type),
                     question_text=q.question_text,
                     options=q.options,
-                    correct_answer=q.correct_answer,
-                    max_marks=q.marks,
-                    negative_marks=q.negative_marks or 0.0,
-                    explanation=q.explanation,
+                    correct_answer=q.correct_answer if is_published else None,
+                    max_marks=q.marks if is_published else 0.0,
+                    negative_marks=(q.negative_marks or 0.0) if is_published else 0.0,
+                    explanation=q.explanation if is_published else None,
                     order_index=q.order_index or 0,
                     answer_id=ans.id if ans else None,
                     selected_option=ans.selected_option if ans else None,
                     answer_text=ans.answer_text if ans else None,
-                    is_correct=ans.is_correct if ans else None,
-                    marks_awarded=ans.marks_awarded if ans else None
+                    is_correct=ans.is_correct if (ans and is_published) else None,
+                    marks_awarded=ans.marks_awarded if (ans and is_published) else None
                 )
             )
 
@@ -1394,6 +1514,11 @@ class AttemptService:
             roll_number=roll
         )
 
+        final_pub_status = "DISQUALIFIED" if is_disqualified else getattr(attempt, "publication_status", "UNPUBLISHED")
+        final_integ_status = "DISQUALIFIED" if is_disqualified else getattr(attempt, "integrity_status", "PENDING_REVIEW")
+        final_total_score = 0.0 if is_disqualified else (attempt.total_score if is_published else None)
+        final_percentage = 0.0 if is_disqualified else (AttemptService._calc_percentage(attempt.total_score, max_marks) if is_published else None)
+
         return AttemptReviewResponse(
             attempt_id=attempt.id,
             exam_id=attempt.exam_id,
@@ -1403,13 +1528,16 @@ class AttemptService:
             status=attempt.status,
             started_at=attempt.started_at,
             submitted_at=attempt.submitted_at,
-            total_score=attempt.total_score or 0.0,
-            max_possible_score=max_marks,
-            percentage=AttemptService._calc_percentage(attempt.total_score, max_marks),
+            total_score=final_total_score,
+            max_possible_score=max_marks if (is_published or is_disqualified) else None,
+            percentage=final_percentage,
             evaluation_status=eval_status,
             total_questions=len(questions),
             attempted_questions=attempted_count,
-            correct_mcq_count=correct_mcq_count,
+            correct_mcq_count=correct_mcq_count if is_published else None,
+            publication_status=final_pub_status,
+            integrity_status=final_integ_status,
+            student_status_message=student_status_msg,
             questions=q_items
         )
 

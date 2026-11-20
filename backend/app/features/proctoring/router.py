@@ -25,6 +25,10 @@ from app.features.proctoring.schemas import (
     ProctoringEventsListResponse,
     SFUTokenRequest,
     SFUTokenResponse,
+    ExaminationInvestigationResponse,
+    FacultyDecisionRequest,
+    IncidentReviewRequest,
+    NotificationResponse,
 )
 from app.features.proctoring.service import ProctoringService
 from app.features.proctoring.sfu import LiveKitTokenService
@@ -516,6 +520,71 @@ async def list_exam_investigations(
     return resp
 
 
+def _map_investigation_to_response(inv) -> ExaminationInvestigationResponse:
+    student = inv.student
+    roll = None
+    if student:
+        prof = student.__dict__.get("student_profile")
+        if prof:
+            roll = getattr(prof, "roll_number", None) or getattr(prof, "student_id", None)
+
+    attempt = inv.attempt
+    latest_review = None
+    if inv.reviews:
+        sorted_reviews = sorted(inv.reviews, key=lambda r: r.created_at, reverse=True)
+        latest_review = sorted_reviews[0]
+
+    return ExaminationInvestigationResponse(
+        id=inv.id,
+        exam_id=inv.exam_id,
+        exam_attempt_id=inv.exam_attempt_id,
+        student_id=inv.student_id,
+        student_name=student.name if student else None,
+        student_email=student.email if student else None,
+        student_roll_number=roll,
+        exam_title=inv.exam.title if inv.exam else None,
+        final_risk_score=inv.final_risk_score or 0.0,
+        peak_risk_score=getattr(inv, "peak_risk_score", None) or getattr(inv, "final_risk_score", 0.0) or 0.0,
+        risk_classification=inv.risk_classification,
+        review_priority=inv.review_priority,
+        total_incidents=inv.total_incidents,
+        confirmed_count=inv.confirmed_count,
+        suspicious_count=inv.suspicious_count,
+        inconclusive_count=inv.inconclusive_count,
+        confirmed_incidents_count=inv.confirmed_count,
+        suspicious_incidents_count=inv.suspicious_count,
+        inconclusive_incidents_count=inv.inconclusive_count,
+        monitoring_interruption_count=inv.monitoring_interruption_count,
+        overall_risk_level=getattr(inv, "overall_risk_level", None) or "LOW_RISK",
+        ai_assessment_status=getattr(inv, "ai_assessment_status", None) or "COMPLETED",
+        total_evidence_count=getattr(inv, "total_evidence_count", 0) or 0,
+        independent_incident_count=getattr(inv, "independent_incident_count", 0) or 0,
+        high_confidence_count=getattr(inv, "high_confidence_count", 0) or 0,
+        low_confidence_count=getattr(inv, "low_confidence_count", 0) or 0,
+        resolved_count=getattr(inv, "resolved_count", 0) or 0,
+        evidence_breakdown_json=getattr(inv, "evidence_breakdown_json", {}) or {},
+        ai_recommendation=getattr(inv, "ai_recommendation", None) or inv.executive_summary,
+        model_version=getattr(inv, "model_version", None) or "v2.1",
+        executive_summary=inv.executive_summary,
+        incident_timeline_json=inv.incident_timeline_json or [],
+        correlations_json=inv.correlations_json or [],
+        limitations_json=[inv.limitations_notes] if inv.limitations_notes else [],
+        score_breakdown_json=inv.score_breakdown_json or {},
+        limitations_notes=inv.limitations_notes,
+        investigation_status=inv.investigation_status,
+        faculty_decision=latest_review.decision if latest_review else None,
+        decision_reason=latest_review.reason if latest_review else None,
+        decision_notes=latest_review.notes if latest_review else None,
+        decision_by_name=latest_review.faculty.name if latest_review and latest_review.faculty else None,
+        decision_at=latest_review.created_at if latest_review else None,
+        publication_status="DISQUALIFIED" if (inv.investigation_status == "DISQUALIFIED" or (attempt and (getattr(attempt, "integrity_status", "") == "DISQUALIFIED" or getattr(attempt, "publication_status", "") == "DISQUALIFIED"))) else (getattr(attempt, "publication_status", "UNPUBLISHED") if attempt else "UNPUBLISHED"),
+        evaluated_score=0.0 if (inv.investigation_status == "DISQUALIFIED" or (attempt and (getattr(attempt, "integrity_status", "") == "DISQUALIFIED" or getattr(attempt, "publication_status", "") == "DISQUALIFIED"))) else (getattr(attempt, "total_score", None) if attempt else None),
+        max_possible_score=getattr(attempt, "max_possible_score", None) if attempt else None,
+        generated_at=inv.generated_at,
+        updated_at=inv.updated_at,
+    )
+
+
 @router.get("/investigations/{exam_id}/attempt/{attempt_id}", response_model=ExaminationInvestigationResponse)
 async def get_attempt_investigation(
     exam_id: str,
@@ -528,35 +597,21 @@ async def get_attempt_investigation(
     AI explanations, evidence links, and score breakdown.
     """
     inv = await PostExaminationInvestigationService.generate_investigation_report(db, attempt_id)
-    student = inv.student
-    roll = student.student_profile.student_id if student and student.student_profile else None
+    return _map_investigation_to_response(inv)
 
-    return ExaminationInvestigationResponse(
-        id=inv.id,
-        exam_id=inv.exam_id,
-        exam_attempt_id=inv.exam_attempt_id,
-        student_id=inv.student_id,
-        student_name=student.name if student else None,
-        student_email=student.email if student else None,
-        student_roll_number=roll,
-        exam_title=inv.exam.title if inv.exam else None,
-        final_risk_score=inv.final_risk_score,
-        risk_classification=inv.risk_classification,
-        review_priority=inv.review_priority,
-        total_incidents=inv.total_incidents,
-        confirmed_count=inv.confirmed_count,
-        suspicious_count=inv.suspicious_count,
-        inconclusive_count=inv.inconclusive_count,
-        monitoring_interruption_count=inv.monitoring_interruption_count,
-        executive_summary=inv.executive_summary,
-        incident_timeline_json=inv.incident_timeline_json or [],
-        correlations_json=inv.correlations_json or [],
-        score_breakdown_json=inv.score_breakdown_json or {},
-        limitations_notes=inv.limitations_notes,
-        investigation_status=inv.investigation_status,
-        generated_at=inv.generated_at,
-        updated_at=inv.updated_at,
-    )
+
+@router.get("/investigations/{attempt_id}", response_model=ExaminationInvestigationResponse)
+async def get_investigation_report(
+    attempt_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN, UserRole.STUDENT])),
+):
+    """
+    Returns full post-examination investigation report with incident timeline,
+    AI explanations, evidence links, and score breakdown.
+    """
+    inv = await PostExaminationInvestigationService.generate_investigation_report(db, attempt_id)
+    return _map_investigation_to_response(inv)
 
 
 @router.post("/investigations/{attempt_id}/incident/{incident_id}/review")
@@ -568,16 +623,21 @@ async def review_investigation_incident(
     current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN])),
 ):
     """
-    Faculty marks an individual incident as VALIDATED or FALSE_POSITIVE.
+    Faculty marks an individual incident as CONFIRM_VIOLATION, FALSE_POSITIVE, DISMISS,
+    REQUEST_INVESTIGATION, or ESCALATE.
     If FALSE_POSITIVE, the risk score is automatically recalculated with the incident deducted.
     """
     incident = await db.get(ProctoringIncident, incident_id)
-    if not incident or incident.exam_attempt_id != attempt_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Incident not found for this attempt")
-
-    incident.review_status = req.status
-    if req.comment:
-        incident.review_comment = req.comment
+    if incident and incident.exam_attempt_id == attempt_id:
+        incident.review_status = req.status
+        if req.comment:
+            incident.review_comment = req.comment
+    else:
+        ev = await db.get(ProctoringEvent, incident_id)
+        if ev and ev.exam_attempt_id == attempt_id:
+            ev.review_status = req.status
+            if req.comment:
+                ev.review_comment = req.comment
 
     if req.status == "FALSE_POSITIVE":
         await RiskScoringEngine.recalculate_attempt_score(
@@ -604,6 +664,8 @@ async def submit_faculty_investigation_decision(
     - CLEARED: Clears candidate, confirms normal gradebook evaluation.
     - VIOLATION_CONFIRMED: Flags policy violation with justification.
     - DISQUALIFIED: Formal disqualification requiring mandatory justification reason. Zeros attempt score.
+    - UNDER_INVESTIGATION: Marks for further inquiry.
+    - Optionally publishes evaluated result immediately if publish_result=True.
     """
     inv = await PostExaminationInvestigationService.submit_faculty_decision(
         db=db,
@@ -613,36 +675,114 @@ async def submit_faculty_investigation_decision(
         reason=req.reason,
         notes=req.notes,
         incident_reviews=req.incident_reviews,
+        publish_result=req.publish_result or False,
+    )
+    return _map_investigation_to_response(inv)
+
+
+@router.post("/attempts/{attempt_id}/publish-result")
+async def publish_attempt_result(
+    attempt_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN])),
+):
+    """
+    Authorizes and publishes the calculated result to the student.
+    Marks and evaluation breakdown will only become accessible to student after this action.
+    """
+    from datetime import datetime, timezone
+    from app.features.proctoring.notification_service import NotificationService
+
+    attempt = await db.get(ExamAttempt, attempt_id)
+    if not attempt:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attempt not found")
+
+    exam = await db.get(Exam, attempt.exam_id)
+    if current_user.role == UserRole.FACULTY and exam.created_by_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to publish results for this exam")
+
+    if attempt.integrity_status == "DISQUALIFIED" or attempt.publication_status == "DISQUALIFIED":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot publish marks for a disqualified attempt. Disqualified attempts remain disqualified with grade 0."
+        )
+
+    now = datetime.now(timezone.utc)
+    attempt.publication_status = "PUBLISHED"
+    attempt.published_at = now
+    attempt.published_by_id = current_user.id
+    await db.commit()
+
+    await NotificationService.create_notification(
+        db=db,
+        user_id=attempt.student_id,
+        notif_type="RESULT_PUBLISHED",
+        title=f"Result Published: {exam.title}",
+        message=f"Your examination result for {exam.title} has been authorized and published by faculty.",
+        exam_id=exam.id,
+        exam_attempt_id=attempt.id
     )
 
-    student = inv.student
-    roll = student.student_profile.student_id if student and student.student_profile else None
-    return ExaminationInvestigationResponse(
-        id=inv.id,
-        exam_id=inv.exam_id,
-        exam_attempt_id=inv.exam_attempt_id,
-        student_id=inv.student_id,
-        student_name=student.name if student else None,
-        student_email=student.email if student else None,
-        student_roll_number=roll,
-        exam_title=inv.exam.title if inv.exam else None,
-        final_risk_score=inv.final_risk_score,
-        risk_classification=inv.risk_classification,
-        review_priority=inv.review_priority,
-        total_incidents=inv.total_incidents,
-        confirmed_count=inv.confirmed_count,
-        suspicious_count=inv.suspicious_count,
-        inconclusive_count=inv.inconclusive_count,
-        monitoring_interruption_count=inv.monitoring_interruption_count,
-        executive_summary=inv.executive_summary,
-        incident_timeline_json=inv.incident_timeline_json or [],
-        correlations_json=inv.correlations_json or [],
-        score_breakdown_json=inv.score_breakdown_json or {},
-        limitations_notes=inv.limitations_notes,
-        investigation_status=inv.investigation_status,
-        generated_at=inv.generated_at,
-        updated_at=inv.updated_at,
+    return {
+        "message": "Result successfully published",
+        "attempt_id": attempt.id,
+        "publication_status": "PUBLISHED",
+        "published_at": now.isoformat()
+    }
+
+
+@router.post("/attempts/{attempt_id}/hold-result")
+async def hold_attempt_result(
+    attempt_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN])),
+):
+    """
+    Holds the result from student visibility pending further inquiry.
+    """
+    attempt = await db.get(ExamAttempt, attempt_id)
+    if not attempt:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attempt not found")
+
+    exam = await db.get(Exam, attempt.exam_id)
+    if current_user.role == UserRole.FACULTY and exam.created_by_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    attempt.publication_status = "HELD"
+    await db.commit()
+    return {"message": "Result held from student visibility", "attempt_id": attempt.id, "publication_status": "HELD"}
+
+
+@router.get("/notifications", response_model=List[NotificationResponse])
+async def get_my_notifications(
+    limit: int = Query(50, ge=1, le=100),
+    unread_only: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Retrieves in-app notifications for current authenticated user.
+    """
+    from app.features.proctoring.notification_service import NotificationService
+    return await NotificationService.get_user_notifications(
+        db=db, user_id=current_user.id, limit=limit, unread_only=unread_only
     )
+
+
+@router.patch("/notifications/{notification_id}/read")
+async def mark_notification_read(
+    notification_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Marks a notification as read.
+    """
+    from app.features.proctoring.notification_service import NotificationService
+    success = await NotificationService.mark_as_read(db, notification_id, current_user.id)
+    if not success:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
+    return {"message": "Notification marked as read"}
 
 
 @router.post("/evidence-upload")

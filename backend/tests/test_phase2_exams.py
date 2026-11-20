@@ -34,7 +34,8 @@ async def test_phase2_complete_exam_flow():
             "auto_submit": True,
             "display_countdown": True,
             "assignment_type": "ALL_STUDENTS",
-            "availability_type": "ALWAYS"
+            "availability_type": "ALWAYS",
+            "auto_publish_results": True
         }, headers=faculty_headers)
         assert exam_create_res.status_code == 201
         exam_data = exam_create_res.json()

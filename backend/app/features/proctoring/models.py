@@ -49,8 +49,10 @@ class IdentityDetectionStatus(str, enum.Enum):
 
 
 class AIClassification(str, enum.Enum):
-    CONFIRMED = "CONFIRMED"        # Clear detection, supporting evidence, confidence >= 0.70
+    HIGH_CONFIDENCE = "HIGH_CONFIDENCE"
+    CONFIRMED = "CONFIRMED"        # Clear detection, supporting evidence
     SUSPICIOUS = "SUSPICIOUS"      # Potential violation, ambiguous or partial evidence
+    LOW_CONFIDENCE = "LOW_CONFIDENCE"
     INCONCLUSIVE = "INCONCLUSIVE"  # Poor camera, occlusion, or detection uncertainty
 
 
@@ -82,6 +84,31 @@ class ReviewPriority(str, enum.Enum):
     MEDIUM = "MEDIUM"
     HIGH = "HIGH"
     URGENT = "URGENT"
+
+
+class OverallRiskLevel(str, enum.Enum):
+    NO_SIGNIFICANT_CONCERNS = "NO_SIGNIFICANT_CONCERNS"
+    LOW_RISK = "LOW_RISK"
+    MODERATE_RISK = "MODERATE_RISK"
+    HIGH_RISK = "HIGH_RISK"
+    CRITICAL_RISK = "CRITICAL_RISK"
+    INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE"
+    PROCESSING_FAILED = "PROCESSING_FAILED"
+
+
+class IndividualEvidenceDecision(str, enum.Enum):
+    CONFIRM_VIOLATION = "CONFIRM_VIOLATION"
+    FALSE_POSITIVE = "FALSE_POSITIVE"
+    DISMISS = "DISMISS"
+    REQUEST_INVESTIGATION = "REQUEST_INVESTIGATION"
+    ESCALATE = "ESCALATE"
+
+
+class ExamIntegrityDecision(str, enum.Enum):
+    CONFIRMED_VIOLATION = "CONFIRMED_VIOLATION"
+    CLEARED = "CLEARED"
+    INVESTIGATION_REQUIRED = "INVESTIGATION_REQUIRED"
+    PENDING_REVIEW = "PENDING_REVIEW"
 
 
 class ProctoringEvent(Base):
@@ -160,6 +187,9 @@ class ProctoringEvent(Base):
     ai_classification: Mapped[str] = mapped_column(String(30), default="CONFIRMED", nullable=True)
     detection_source: Mapped[str] = mapped_column(String(50), default="VISION_AI", nullable=True)
     ai_explanation: Mapped[str] = mapped_column(Text, nullable=True)
+    model_name: Mapped[str] = mapped_column(String(100), default="YuNet + NanoDet + SFace", nullable=True)
+    model_version: Mapped[str] = mapped_column(String(50), default="v2.1", nullable=True)
+    incident_episode_id: Mapped[str] = mapped_column(String(36), nullable=True, index=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -446,6 +476,20 @@ class ExaminationInvestigation(Base):
     inconclusive_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     monitoring_interruption_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
+    # Intelligent Examination Integrity Assessment Extensions
+    overall_risk_level: Mapped[str] = mapped_column(String(50), default="LOW_RISK", nullable=False)
+    ai_assessment_status: Mapped[str] = mapped_column(String(50), default="COMPLETED", nullable=False)
+    total_evidence_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    independent_incident_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    high_confidence_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    low_confidence_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    resolved_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    evidence_breakdown_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=True)
+    ai_recommendation: Mapped[str] = mapped_column(Text, nullable=True)
+    model_version: Mapped[str] = mapped_column(String(50), default="v2.1", nullable=True)
+    assessment_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    assessment_completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+
     executive_summary: Mapped[str] = mapped_column(Text, nullable=True)
     incident_timeline_json: Mapped[list] = mapped_column(JSON, default=list, nullable=True)
     correlations_json: Mapped[list] = mapped_column(JSON, default=list, nullable=True)
@@ -510,6 +554,9 @@ class FacultyReview(Base):
     reason: Mapped[str] = mapped_column(Text, nullable=True)
     notes: Mapped[str] = mapped_column(Text, nullable=True)
     incident_adjustments_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=True)
+    previous_status: Mapped[str] = mapped_column(String(50), nullable=True)
+    new_status: Mapped[str] = mapped_column(String(50), nullable=True)
+    related_evidence_ids_json: Mapped[list] = mapped_column(JSON, default=list, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -574,3 +621,50 @@ class DisqualificationRecord(Base):
     attempt = relationship("ExamAttempt", lazy="selectin")
     student = relationship("User", foreign_keys=[student_id], lazy="selectin")
     faculty = relationship("User", foreign_keys=[faculty_id], lazy="selectin")
+
+
+class Notification(Base):
+    """
+    In-app notifications for students and faculty regarding examination submissions,
+    AI integrity assessment status, faculty review updates, and published results.
+    """
+    __tablename__ = "notifications"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4())
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    exam_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("exams.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True
+    )
+    exam_attempt_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("exam_attempts.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True
+    )
+    type: Mapped[str] = mapped_column(String(50), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False
+    )
+
+    # Relationships
+    user = relationship("User", foreign_keys=[user_id], lazy="selectin")
+    exam = relationship("Exam", foreign_keys=[exam_id], lazy="selectin")
+    attempt = relationship("ExamAttempt", foreign_keys=[exam_attempt_id], lazy="selectin")
+

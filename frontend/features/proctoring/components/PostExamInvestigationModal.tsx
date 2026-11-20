@@ -51,8 +51,10 @@ export function PostExamInvestigationModal({
   const [decision, setDecision] = useState<string>('CLEARED');
   const [reason, setReason] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
+  const [publishResultOnDecision, setPublishResultOnDecision] = useState<boolean>(false);
   const [isSubmittingDecision, setIsSubmittingDecision] = useState(false);
   const [decisionError, setDecisionError] = useState<string | null>(null);
+  const [isPublishingResult, setIsPublishingResult] = useState<boolean>(false);
 
   // Incident review state
   const [reviewingIncidentId, setReviewingIncidentId] = useState<string | null>(null);
@@ -70,6 +72,9 @@ export function PostExamInvestigationModal({
         setDecision(data.faculty_decision);
         setReason(data.decision_reason || '');
         setNotes(data.decision_notes || '');
+      }
+      if (data.publication_status === 'PUBLISHED') {
+        setPublishResultOnDecision(true);
       }
     } catch (err: any) {
       setError(err?.message || 'Failed to load post-examination investigation report.');
@@ -140,14 +145,45 @@ export function PostExamInvestigationModal({
         decision,
         reason: reason.trim() || undefined,
         notes: notes.trim() || undefined,
+        publish_result: publishResultOnDecision,
       });
       setInvestigation(updated);
       onDecisionApplied?.();
-      alert(`Decision recorded successfully: ${decision}`);
+      alert(`Decision recorded successfully: ${decision}${publishResultOnDecision ? ' (Result Published)' : ''}`);
     } catch (err: any) {
       setDecisionError(err?.message || 'Failed to submit faculty decision.');
     } finally {
       setIsSubmittingDecision(false);
+    }
+  };
+
+  const handlePublishResult = async () => {
+    setIsPublishingResult(true);
+    try {
+      await continuousProctoringService.publishAttemptResult(attemptId);
+      await loadInvestigation();
+      onDecisionApplied?.();
+      alert('Examination result has been published to student.');
+    } catch (err: any) {
+      alert(err?.message || 'Failed to publish result.');
+    } finally {
+      setIsPublishingResult(false);
+    }
+  };
+
+  const handleHoldResult = async () => {
+    const reasonPrompt = window.prompt('Specify reason for holding result publication:', 'Pending academic integrity verification');
+    if (reasonPrompt === null) return;
+    setIsPublishingResult(true);
+    try {
+      await continuousProctoringService.holdAttemptResult(attemptId, reasonPrompt);
+      await loadInvestigation();
+      onDecisionApplied?.();
+      alert('Result has been held from student publication.');
+    } catch (err: any) {
+      alert(err?.message || 'Failed to hold result.');
+    } finally {
+      setIsPublishingResult(false);
     }
   };
 
@@ -166,7 +202,7 @@ export function PostExamInvestigationModal({
     }
   };
 
-  const getInvestigationStatusBadge = (status: string) => {
+  const getInvestigationStatusBadge = (status?: string) => {
     switch (status) {
       case 'DISQUALIFIED':
         return <Badge variant="danger">DISQUALIFIED</Badge>;
@@ -179,7 +215,7 @@ export function PostExamInvestigationModal({
       case 'INCONCLUSIVE':
         return <Badge variant="outline">INCONCLUSIVE</Badge>;
       default:
-        return <Badge variant="warning">PENDING REVIEW</Badge>;
+        return <Badge variant="warning">{status || 'PENDING REVIEW'}</Badge>;
     }
   };
 
@@ -238,63 +274,134 @@ export function PostExamInvestigationModal({
                   {investigation.student_roll_number && (
                     <div className="text-xs text-stone-500 font-mono">Roll: {investigation.student_roll_number}</div>
                   )}
-                  <div className="pt-1">{getInvestigationStatusBadge(investigation.investigation_status)}</div>
+                  <div className="pt-1 flex items-center gap-1.5 flex-wrap">
+                    {getInvestigationStatusBadge(investigation.investigation_status)}
+                    <Badge variant={investigation.publication_status === 'PUBLISHED' ? 'success' : 'outline'} className="text-[10px]">
+                      {investigation.publication_status || 'UNPUBLISHED'}
+                    </Badge>
+                  </div>
                 </div>
 
-                {/* Dynamic Risk Score */}
+                {/* AI Integrity Risk & Score */}
                 <div className="p-4 rounded-2xl bg-stone-50 border border-[#EBE5DC] space-y-1.5 flex flex-col justify-between">
                   <div>
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-stone-400">Final Risk Score</span>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-stone-400">AI Integrity Risk</span>
                     <div className="flex items-baseline gap-2 mt-1">
-                      <span className="text-3xl font-extrabold text-stone-900">
-                        {investigation.final_risk_score.toFixed(1)}
+                      <span className="text-2xl font-extrabold text-stone-900">
+                        {investigation.overall_risk_level || investigation.risk_classification || 'LOW_RISK'}
                       </span>
-                      <span className="text-xs text-stone-400 font-semibold">/ 100</span>
-                      <span
-                        className={`text-xs px-2.5 py-0.5 rounded-full font-bold border ml-auto ${getRiskBadgeColor(
-                          investigation.risk_classification
-                        )}`}
-                      >
-                        {investigation.risk_classification}
-                      </span>
+                    </div>
+                    <div className="text-xs text-stone-500 mt-1">
+                      Risk Score: <strong className="text-stone-900">{((investigation.final_risk_score ?? 0)).toFixed(1)} / 100</strong>
                     </div>
                   </div>
                   <div className="text-[11px] text-stone-500 flex justify-between pt-2 border-t border-[#EBE5DC]">
-                    <span>Peak Score: {investigation.peak_risk_score.toFixed(1)}</span>
-                    <span>Review Priority: <strong>{investigation.review_priority}</strong></span>
+                    <span>Peak: {((investigation.peak_risk_score ?? investigation.final_risk_score) ?? 0).toFixed(1)}</span>
+                    <span>Priority: <strong>{investigation.review_priority || 'LOW'}</strong></span>
                   </div>
                 </div>
 
-                {/* Evidence Counters */}
+                {/* Aggregated Evidence Counters */}
                 <div className="p-4 rounded-2xl bg-stone-50 border border-[#EBE5DC] space-y-2">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-stone-400">Incident Breakdown</span>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-stone-400">Evidence Aggregation</span>
                   <div className="grid grid-cols-3 gap-2 text-center pt-1">
                     <div className="p-2 rounded-xl bg-red-50 border border-red-100">
-                      <div className="text-lg font-bold text-red-700">{investigation.confirmed_incidents_count}</div>
-                      <div className="text-[10px] text-red-600 font-semibold uppercase">Confirmed</div>
+                      <div className="text-lg font-bold text-red-700">
+                        {investigation.high_confidence_count ?? investigation.confirmed_incidents_count ?? investigation.confirmed_count ?? 0}
+                      </div>
+                      <div className="text-[10px] text-red-600 font-semibold uppercase">High Conf</div>
                     </div>
                     <div className="p-2 rounded-xl bg-amber-50 border border-amber-100">
-                      <div className="text-lg font-bold text-amber-700">{investigation.suspicious_incidents_count}</div>
+                      <div className="text-lg font-bold text-amber-700">
+                        {investigation.low_confidence_count ?? investigation.suspicious_incidents_count ?? investigation.suspicious_count ?? 0}
+                      </div>
                       <div className="text-[10px] text-amber-600 font-semibold uppercase">Suspicious</div>
                     </div>
                     <div className="p-2 rounded-xl bg-stone-100 border border-stone-200">
-                      <div className="text-lg font-bold text-stone-700">{investigation.inconclusive_incidents_count}</div>
-                      <div className="text-[10px] text-stone-500 font-semibold uppercase">Inconclusive</div>
+                      <div className="text-lg font-bold text-stone-700">
+                        {investigation.independent_incident_count ?? investigation.total_incidents ?? 0}
+                      </div>
+                      <div className="text-[10px] text-stone-500 font-semibold uppercase">Episodes</div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* AI Executive Summary */}
-              <div className="p-4 rounded-2xl bg-amber-50/50 border border-amber-200/60 space-y-2">
+              {/* Controlled Result Publication Status Card */}
+              <div className="p-4 rounded-2xl bg-white border border-[#EBE5DC] shadow-warm-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-stone-500">Candidate Result Status:</span>
+                    <Badge variant={investigation.publication_status === 'PUBLISHED' ? 'success' : 'outline'}>
+                      {investigation.publication_status || 'UNPUBLISHED'}
+                    </Badge>
+                    {investigation.evaluated_score !== undefined && investigation.evaluated_score !== null && (
+                      <span className="text-xs font-bold text-stone-800 ml-2">
+                        Evaluated Score: {investigation.evaluated_score} / {investigation.max_possible_score ?? 0}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-stone-500">
+                    {investigation.publication_status === 'PUBLISHED'
+                      ? 'Marks and answer keys are currently visible to the student.'
+                      : 'Evaluated score is currently withheld from the candidate pending faculty publication.'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {investigation.publication_status !== 'PUBLISHED' ? (
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      onClick={handlePublishResult}
+                      disabled={isPublishingResult}
+                      className="text-xs"
+                    >
+                      {isPublishingResult ? 'Publishing...' : 'Publish Result to Student'}
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleHoldResult}
+                      disabled={isPublishingResult}
+                      className="text-xs text-amber-700 border-amber-300 hover:bg-amber-50"
+                    >
+                      {isPublishingResult ? 'Holding...' : 'Hold Result'}
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {/* AI Recommendation & Executive Summary */}
+              <div className="p-4 rounded-2xl bg-amber-50/50 border border-amber-200/60 space-y-3">
                 <div className="flex items-center gap-2 text-amber-900 font-bold text-xs uppercase tracking-wider">
                   <Sparkles className="w-4 h-4 text-amber-600" />
-                  <span>AI Investigation Summary & Findings</span>
+                  <span>AI Integrity Assessment & Recommendation</span>
                 </div>
+                {investigation.ai_recommendation && (
+                  <div className="p-3 rounded-xl bg-white/80 border border-amber-200 text-xs font-semibold text-amber-950">
+                    {investigation.ai_recommendation}
+                  </div>
+                )}
                 <p className="text-xs text-stone-700 leading-relaxed whitespace-pre-line">
                   {investigation.executive_summary}
                 </p>
-                {investigation.correlations_json && investigation.correlations_json.length > 0 && (
+
+                {/* Evidence Category Breakdown Chips */}
+                {investigation.evidence_breakdown_json?.categories && (
+                  <div className="pt-2 border-t border-amber-200/40">
+                    <span className="text-[11px] font-bold text-amber-900 block mb-1.5">Category Breakdown:</span>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(investigation.evidence_breakdown_json.categories).map(([cat, stats]: [string, any]) => (
+                        <div key={cat} className="px-2.5 py-1 rounded-xl bg-white border border-amber-200/80 text-[11px] text-stone-800">
+                          <strong className="text-stone-900">{cat.replace(/_/g, ' ')}:</strong> {stats.total} events ({stats.high_confidence} high conf, {stats.episodes} episode{stats.episodes !== 1 ? 's' : ''})
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {Array.isArray(investigation.correlations_json) && investigation.correlations_json.length > 0 && (
                   <div className="mt-2 pt-2 border-t border-amber-200/40 space-y-1">
                     <span className="text-[11px] font-bold text-amber-900">Pattern Correlations Detected:</span>
                     <ul className="list-disc list-inside text-xs text-stone-700 space-y-0.5">
@@ -304,9 +411,9 @@ export function PostExamInvestigationModal({
                     </ul>
                   </div>
                 )}
-                {investigation.limitations_json && investigation.limitations_json.length > 0 && (
+                {((Array.isArray(investigation.limitations_json) && investigation.limitations_json.length > 0) || investigation.limitations_notes) && (
                   <div className="mt-2 pt-2 border-t border-amber-200/40 text-[11px] text-stone-500 italic">
-                    Evidence Limitations: {investigation.limitations_json.join(' | ')}
+                    Evidence Limitations: {Array.isArray(investigation.limitations_json) && investigation.limitations_json.length > 0 ? investigation.limitations_json.join(' | ') : investigation.limitations_notes}
                   </div>
                 )}
               </div>
@@ -332,20 +439,34 @@ export function PostExamInvestigationModal({
                   </div>
                 ) : (
                   <div className="space-y-2.5">
-                    {investigation.incident_timeline_json.map((inc) => {
-                      const isFalsePositive = inc.review_status === 'FALSE_POSITIVE';
-                      const isConfirmed = inc.review_status === 'CONFIRMED';
-                      return (
-                        <div
-                          key={inc.incident_id}
-                          className={`p-3.5 rounded-2xl border transition-all text-xs ${
-                            isFalsePositive
-                              ? 'bg-stone-50/60 border-stone-200 opacity-60 line-through'
-                              : isConfirmed
-                              ? 'bg-red-50/40 border-red-200'
-                              : 'bg-white border-[#EBE5DC] hover:border-stone-300'
-                          }`}
-                        >
+                    {(() => {
+                      const seen = new Set();
+                      const deduplicated = (investigation.incident_timeline_json || []).filter((inc) => {
+                        const timeKey = (inc.started_at || inc.timestamp || '').slice(0, 19);
+                        const key = `${inc.incident_type}_${timeKey}`;
+                        if (seen.has(key)) return false;
+                        if (inc.incident_id && seen.has(inc.incident_id)) return false;
+                        if (inc.event_id && seen.has(inc.event_id)) return false;
+                        if (inc.incident_id) seen.add(inc.incident_id);
+                        if (inc.event_id) seen.add(inc.event_id);
+                        seen.add(key);
+                        return true;
+                      });
+
+                      return deduplicated.map((inc) => {
+                        const isFalsePositive = inc.review_status === 'FALSE_POSITIVE';
+                        const isConfirmed = inc.review_status === 'CONFIRMED';
+                        return (
+                          <div
+                            key={inc.incident_id || inc.event_id}
+                            className={`p-3.5 rounded-2xl border transition-all text-xs ${
+                              isFalsePositive
+                                ? 'bg-stone-50/60 border-stone-200 opacity-60 line-through'
+                                : isConfirmed
+                                ? 'bg-red-50/40 border-red-200'
+                                : 'bg-white border-[#EBE5DC] hover:border-stone-300'
+                            }`}
+                          >
                           <div className="flex items-start justify-between gap-3">
                             <div className="space-y-1 flex-1">
                               <div className="flex items-center gap-2 flex-wrap">
@@ -362,18 +483,18 @@ export function PostExamInvestigationModal({
                                     : inc.incident_type}
                                 </span>
                                 <Badge variant={inc.severity === 'CRITICAL' ? 'danger' : inc.severity === 'HIGH' ? 'warning' : 'outline'}>
-                                  {inc.severity}
+                                  {inc.severity || 'LOW'}
                                 </Badge>
                                 <span className="text-[11px] px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 font-medium">
-                                  {inc.ai_classification} (conf: {(inc.confidence * 100).toFixed(0)}%)
+                                  {inc.ai_classification || 'Suspicious'} (conf: {(((inc.confidence ?? 0) * 100)).toFixed(0)}%)
                                 </span>
-                                {inc.duration_seconds > 0 && (
+                                {typeof inc.duration_seconds === 'number' && inc.duration_seconds > 0 && (
                                   <span className="text-[11px] text-stone-500 font-mono">
-                                    Duration: {inc.duration_seconds.toFixed(0)}s
+                                    Duration: {(inc.duration_seconds ?? 0).toFixed(0)}s
                                   </span>
                                 )}
                                 <span className="text-[11px] text-stone-400 ml-auto">
-                                  {new Date(inc.started_at).toLocaleTimeString()}
+                                  {inc.started_at ? new Date(inc.started_at).toLocaleTimeString() : ''}
                                 </span>
                               </div>
 
@@ -382,7 +503,7 @@ export function PostExamInvestigationModal({
                               </p>
 
                               <div className="flex items-center gap-3 pt-1 text-[11px] text-stone-500">
-                                <span>Risk Contribution: <strong>+{inc.risk_contribution.toFixed(1)} pts</strong></span>
+                                <span>Risk Contribution: <strong>+{((inc.risk_contribution ?? 0)).toFixed(1)} pts</strong></span>
                                 {inc.review_status && inc.review_status !== 'PENDING' && (
                                   <span className="font-bold text-stone-700">
                                     Review Status: {inc.review_status}
@@ -438,7 +559,8 @@ export function PostExamInvestigationModal({
                           </div>
                         </div>
                       );
-                    })}
+                    });
+                  })()}
                   </div>
                 )}
               </div>
@@ -473,13 +595,22 @@ export function PostExamInvestigationModal({
                     </label>
                     <select
                       value={decision}
-                      onChange={(e) => setDecision(e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setDecision(val);
+                        if (val === 'CLEARED') {
+                          setPublishResultOnDecision(true);
+                        } else if (val === 'DISQUALIFIED' || val === 'VIOLATION_CONFIRMED') {
+                          setPublishResultOnDecision(false);
+                        }
+                      }}
                       className="w-full text-xs font-medium bg-white border border-[#EBE5DC] rounded-xl px-3 py-2.5 text-stone-900 focus:outline-none focus:ring-2 focus:ring-stone-400"
                     >
                       <option value="CLEARED">CLEARED — No Malpractice / Clear Candidate</option>
                       <option value="UNDER_INVESTIGATION">UNDER INVESTIGATION — Defer for Department Committee</option>
                       <option value="VIOLATION_CONFIRMED">VIOLATION CONFIRMED — Record Exam Policy Infraction</option>
                       <option value="DISQUALIFIED">DISQUALIFIED — Disqualify Attempt (Zero Grade & Permanent Mark)</option>
+                      <option value="PENDING_REVIEW">PENDING REVIEW — Awaiting Evaluation</option>
                       <option value="INCONCLUSIVE">INCONCLUSIVE — Insufficient Evidentiary Weight</option>
                     </select>
                   </div>
@@ -513,18 +644,35 @@ export function PostExamInvestigationModal({
                   />
                 </div>
 
-                <div className="flex justify-end gap-3 pt-2">
-                  <Button variant="outline" size="sm" onClick={onClose}>
-                    Close
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={decision === 'DISQUALIFIED' ? 'danger' : 'primary'}
-                    onClick={handleSubmitDecision}
-                    disabled={isSubmittingDecision}
-                  >
-                    {isSubmittingDecision ? 'Saving Verdict...' : `Apply Verdict: ${decision}`}
-                  </Button>
+                <div className="flex items-center justify-between pt-1 border-t border-stone-200">
+                  <label className={`flex items-center gap-2 select-none text-xs ${decision === 'DISQUALIFIED' ? 'text-stone-400 cursor-not-allowed' : 'text-stone-700 cursor-pointer'}`}>
+                    <input
+                      type="checkbox"
+                      checked={decision === 'DISQUALIFIED' ? false : publishResultOnDecision}
+                      disabled={decision === 'DISQUALIFIED'}
+                      onChange={(e) => setPublishResultOnDecision(e.target.checked)}
+                      className="w-4 h-4 rounded text-stone-800 border-stone-300 focus:ring-stone-400 disabled:opacity-50"
+                    />
+                    <span>
+                      {decision === 'DISQUALIFIED'
+                        ? 'Result will be marked DISQUALIFIED (marks suppressed / grade 0)'
+                        : 'Publish verified result to student upon applying decision'}
+                    </span>
+                  </label>
+
+                  <div className="flex items-center gap-3">
+                    <Button variant="outline" size="sm" onClick={onClose}>
+                      Close
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={decision === 'DISQUALIFIED' ? 'danger' : 'primary'}
+                      onClick={handleSubmitDecision}
+                      disabled={isSubmittingDecision}
+                    >
+                      {isSubmittingDecision ? 'Saving Verdict...' : `Apply Verdict: ${decision}`}
+                    </Button>
+                  </div>
                 </div>
               </div>
             </>

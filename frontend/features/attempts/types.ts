@@ -194,6 +194,13 @@ export interface AttemptMonitoringResponse {
   risk_level?: string | null;
   incident_count?: number | null;
   investigation_status?: string | null;
+  overall_risk_level?: string | null;
+  high_confidence_count?: number;
+  suspicious_count?: number;
+  publication_status?: string | null;
+  integrity_status?: string | null;
+  evaluated_score?: number | null;
+  max_possible_score?: number | null;
 }
 
 export interface GradebookStudentInfo {
@@ -268,13 +275,16 @@ export interface AttemptReviewResponse {
   status: AttemptStatus;
   started_at: string;
   submitted_at?: string;
-  total_score: number;
+  total_score?: number | null;
   max_possible_score: number;
-  percentage: number;
+  percentage?: number | null;
   evaluation_status: string;
   total_questions: number;
   attempted_questions: number;
-  correct_mcq_count: number;
+  correct_mcq_count?: number | null;
+  publication_status?: string | null;
+  integrity_status?: string | null;
+  student_status_message?: string | null;
   questions: AttemptReviewQuestionItem[];
 }
 

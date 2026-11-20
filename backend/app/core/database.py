@@ -137,6 +137,7 @@ async def init_db():
         ExaminationInvestigation,
         FacultyReview,
         DisqualificationRecord,
+        Notification,
     )
 
     async with engine.begin() as conn:
@@ -215,11 +216,62 @@ async def init_db():
             await conn.execute(text("ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMPTZ;"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_exam_attempts_session_token ON exam_attempts(session_token);"))
 
+            # Controlled Result Publication & Integrity Lifecycle
+            await conn.execute(text("ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS evaluation_status VARCHAR(50) DEFAULT 'EVALUATED';"))
+            await conn.execute(text("ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS integrity_status VARCHAR(50) DEFAULT 'PENDING_REVIEW';"))
+            await conn.execute(text("ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS publication_status VARCHAR(50) DEFAULT 'UNPUBLISHED';"))
+            await conn.execute(text("ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ;"))
+            await conn.execute(text("ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS published_by_id VARCHAR(36) REFERENCES users(id) ON DELETE SET NULL;"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_exam_attempts_publication_status ON exam_attempts(publication_status);"))
+
+            # Proctoring Event model metadata
+            await conn.execute(text("ALTER TABLE proctoring_events ADD COLUMN IF NOT EXISTS model_name VARCHAR(100) DEFAULT 'YuNet + NanoDet + SFace';"))
+            await conn.execute(text("ALTER TABLE proctoring_events ADD COLUMN IF NOT EXISTS model_version VARCHAR(50) DEFAULT 'v2.1';"))
+            await conn.execute(text("ALTER TABLE proctoring_events ADD COLUMN IF NOT EXISTS incident_episode_id VARCHAR(36);"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_proctoring_events_episode_id ON proctoring_events(incident_episode_id);"))
+
+            # Examination Investigations / Integrity Assessment fields
+            await conn.execute(text("ALTER TABLE examination_investigations ADD COLUMN IF NOT EXISTS overall_risk_level VARCHAR(50) DEFAULT 'LOW_RISK';"))
+            await conn.execute(text("ALTER TABLE examination_investigations ADD COLUMN IF NOT EXISTS ai_assessment_status VARCHAR(50) DEFAULT 'COMPLETED';"))
+            await conn.execute(text("ALTER TABLE examination_investigations ADD COLUMN IF NOT EXISTS total_evidence_count INTEGER DEFAULT 0;"))
+            await conn.execute(text("ALTER TABLE examination_investigations ADD COLUMN IF NOT EXISTS independent_incident_count INTEGER DEFAULT 0;"))
+            await conn.execute(text("ALTER TABLE examination_investigations ADD COLUMN IF NOT EXISTS high_confidence_count INTEGER DEFAULT 0;"))
+            await conn.execute(text("ALTER TABLE examination_investigations ADD COLUMN IF NOT EXISTS low_confidence_count INTEGER DEFAULT 0;"))
+            await conn.execute(text("ALTER TABLE examination_investigations ADD COLUMN IF NOT EXISTS resolved_count INTEGER DEFAULT 0;"))
+            await conn.execute(text("ALTER TABLE examination_investigations ADD COLUMN IF NOT EXISTS evidence_breakdown_json JSON DEFAULT '{}';"))
+            await conn.execute(text("ALTER TABLE examination_investigations ADD COLUMN IF NOT EXISTS ai_recommendation TEXT;"))
+            await conn.execute(text("ALTER TABLE examination_investigations ADD COLUMN IF NOT EXISTS model_version VARCHAR(50) DEFAULT 'v2.1';"))
+            await conn.execute(text("ALTER TABLE examination_investigations ADD COLUMN IF NOT EXISTS assessment_started_at TIMESTAMPTZ;"))
+            await conn.execute(text("ALTER TABLE examination_investigations ADD COLUMN IF NOT EXISTS assessment_completed_at TIMESTAMPTZ;"))
+
+            # Faculty Review Audit extensions
+            await conn.execute(text("ALTER TABLE faculty_reviews ADD COLUMN IF NOT EXISTS previous_status VARCHAR(50);"))
+            await conn.execute(text("ALTER TABLE faculty_reviews ADD COLUMN IF NOT EXISTS new_status VARCHAR(50);"))
+            await conn.execute(text("ALTER TABLE faculty_reviews ADD COLUMN IF NOT EXISTS related_evidence_ids_json JSON DEFAULT '[]';"))
+
+            # Notifications table
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS notifications (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    exam_id VARCHAR(36) REFERENCES exams(id) ON DELETE CASCADE,
+                    exam_attempt_id VARCHAR(36) REFERENCES exam_attempts(id) ON DELETE CASCADE,
+                    type VARCHAR(50) NOT NULL,
+                    title VARCHAR(255) NOT NULL,
+                    message TEXT NOT NULL,
+                    is_read BOOLEAN NOT NULL DEFAULT FALSE,
+                    created_at TIMESTAMPTZ NOT NULL
+                );
+            """))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_notifications_user_id ON notifications(user_id);"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_notifications_created_at ON notifications(created_at);"))
+
             # Exam policy & rejoin settings
             await conn.execute(text("ALTER TABLE exams ADD COLUMN IF NOT EXISTS attempt_policy VARCHAR(50) DEFAULT 'ONE_ATTEMPT';"))
             await conn.execute(text("ALTER TABLE exams ADD COLUMN IF NOT EXISTS max_attempts INTEGER DEFAULT 1;"))
             await conn.execute(text("ALTER TABLE exams ADD COLUMN IF NOT EXISTS max_rejoins INTEGER DEFAULT 2;"))
             await conn.execute(text("ALTER TABLE exams ADD COLUMN IF NOT EXISTS assigned_batches JSON DEFAULT '[]';"))
+            await conn.execute(text("ALTER TABLE exams ADD COLUMN IF NOT EXISTS auto_publish_results BOOLEAN DEFAULT TRUE;"))
 
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS exam_violations (

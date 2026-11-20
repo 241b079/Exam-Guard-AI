@@ -101,11 +101,13 @@ export interface FacultyAlertResponse {
 
 export interface IncidentTimelineItem {
   incident_id: string;
+  event_id?: string | null;
   incident_type: string;
   category: string;
   severity: string;
   started_at: string;
   ended_at?: string | null;
+  timestamp?: string | null;
   duration_seconds: number;
   confidence: number;
   ai_classification: string;
@@ -114,6 +116,18 @@ export interface IncidentTimelineItem {
   evidence_reference?: string | null;
   review_status: string;
   risk_contribution: number;
+}
+
+export interface AppNotification {
+  id: string;
+  user_id: string;
+  exam_id?: string | null;
+  exam_attempt_id?: string | null;
+  type: string;
+  title: string;
+  message: string;
+  is_read: boolean;
+  created_at: string;
 }
 
 export interface ExaminationInvestigationResponse {
@@ -125,24 +139,45 @@ export interface ExaminationInvestigationResponse {
   student_name?: string | null;
   student_email?: string | null;
   student_roll_number?: string | null;
-  final_risk_score: number;
-  peak_risk_score: number;
-  risk_classification: string;
-  total_incidents: number;
-  confirmed_incidents_count: number;
-  suspicious_incidents_count: number;
-  inconclusive_incidents_count: number;
-  review_priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-  investigation_status:
+  final_risk_score?: number;
+  peak_risk_score?: number | null;
+  risk_classification?: string;
+  overall_risk_level?: string | null;
+  ai_assessment_status?: string | null;
+  total_incidents?: number;
+  independent_incident_count?: number;
+  high_confidence_count?: number;
+  low_confidence_count?: number;
+  resolved_count?: number;
+  evidence_breakdown_json?: {
+    total_events: number;
+    independent_episodes: number;
+    high_confidence: number;
+    suspicious: number;
+    low_confidence: number;
+    categories: Record<string, { total: number; high_confidence: number; suspicious: number; episodes: number }>;
+  } | null;
+  ai_recommendation?: string | null;
+  publication_status?: string | null;
+  evaluated_score?: number | null;
+  max_possible_score?: number | null;
+  confirmed_incidents_count?: number;
+  suspicious_incidents_count?: number;
+  inconclusive_incidents_count?: number;
+  confirmed_count?: number;
+  suspicious_count?: number;
+  inconclusive_count?: number;
+  review_priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  investigation_status?:
     | 'PENDING_REVIEW'
     | 'UNDER_INVESTIGATION'
     | 'CLEARED'
     | 'VIOLATION_CONFIRMED'
     | 'DISQUALIFIED'
     | 'INCONCLUSIVE';
-  executive_summary: string;
-  incident_timeline_json: IncidentTimelineItem[];
-  score_history_json: Array<{
+  executive_summary?: string;
+  incident_timeline_json?: IncidentTimelineItem[];
+  score_history_json?: Array<{
     score_before: number;
     score_after: number;
     delta: number;
@@ -150,9 +185,10 @@ export interface ExaminationInvestigationResponse {
     timestamp: string;
     reason?: string;
   }>;
-  correlations_json: string[];
-  limitations_json: string[];
-  recommended_action: string;
+  correlations_json?: string[];
+  limitations_json?: string[];
+  limitations_notes?: string | null;
+  recommended_action?: string;
   faculty_decision?: string | null;
   decision_reason?: string | null;
   decision_notes?: string | null;
@@ -277,15 +313,66 @@ export const continuousProctoringService = {
   },
 
   /**
-   * Submits a formal faculty investigation decision (CLEARED, VIOLATION_CONFIRMED, DISQUALIFIED)
+   * Submits a formal faculty investigation decision (CLEARED, VIOLATION_CONFIRMED, DISQUALIFIED, etc.)
    */
   async submitDecision(
     attemptId: string,
-    payload: { decision: string; reason?: string; notes?: string }
+    payload: {
+      decision: string;
+      reason?: string;
+      notes?: string;
+      publish_result?: boolean;
+      individual_reviews?: Array<{
+        evidence_id: string;
+        decision: string;
+        comment?: string;
+      }>;
+    }
   ): Promise<ExaminationInvestigationResponse> {
     return fetchApi<ExaminationInvestigationResponse>(`/api/v1/proctoring/investigations/${attemptId}/decision`, {
       method: 'POST',
       body: JSON.stringify(payload),
+    });
+  },
+
+  /**
+   * Publishes an attempt's evaluated marks to the candidate
+   */
+  async publishAttemptResult(attemptId: string): Promise<{ success: boolean; publication_status: string; message: string }> {
+    return fetchApi<{ success: boolean; publication_status: string; message: string }>(
+      `/api/v1/proctoring/attempts/${attemptId}/publish-result`,
+      {
+        method: 'POST',
+      }
+    );
+  },
+
+  /**
+   * Holds an attempt's evaluated marks from student publication
+   */
+  async holdAttemptResult(attemptId: string, reason?: string): Promise<{ success: boolean; publication_status: string; message: string }> {
+    return fetchApi<{ success: boolean; publication_status: string; message: string }>(
+      `/api/v1/proctoring/attempts/${attemptId}/hold-result`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }
+    );
+  },
+
+  /**
+   * Retrieves in-app notifications for current user
+   */
+  async getNotifications(unreadOnly: boolean = false): Promise<AppNotification[]> {
+    return fetchApi<AppNotification[]>(`/api/v1/proctoring/notifications?unread_only=${unreadOnly}`);
+  },
+
+  /**
+   * Marks notification as read
+   */
+  async markNotificationRead(notificationId: string): Promise<{ success: boolean }> {
+    return fetchApi<{ success: boolean }>(`/api/v1/proctoring/notifications/${notificationId}/read`, {
+      method: 'PATCH',
     });
   },
 

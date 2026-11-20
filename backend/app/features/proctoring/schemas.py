@@ -141,20 +141,43 @@ class ExaminationInvestigationResponse(BaseModel):
     student_email: Optional[str] = None
     student_roll_number: Optional[str] = None
     exam_title: Optional[str] = None
-    final_risk_score: float
-    risk_classification: str
-    review_priority: str
-    total_incidents: int
-    confirmed_count: int
-    suspicious_count: int
-    inconclusive_count: int
-    monitoring_interruption_count: int
+    final_risk_score: float = 0.0
+    peak_risk_score: Optional[float] = 0.0
+    risk_classification: str = "LOW"
+    review_priority: str = "LOW"
+    total_incidents: int = 0
+    confirmed_count: int = 0
+    suspicious_count: int = 0
+    inconclusive_count: int = 0
+    confirmed_incidents_count: int = 0
+    suspicious_incidents_count: int = 0
+    inconclusive_incidents_count: int = 0
+    monitoring_interruption_count: int = 0
     executive_summary: Optional[str] = None
     incident_timeline_json: List[Dict[str, Any]] = []
     correlations_json: List[Dict[str, Any]] = []
+    limitations_json: List[str] = []
     score_breakdown_json: Dict[str, Any] = {}
     limitations_notes: Optional[str] = None
-    investigation_status: str
+    investigation_status: str = "PENDING_REVIEW"
+    overall_risk_level: Optional[str] = "LOW_RISK"
+    ai_assessment_status: Optional[str] = "COMPLETED"
+    total_evidence_count: int = 0
+    independent_incident_count: int = 0
+    high_confidence_count: int = 0
+    low_confidence_count: int = 0
+    resolved_count: int = 0
+    evidence_breakdown_json: Dict[str, Any] = {}
+    ai_recommendation: Optional[str] = None
+    model_version: Optional[str] = "v2.1"
+    faculty_decision: Optional[str] = None
+    decision_reason: Optional[str] = None
+    decision_notes: Optional[str] = None
+    decision_by_name: Optional[str] = None
+    decision_at: Optional[datetime] = None
+    publication_status: Optional[str] = "UNPUBLISHED"
+    evaluated_score: Optional[float] = None
+    max_possible_score: Optional[float] = None
     generated_at: datetime
     updated_at: datetime
 
@@ -162,12 +185,27 @@ class ExaminationInvestigationResponse(BaseModel):
 
 
 class FacultyDecisionRequest(BaseModel):
-    decision: str  # CLEARED, VIOLATION_CONFIRMED, DISQUALIFIED, UNDER_INVESTIGATION, INCONCLUSIVE
+    decision: str  # CLEARED, VIOLATION_CONFIRMED, CONFIRMED_VIOLATION, DISQUALIFIED, UNDER_INVESTIGATION, PENDING_REVIEW
     reason: Optional[str] = None
     notes: Optional[str] = None
-    incident_reviews: Optional[Dict[str, str]] = None  # incident_id -> "VALIDATED" | "FALSE_POSITIVE"
+    incident_reviews: Optional[Dict[str, str]] = None  # incident_id / event_id -> status
+    publish_result: Optional[bool] = False
 
 
 class IncidentReviewRequest(BaseModel):
-    status: str  # VALIDATED, FALSE_POSITIVE, INCONCLUSIVE
+    status: str  # CONFIRM_VIOLATION, FALSE_POSITIVE, DISMISS, REQUEST_INVESTIGATION, ESCALATE
     comment: Optional[str] = None
+
+
+class NotificationResponse(BaseModel):
+    id: str
+    user_id: str
+    exam_id: Optional[str] = None
+    exam_attempt_id: Optional[str] = None
+    type: str
+    title: str
+    message: str
+    is_read: bool
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

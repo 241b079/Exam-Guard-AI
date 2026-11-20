@@ -21,6 +21,7 @@ import {
   FacultyLiveMonitorCard,
   FacultyEvidenceGallery,
   PostExamInvestigationModal,
+  continuousProctoringService,
 } from '@/features/proctoring';
 import { Loading } from '@/components/shared/Loading';
 import { Input } from '@/components/ui/Input';
@@ -60,6 +61,80 @@ export default function FacultyExamDetailPage() {
   const [recentAlerts, setRecentAlerts] = useState<
     Array<{ id: string; title: string; description: string; risk_classification: string; student_name?: string }>
   >([]);
+  const [riskFilter, setRiskFilter] = useState<string>('ALL');
+  const [publishingAttemptId, setPublishingAttemptId] = useState<string | null>(null);
+
+  const handlePublishAttempt = async (attemptId: string) => {
+    setPublishingAttemptId(attemptId);
+    try {
+      await continuousProctoringService.publishAttemptResult(attemptId);
+      await fetchMonitoring();
+      await fetchGradebook();
+    } catch (err: any) {
+      alert(err?.message || 'Failed to publish attempt result');
+    } finally {
+      setPublishingAttemptId(null);
+    }
+  };
+
+  const handleHoldAttempt = async (attemptId: string) => {
+    const reasonPrompt = window.prompt('Specify reason for holding result publication:', 'Awaiting academic integrity review');
+    if (reasonPrompt === null) return;
+    setPublishingAttemptId(attemptId);
+    try {
+      await continuousProctoringService.holdAttemptResult(attemptId, reasonPrompt);
+      await fetchMonitoring();
+      await fetchGradebook();
+    } catch (err: any) {
+      alert(err?.message || 'Failed to hold attempt result');
+    } finally {
+      setPublishingAttemptId(null);
+    }
+  };
+
+  const filteredMonitoringData = React.useMemo(() => {
+    const list = [...monitoringData];
+
+    // Priority sorting: High/Critical first, then Medium, then Low
+    list.sort((a, b) => {
+      const riskRank = (m: AttemptMonitoringResponse) => {
+        const r = (m.overall_risk_level || m.risk_level || '').toUpperCase();
+        if (r.includes('CRITICAL')) return 4;
+        if (r.includes('HIGH')) return 3;
+        if (r.includes('MODERATE') || r.includes('MEDIUM')) return 2;
+        return 1;
+      };
+      const diff = riskRank(b) - riskRank(a);
+      if (diff !== 0) return diff;
+      return (b.risk_score || 0) - (a.risk_score || 0);
+    });
+
+    if (riskFilter === 'HIGH_CRITICAL') {
+      return list.filter((m) => {
+        const r = (m.overall_risk_level || m.risk_level || '').toUpperCase();
+        return r.includes('HIGH') || r.includes('CRITICAL');
+      });
+    }
+    if (riskFilter === 'MODERATE') {
+      return list.filter((m) => {
+        const r = (m.overall_risk_level || m.risk_level || '').toUpperCase();
+        return r.includes('MODERATE') || r.includes('MEDIUM');
+      });
+    }
+    if (riskFilter === 'PENDING') {
+      return list.filter((m) => m.investigation_status === 'PENDING_REVIEW' || !m.investigation_status);
+    }
+    if (riskFilter === 'CONFIRMED') {
+      return list.filter((m) => m.investigation_status === 'VIOLATION_CONFIRMED' || m.investigation_status === 'DISQUALIFIED');
+    }
+    if (riskFilter === 'CLEARED') {
+      return list.filter((m) => m.investigation_status === 'CLEARED');
+    }
+    if (riskFilter === 'UNPUBLISHED') {
+      return list.filter((m) => m.publication_status !== 'PUBLISHED');
+    }
+    return list;
+  }, [monitoringData, riskFilter]);
 
   const fetchMonitoring = async () => {
     setIsLoadingMonitoring(true);
@@ -1245,31 +1320,64 @@ export default function FacultyExamDetailPage() {
           </div>
 
           {/* Candidate Risk Scores & Investigation Table */}
-          <div className="bg-white rounded-3xl border border-[#EBE5DC] overflow-hidden shadow-warm">
-            <div className="overflow-x-auto">
+          <div className="bg-white rounded-3xl border border-[#EBE5DC] overflow-hidden shadow-warm space-y-3 p-4">
+            {/* Filter Tabs */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs border-b border-stone-100">
+              {[
+                { id: 'ALL', label: 'All Attempts' },
+                { id: 'HIGH_CRITICAL', label: 'High / Critical Risk' },
+                { id: 'MODERATE', label: 'Moderate Risk' },
+                { id: 'PENDING', label: 'Pending Review' },
+                { id: 'CONFIRMED', label: 'Confirmed Violations' },
+                { id: 'CLEARED', label: 'Cleared' },
+                { id: 'UNPUBLISHED', label: 'Awaiting Publication' },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setRiskFilter(tab.id)}
+                  className={`px-3 py-1.5 rounded-xl font-semibold transition-colors whitespace-nowrap ${
+                    riskFilter === tab.id
+                      ? 'bg-stone-900 text-white shadow-warm-sm'
+                      : 'bg-stone-100 text-stone-600 hover:bg-stone-200/70'
+                  }`}
+                >
+                  {tab.label}
+                  {tab.id === 'ALL' && ` (${monitoringData.length})`}
+                </button>
+              ))}
+            </div>
+
+            <div className="overflow-x-auto -mx-4 -mb-4">
               <table className="w-full text-xs text-left text-stone-700">
                 <thead className="bg-[#FAF7F2] text-[11px] uppercase tracking-wider text-stone-500 font-semibold border-b border-[#EBE5DC]">
                   <tr>
                     <th className="py-3 px-4">Candidate</th>
                     <th className="py-3 px-4">Exam Status</th>
-                    <th className="py-3 px-4">Dynamic Risk Score</th>
-                    <th className="py-3 px-4">Classification</th>
-                    <th className="py-3 px-4">Integrity Adjudication</th>
-                    <th className="py-3 px-4 text-right">Action</th>
+                    <th className="py-3 px-4">AI Integrity Risk</th>
+                    <th className="py-3 px-4">Evidence</th>
+                    <th className="py-3 px-4">Result Publication</th>
+                    <th className="py-3 px-4">Evaluated Score</th>
+                    <th className="py-3 px-4">Adjudication</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#EBE5DC]">
-                  {monitoringData.length === 0 ? (
+                  {filteredMonitoringData.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-stone-400">
-                        No candidate attempts recorded yet for this examination.
+                      <td colSpan={8} className="py-8 text-center text-stone-400">
+                        No candidate attempts match the selected filter.
                       </td>
                     </tr>
                   ) : (
-                    monitoringData.map((att) => {
+                    filteredMonitoringData.map((att) => {
                       const score = att.risk_score || 0;
-                      const level = att.risk_level || (score >= 75 ? 'CRITICAL' : score >= 50 ? 'HIGH' : score >= 30 ? 'MEDIUM' : 'LOW');
+                      const level = (att.overall_risk_level || att.risk_level || (score >= 75 ? 'CRITICAL' : score >= 50 ? 'HIGH' : score >= 30 ? 'MEDIUM' : 'LOW')).toUpperCase();
                       const invStatus = att.investigation_status || 'PENDING_REVIEW';
+                      const pubStatus = att.publication_status || 'UNPUBLISHED';
+                      const isPub = pubStatus === 'PUBLISHED';
+                      const isBusy = publishingAttemptId === att.attempt_id;
+
                       return (
                         <tr key={att.attempt_id} className="hover:bg-stone-50/60 transition-colors">
                           <td className="py-3 px-4">
@@ -1278,6 +1386,9 @@ export default function FacultyExamDetailPage() {
                               {att.student.roll_number ? `${att.student.roll_number} • ` : ''}
                               {att.student.email}
                             </div>
+                            <div className="text-[10px] text-stone-400 mt-0.5">
+                              Attempt #{att.attempt_number || 1}
+                            </div>
                           </td>
                           <td className="py-3 px-4">
                             <Badge variant={att.status === 'SUBMITTED' ? 'success' : 'faculty'}>
@@ -1285,25 +1396,60 @@ export default function FacultyExamDetailPage() {
                             </Badge>
                           </td>
                           <td className="py-3 px-4">
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-sm text-stone-900">{score.toFixed(1)}</span>
-                              <span className="text-[10px] text-stone-400">/ 100</span>
+                            <div className="space-y-1">
+                              <span
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border inline-block ${
+                                  level.includes('CRITICAL')
+                                    ? 'bg-red-50 text-red-700 border-red-200'
+                                    : level.includes('HIGH')
+                                    ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                    : level.includes('MODERATE') || level.includes('MEDIUM')
+                                    ? 'bg-yellow-50 text-yellow-700 border-yellow-200'
+                                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                }`}
+                              >
+                                {att.overall_risk_level || level}
+                              </span>
+                              <div className="text-[11px] text-stone-500">
+                                Score: <strong>{score.toFixed(1)}</strong> / 100
+                              </div>
                             </div>
                           </td>
                           <td className="py-3 px-4">
-                            <span
-                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                                level === 'CRITICAL'
-                                  ? 'bg-red-50 text-red-700 border-red-200'
-                                  : level === 'HIGH'
-                                  ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                  : level === 'MEDIUM'
-                                  ? 'bg-yellow-50 text-yellow-700 border-yellow-200'
-                                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                              }`}
+                            <div className="space-y-0.5 text-[11px]">
+                              <div>High Conf: <strong className="text-red-700">{att.high_confidence_count ?? 0}</strong></div>
+                              <div>Suspicious: <strong className="text-amber-700">{att.suspicious_count ?? 0}</strong></div>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <Badge
+                              variant={
+                                pubStatus === 'PUBLISHED'
+                                  ? 'success'
+                                  : pubStatus === 'DISQUALIFIED'
+                                  ? 'danger'
+                                  : pubStatus === 'HELD'
+                                  ? 'warning'
+                                  : 'outline'
+                              }
+                              className="text-[10px]"
                             >
-                              {level}
-                            </span>
+                              {pubStatus}
+                            </Badge>
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="text-xs font-bold text-stone-900">
+                              {att.evaluated_score !== null && att.evaluated_score !== undefined ? (
+                                <>
+                                  {invStatus === 'DISQUALIFIED' ? 0 : att.evaluated_score}{' '}
+                                  <span className="text-[10px] font-normal text-stone-400">
+                                    / {att.max_possible_score || 0}
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="text-stone-400 italic font-normal">Pending</span>
+                              )}
+                            </div>
                           </td>
                           <td className="py-3 px-4">
                             {invStatus === 'DISQUALIFIED' ? (
@@ -1319,15 +1465,43 @@ export default function FacultyExamDetailPage() {
                             )}
                           </td>
                           <td className="py-3 px-4 text-right">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => setInvestigationAttemptId(att.attempt_id)}
-                              className="text-xs gap-1"
-                            >
-                              <FileText className="w-3.5 h-3.5" />
-                              <span>Inspect Dossier</span>
-                            </Button>
+                            <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setInvestigationAttemptId(att.attempt_id)}
+                                className="text-xs gap-1"
+                              >
+                                <FileText className="w-3.5 h-3.5" />
+                                <span>Inspect</span>
+                              </Button>
+
+                              {invStatus === 'DISQUALIFIED' || pubStatus === 'DISQUALIFIED' ? (
+                                <Badge variant="danger" className="text-[10px] py-1 px-2">
+                                  Grade 0 Locked
+                                </Badge>
+                              ) : !isPub ? (
+                                <Button
+                                  size="sm"
+                                  variant="primary"
+                                  onClick={() => handlePublishAttempt(att.attempt_id)}
+                                  disabled={isBusy}
+                                  className="text-[11px] h-7 px-2"
+                                >
+                                  {isBusy ? '...' : 'Publish'}
+                                </Button>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleHoldAttempt(att.attempt_id)}
+                                  disabled={isBusy}
+                                  className="text-[11px] h-7 px-2 text-amber-700 border-amber-300 hover:bg-amber-50"
+                                >
+                                  {isBusy ? '...' : 'Hold'}
+                                </Button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );

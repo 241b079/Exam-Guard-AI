@@ -382,7 +382,10 @@ class ProctoringService:
                     timestamp=now
                 )
 
+                obj_ev_id = str(uuid.uuid4())
+                obj_incident_id = str(uuid.uuid4())
                 obj_ev = ProctoringEvent(
+                    id=obj_ev_id,
                     exam_id=exam_id,
                     exam_attempt_id=attempt.id,
                     student_id=student_user.id,
@@ -398,7 +401,7 @@ class ProctoringService:
                     expected_identity=student_user.name,
                     detected_identity_status=f"DETECTED: {pretty_object_name}",
                     evidence_path=rel_obj_evidence,
-                    incident_id=str(uuid.uuid4()),
+                    incident_id=obj_incident_id,
                     metadata_json={
                         "detected_objects": labels,
                         "detected_object_names": pretty_labels,
@@ -411,6 +414,7 @@ class ProctoringService:
                     }
                 )
                 db.add(obj_ev)
+                await db.flush()
 
                 obj_viol = ExamViolation(
                     exam_attempt_id=attempt.id,

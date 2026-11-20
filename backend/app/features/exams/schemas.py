@@ -28,6 +28,7 @@ class ExamBase(BaseModel):
     attempt_policy: AttemptPolicyType = AttemptPolicyType.ONE_ATTEMPT
     max_attempts: int = Field(default=1, ge=1, description="Maximum allowed attempts")
     max_rejoins: int = Field(default=2, ge=0, description="Maximum allowed rejoin attempts per attempt")
+    auto_publish_results: bool = Field(default=False, description="Whether to automatically publish marks to student upon submission")
 
 
 class ExamCreate(ExamBase):
@@ -51,6 +52,7 @@ class ExamUpdate(BaseModel):
     attempt_policy: Optional[AttemptPolicyType] = None
     max_attempts: Optional[int] = Field(None, ge=1)
     max_rejoins: Optional[int] = Field(None, ge=0)
+    auto_publish_results: Optional[bool] = None
 
 
 class ExamResponse(ExamBase):

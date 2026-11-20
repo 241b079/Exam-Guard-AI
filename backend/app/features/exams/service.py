@@ -45,6 +45,7 @@ class ExamService:
             attempt_policy=req.attempt_policy,
             max_attempts=req.max_attempts,
             max_rejoins=req.max_rejoins,
+            auto_publish_results=getattr(req, "auto_publish_results", False),
             status=ExamStatus.DRAFT,
             created_by_id=creator_id,
             total_marks=0.0
@@ -209,6 +210,7 @@ class ExamService:
             attempt_policy=exam.attempt_policy,
             max_attempts=exam.max_attempts,
             max_rejoins=exam.max_rejoins,
+            auto_publish_results=getattr(exam, "auto_publish_results", False),
             created_by_id=exam.created_by_id,
             question_count=q_count,
             created_at=exam.created_at,

@@ -307,6 +307,63 @@ async def grade_attempt_answer(
     )
 
 
+@router.post("/attempts/{attempt_id}/publish-result")
+async def publish_attempt_result_alias(
+    attempt_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN])),
+):
+    from datetime import datetime, timezone
+    from app.features.proctoring.notification_service import NotificationService
+    attempt = await db.get(ExamAttempt, attempt_id)
+    if not attempt:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attempt not found")
+    exam = await db.get(Exam, attempt.exam_id)
+    if current_user.role == UserRole.FACULTY and exam.created_by_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to publish results for this exam")
+
+    if attempt.integrity_status == "DISQUALIFIED" or attempt.publication_status == "DISQUALIFIED":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot publish marks for a disqualified attempt. Disqualified attempts remain disqualified with grade 0."
+        )
+
+    now = datetime.now(timezone.utc)
+    attempt.publication_status = "PUBLISHED"
+    attempt.published_at = now
+    attempt.published_by_id = current_user.id
+    await db.commit()
+
+    await NotificationService.create_notification(
+        db=db,
+        user_id=attempt.student_id,
+        notif_type="RESULT_PUBLISHED",
+        title=f"Result Published: {exam.title}",
+        message=f"Your examination result for {exam.title} has been authorized and published by faculty.",
+        exam_id=exam.id,
+        exam_attempt_id=attempt.id
+    )
+    return {"message": "Result successfully published", "attempt_id": attempt.id, "publication_status": "PUBLISHED", "published_at": now.isoformat()}
+
+
+@router.post("/attempts/{attempt_id}/hold-result")
+async def hold_attempt_result_alias(
+    attempt_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN])),
+):
+    attempt = await db.get(ExamAttempt, attempt_id)
+    if not attempt:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attempt not found")
+    exam = await db.get(Exam, attempt.exam_id)
+    if current_user.role == UserRole.FACULTY and exam.created_by_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    attempt.publication_status = "HELD"
+    await db.commit()
+    return {"message": "Result held from student visibility", "attempt_id": attempt.id, "publication_status": "HELD"}
+
+
 @router.websocket("/exams/{exam_id}/ws")
 
 async def exam_webrtc_signaling_ws(
