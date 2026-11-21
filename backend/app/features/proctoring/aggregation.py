@@ -27,12 +27,19 @@ CATEGORY_CONFIDENCE_THRESHOLDS: Dict[str, Dict[str, float]] = {
     "IDENTITY_MISMATCH": {"high": 0.85, "suspicious": 0.60},
     "LOOKING_AWAY": {"high": 0.85, "suspicious": 0.60},
     "AUDIO_ANOMALY": {"high": 0.80, "suspicious": 0.50},
+    "VOICE_DETECTED": {"high": 0.80, "suspicious": 0.50},
+    "MULTIPLE_VOICES_DETECTED": {"high": 0.85, "suspicious": 0.60},
+    "LIVENESS_FAILED": {"high": 0.88, "suspicious": 0.65},
+    "VIRTUAL_CAMERA_DETECTED": {"high": 0.90, "suspicious": 0.60},
+    "MULTIPLE_DISPLAYS_DETECTED": {"high": 0.90, "suspicious": 0.60},
+    "VIRTUAL_MACHINE_DETECTED": {"high": 0.90, "suspicious": 0.60},
     "NO_FACE": {"high": 0.80, "suspicious": 0.50},
     "TEMPORARY_ABSENCE": {"high": 0.80, "suspicious": 0.50},
     "TEMPORARILY_ABSENT": {"high": 0.80, "suspicious": 0.50},
     "SUSPICIOUS_ACTIVITY": {"high": 0.85, "suspicious": 0.60},
     "BROWSER_TAB_SWITCH": {"high": 0.90, "suspicious": 0.60},
     "FULLSCREEN_EXIT": {"high": 0.90, "suspicious": 0.60},
+    "SCREEN_SNAPSHOT": {"high": 0.95, "suspicious": 0.60},
 }
 
 # Category display metadata and grouping
@@ -48,10 +55,17 @@ CATEGORY_METADATA: Dict[str, Dict[str, str]] = {
     "TEMPORARY_ABSENCE": {"group": "STUDENT_ABSENT", "label": "Candidate Absence from Camera"},
     "TEMPORARILY_ABSENT": {"group": "STUDENT_ABSENT", "label": "Candidate Absence from Camera"},
     "AUDIO_ANOMALY": {"group": "AUDIO_ANOMALY", "label": "Acoustic / Speech Anomaly"},
+    "VOICE_DETECTED": {"group": "AUDIO_ANOMALY", "label": "Acoustic Speech Detected"},
+    "MULTIPLE_VOICES_DETECTED": {"group": "AUDIO_ANOMALY", "label": "Multiple Human Voices Detected"},
+    "LIVENESS_FAILED": {"group": "LIVENESS_ANOMALY", "label": "Liveness Verification Failed (Static Photo/Spoof)"},
+    "VIRTUAL_CAMERA_DETECTED": {"group": "HARDWARE_ANOMALY", "label": "Virtual Camera / Loopback Software"},
+    "MULTIPLE_DISPLAYS_DETECTED": {"group": "ENVIRONMENT_ANOMALY", "label": "Multiple Displays / Extended Screen"},
+    "VIRTUAL_MACHINE_DETECTED": {"group": "ENVIRONMENT_ANOMALY", "label": "Virtual Machine Sandbox Detected"},
     "PAGE_HIDDEN": {"group": "BROWSER_LOCKDOWN", "label": "Browser Tab Lost Focus"},
     "WINDOW_BLUR": {"group": "BROWSER_LOCKDOWN", "label": "Application Window Switch"},
     "FULLSCREEN_EXIT": {"group": "BROWSER_LOCKDOWN", "label": "Lockdown Fullscreen Exit"},
     "CAMERA_STOPPED": {"group": "HARDWARE_ANOMALY", "label": "Camera Feed Disconnected"},
+    "SCREEN_SNAPSHOT": {"group": "SCREEN_CAPTURE", "label": "Screen Snapshot / Active Display Capture"},
     "MONITORING_INTERRUPTED": {"group": "TECHNICAL_INTERRUPTION", "label": "Technical Interruption"},
     "RECOVERED": {"group": "RECOVERED", "label": "Candidate Face / Focus Recovered"},
     "NORMAL_VERIFIED": {"group": "RECOVERED", "label": "Normal Identity Verified"},
@@ -469,19 +483,32 @@ class ExamIntegrityAggregator:
         lockdown_bucket = category_breakdowns.get("BROWSER_LOCKDOWN", {})
         lockdown_count = lockdown_bucket.get("total_frames", 0)
 
+        liveness_bucket = category_breakdowns.get("LIVENESS_ANOMALY", {})
+        liveness_high = liveness_bucket.get("high_confidence_count", 0)
+
+        hardware_bucket = category_breakdowns.get("HARDWARE_ANOMALY", {})
+        hardware_high = hardware_bucket.get("high_confidence_count", 0)
+
+        env_bucket = category_breakdowns.get("ENVIRONMENT_ANOMALY", {})
+        env_high = env_bucket.get("high_confidence_count", 0)
+
         # 1. Critical Risk Level
         if overall_risk == OverallRiskLevel.CRITICAL_RISK or final_risk_score >= 75.0:
             if len(impostor_bucket.get("evidence_items", [])) > 0 or id_high >= 1:
                 reasons.append("Severe candidate identity mismatch / impostor detected in camera feed")
+            if liveness_high >= 1:
+                reasons.append("Failed biometric liveness verification (synthetic photo / static loop presentation)")
             if phone_high >= 2:
                 reasons.append(f"{phone_high} confirmed unauthorized mobile phone detections")
             if max_absence_seconds >= 60.0:
                 reasons.append(f"Extended unmonitored absence from camera ({int(max_absence_seconds)}s off screen)")
+            if hardware_high >= 1 or env_high >= 1:
+                reasons.append("Confirmed virtual environment or virtual camera evasion attempt")
             if final_risk_score >= 75.0:
                 reasons.append(f"Critical composite integrity risk score ({final_risk_score:.1f}/100)")
 
             reason_str = "Auto-disqualification recommended due to: " + "; ".join(reasons) if reasons else f"Critical examination integrity score ({final_risk_score:.1f}/100) exceeding policy thresholds."
-            return True, "DISQUALIFIED", reason_str
+            return True, "AUTO_DISQUALIFIED", reason_str
 
         # 2. High Risk Level with severe / corroborated categories
         if overall_risk == OverallRiskLevel.HIGH_RISK or final_risk_score >= 50.0:
@@ -490,6 +517,15 @@ class ExamIntegrityAggregator:
             if phone_high >= 1:
                 should_disqualify = True
                 reasons.append(f"Confirmed unauthorized mobile phone detection ({phone_high} instance)")
+            if liveness_high >= 1:
+                should_disqualify = True
+                reasons.append("Biometric liveness verification failure (static frame / spoof)")
+            if hardware_high >= 1:
+                should_disqualify = True
+                reasons.append("Virtual camera / media interception driver detected")
+            if env_high >= 1 and (lockdown_count >= 1 or suspicious_count >= 1):
+                should_disqualify = True
+                reasons.append("Multi-display or virtual machine execution with corroborating events")
             if multi_high >= 1 and (phone_susp >= 1 or lockdown_count >= 1 or max_absence_seconds >= 20.0):
                 should_disqualify = True
                 reasons.append("Multiple persons detected corroborated by secondary violation telemetry")
@@ -505,13 +541,17 @@ class ExamIntegrityAggregator:
 
             if should_disqualify:
                 reason_str = "Auto-disqualification recommended: " + "; ".join(reasons) + "."
-                return True, "DISQUALIFIED", reason_str
+                return True, "AUTO_DISQUALIFIED", reason_str
 
-        # 3. Moderate / Low risk
-        if overall_risk == OverallRiskLevel.MODERATE_RISK:
-            return False, "SUSPICIOUS", None
+        # 3. Autonomous Clearance for Clean Sessions (Risk <= 20, 0 high-confidence violations, 0 severe categories)
+        if final_risk_score <= 20.0 and high_confidence_count == 0 and len(impostor_bucket.get("evidence_items", [])) == 0 and phone_high == 0 and liveness_high == 0 and hardware_high == 0:
+            return False, "AUTO_CLEARED", "Examination cleared and verified autonomously by AI Proctor. Normal academic integrity metrics verified."
 
-        return False, "CLEARED", None
+        # 4. Moderate / Low risk requiring standard manual faculty queue
+        if overall_risk == OverallRiskLevel.MODERATE_RISK or final_risk_score > 20.0:
+            return False, "PENDING_REVIEW", "Borderline telemetry or unconfirmed anomalies require faculty review."
+
+        return False, "AUTO_CLEARED", "Examination cleared and verified autonomously by AI Proctor."
 
     @classmethod
     def _determine_overall_risk(
@@ -553,6 +593,15 @@ class ExamIntegrityAggregator:
         id_mismatch_bucket = category_breakdowns.get("IDENTITY_MISMATCH", {})
         id_mismatch_high = id_mismatch_bucket.get("high_confidence_count", 0)
 
+        liveness_bucket = category_breakdowns.get("LIVENESS_ANOMALY", {})
+        liveness_high = liveness_bucket.get("high_confidence_count", 0)
+
+        hardware_bucket = category_breakdowns.get("HARDWARE_ANOMALY", {})
+        hardware_high = hardware_bucket.get("high_confidence_count", 0)
+
+        env_bucket = category_breakdowns.get("ENVIRONMENT_ANOMALY", {})
+        env_high = env_bucket.get("high_confidence_count", 0)
+
         # 2. Critical Risk Conditions:
         # - An impostor + multiple persons simultaneously
         # - 3 or more independent high-confidence episodes of severe violations
@@ -560,18 +609,21 @@ class ExamIntegrityAggregator:
         if len(impostor_bucket.get("evidence_items", [])) > 0 or \
            final_risk_score >= 75.0 or \
            (phone_episodes >= 3 and phone_high >= 3) or \
-           (multi_person_high >= 2 and id_mismatch_high >= 1):
+           (multi_person_high >= 2 and id_mismatch_high >= 1) or \
+           liveness_high >= 2:
             return OverallRiskLevel.CRITICAL_RISK
 
         # 3. High Risk Conditions:
         # - Any high-confidence unauthorized phone / unauthorized materials detection
-        # - The user's exact scenario: 10 high-confidence phone detections + 1 suspicious detection
-        # - Multiple independent high-confidence episodes
+        # - Biometric liveness failure / Virtual camera / Multi-display evasion
         # - Dynamic risk score >= 50.0
         if phone_high >= 1 or \
            (phone_high + phone_susp >= 5) or \
            multi_person_high >= 1 or \
            id_mismatch_high >= 1 or \
+           liveness_high >= 1 or \
+           hardware_high >= 1 or \
+           env_high >= 1 or \
            final_risk_score >= 50.0 or \
            (high_confidence_count >= 2 and independent_incident_count >= 2):
             return OverallRiskLevel.HIGH_RISK

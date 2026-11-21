@@ -915,6 +915,42 @@ class AttemptService:
                 ai_class = AIClassification.SUSPICIOUS.value
                 conf = 0.80
                 expl = "Acoustic or speech anomaly detected."
+            elif v_type_str == "VOICE_DETECTED":
+                cat = "AUDIO_ANOMALY"
+                sev = EventSeverity.MEDIUM.value
+                ai_class = AIClassification.CONFIRMED.value
+                conf = 0.85
+                expl = "Acoustic human speech detected in candidate room by real-time Voice Activity Detection (VAD)."
+            elif v_type_str == "MULTIPLE_VOICES_DETECTED":
+                cat = "AUDIO_ANOMALY"
+                sev = EventSeverity.HIGH.value
+                ai_class = AIClassification.CONFIRMED.value
+                conf = 0.88
+                expl = "Multiple distinct acoustic voices detected in examination area."
+            elif v_type_str == "LIVENESS_FAILED":
+                cat = "LIVENESS_ANOMALY"
+                sev = EventSeverity.HIGH.value
+                ai_class = AIClassification.CONFIRMED.value
+                conf = 0.92
+                expl = "Anti-spoofing alert: Zero facial landmark micro-movement detected across consecutive samples (synthetic photo or static video loop suspected)."
+            elif v_type_str == "VIRTUAL_CAMERA_DETECTED":
+                cat = "HARDWARE_ANOMALY"
+                sev = EventSeverity.HIGH.value
+                ai_class = AIClassification.CONFIRMED.value
+                conf = 0.95
+                expl = "Software virtual camera or loopback driver detected. Physical webcam required."
+            elif v_type_str == "MULTIPLE_DISPLAYS_DETECTED":
+                cat = "ENVIRONMENT_ANOMALY"
+                sev = EventSeverity.HIGH.value
+                ai_class = AIClassification.CONFIRMED.value
+                conf = 0.95
+                expl = "Secondary monitor or extended display detected. Dual screens are prohibited."
+            elif v_type_str == "VIRTUAL_MACHINE_DETECTED":
+                cat = "ENVIRONMENT_ANOMALY"
+                sev = EventSeverity.HIGH.value
+                ai_class = AIClassification.CONFIRMED.value
+                conf = 0.95
+                expl = "Virtual Machine or emulated sandbox detected. Host OS execution required."
             else:
                 cat = "INTEGRITY_NOTICE"
                 sev = EventSeverity.LOW.value

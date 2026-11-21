@@ -1,4 +1,6 @@
 import uuid
+import hashlib
+import json
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 from sqlalchemy import select, desc
@@ -185,9 +187,80 @@ class PostExaminationInvestigationService:
             )
             db.add(investigation)
 
-        # Sync attempt integrity status
-        if investigation.investigation_status == InvestigationStatus.PENDING_REVIEW.value:
-            attempt.integrity_status = "PENDING_REVIEW"
+        # 6. Cryptographic SHA-256 Audit Hash Chaining (Verifiable Tamper-Proof Evidence)
+        timeline_hashes = [
+            f"{item.get('event_id') or item.get('incident_id')}_{item.get('timestamp')}_{item.get('risk_contribution', 0.0)}"
+            for item in agg_data["timeline_items"]
+        ]
+        audit_payload = {
+            "attempt_id": attempt.id,
+            "exam_id": exam.id,
+            "student_id": student.id,
+            "final_risk_score": final_risk,
+            "overall_risk_level": overall_risk_str,
+            "recommended_verdict": investigation.recommended_verdict,
+            "auto_disqualification_recommended": investigation.auto_disqualification_recommended,
+            "high_confidence_count": agg_data["high_confidence_count"],
+            "timeline_hash": hashlib.sha256("".join(sorted(timeline_hashes)).encode()).hexdigest(),
+            "timestamp": now.isoformat(),
+        }
+        computed_audit_hash = hashlib.sha256(json.dumps(audit_payload, sort_keys=True).encode()).hexdigest()
+        investigation.audit_hash = computed_audit_hash
+
+        # 7. Autonomous Adjudication Engine (Phase 3 Tri-State Verdict Auto-Execution)
+        rec_verdict = investigation.recommended_verdict
+        auto_disq = investigation.auto_disqualification_recommended
+        disq_reason = investigation.auto_disqualification_reason
+
+        # Do not override existing manual faculty review decision if one was already submitted
+        has_existing_faculty_review = False
+        rev_res = await db.execute(
+            select(FacultyReview).where(FacultyReview.investigation_id == investigation.id)
+        )
+        if rev_res.scalars().first():
+            has_existing_faculty_review = True
+
+        if not has_existing_faculty_review:
+            if rec_verdict == "AUTO_CLEARED":
+                investigation.autonomous_verdict = "AUTO_CLEARED"
+                investigation.investigation_status = InvestigationStatus.CLEARED.value
+                attempt.integrity_status = "CLEARED"
+
+                # Respect exam-level auto_publish_results policy
+                can_auto_publish = getattr(exam, "auto_publish_results", True)
+                if can_auto_publish:
+                    investigation.autonomous_action_taken = "Autonomously cleared & published by AI Proctor"
+                    attempt.publication_status = "PUBLISHED"
+                    if not attempt.published_at:
+                        attempt.published_at = now
+                    attempt.published_by_id = None
+
+                    await NotificationService.create_notification(
+                        db=db,
+                        user_id=student.id,
+                        notif_type="RESULT_PUBLISHED",
+                        title="Exam Results Published (AI Verified)",
+                        message=f"Your exam '{exam.title}' has been autonomously cleared and published by Exam-Guard AI. Audit Hash: {computed_audit_hash[:16]}...",
+                        exam_id=exam.id,
+                        exam_attempt_id=attempt.id,
+                    )
+                else:
+                    investigation.autonomous_action_taken = "Autonomously cleared by AI Proctor. Result publication controlled by faculty policy."
+
+            elif rec_verdict == "AUTO_DISQUALIFIED" or auto_disq:
+                investigation.autonomous_verdict = "AUTO_DISQUALIFIED"
+                investigation.auto_disqualification_recommended = True
+                investigation.auto_disqualification_reason = disq_reason or "Critical examination integrity violations confirmed by Autonomous AI Proctor"
+                investigation.autonomous_action_taken = f"Auto-disqualification packaged: {investigation.auto_disqualification_reason}"
+                investigation.investigation_status = InvestigationStatus.PENDING_REVIEW.value
+                investigation.review_priority = ReviewPriority.URGENT.value
+                attempt.integrity_status = "PENDING_REVIEW"
+
+            else:
+                investigation.autonomous_verdict = "PENDING_REVIEW"
+                investigation.autonomous_action_taken = "Borderline metrics routed to instructor review queue"
+                investigation.investigation_status = InvestigationStatus.PENDING_REVIEW.value
+                attempt.integrity_status = "PENDING_REVIEW"
 
         await db.commit()
         await db.refresh(investigation)

@@ -192,6 +192,9 @@ export interface ExaminationInvestigationResponse {
   recommended_verdict?: string | null;
   auto_disqualification_recommended?: boolean;
   auto_disqualification_reason?: string | null;
+  autonomous_verdict?: string | null;
+  autonomous_action_taken?: string | null;
+  audit_hash?: string | null;
   faculty_decision?: string | null;
   decision_reason?: string | null;
   decision_notes?: string | null;
@@ -221,6 +224,34 @@ export const continuousProctoringService = {
       method: 'POST',
       body: formData,
     });
+  },
+
+  /**
+   * Ingests a screen snapshot evidence capture from the student's active exam screen
+   */
+  async uploadScreenSnapshot(
+    examId: string,
+    attemptId: string,
+    imageBlob: Blob,
+    triggerEvent: string = 'SCREEN_SNAPSHOT',
+    metadata?: Record<string, any>
+  ): Promise<{ event_id: string; evidence_url: string; trigger_event: string; status: string }> {
+    const formData = new FormData();
+    formData.append('exam_id', examId);
+    formData.append('attempt_id', attemptId);
+    formData.append('file', imageBlob, 'screen_snapshot.jpg');
+    formData.append('trigger_event', triggerEvent);
+    if (metadata) {
+      formData.append('metadata_json', JSON.stringify(metadata));
+    }
+
+    return fetchApi<{ event_id: string; evidence_url: string; trigger_event: string; status: string }>(
+      '/api/v1/proctoring/screen-snapshot',
+      {
+        method: 'POST',
+        body: formData,
+      }
+    );
   },
 
   /**

@@ -21,6 +21,9 @@ import {
   useExamMedia,
   useWebRTCStudent,
   useContinuousIdentityMonitoring,
+  useAudioVAD,
+  useEnvironmentIntegrity,
+  useScreenSnapshotCapture,
   ExamLockdownOverlay,
   ExamMediaLockOverlay,
   ExamIntegrityIndicator,
@@ -197,6 +200,7 @@ export default function StudentExaminationPage() {
   const localCamPipRef = useRef<HTMLVideoElement | null>(null);
   const mediaInitializedRef = useRef<boolean>(false);
   const sendViolationRef = useRef<((type: string, meta?: any) => void) | null>(null);
+  const captureScreenNowRef = useRef<((trigger?: string, meta?: any) => Promise<string | null>) | null>(null);
 
   const isExamActive = Boolean(
     attempt &&
@@ -217,6 +221,10 @@ export default function StudentExaminationPage() {
     attemptId: attempt?.id,
     isActive: isExamActive,
     initialViolationCount: attempt?.violation_count || 0,
+    onViolationRecorded: (type) => {
+      // Instantly capture candidate desktop screen evidence on lockdown violation
+      captureScreenNowRef.current?.(type, { violation_type: type });
+    },
     onSendRealtimeViolation: (type, meta) => {
       sendViolationRef.current?.(type, meta);
     },
@@ -437,6 +445,44 @@ export default function StudentExaminationPage() {
       }
     },
   });
+
+  // Phase 1: Real-Time Audio Voice Activity Detection (VAD)
+  useAudioVAD({
+    audioStream: cameraStream || cameraStreamRef.current,
+    attemptId: attempt?.id,
+    isActive: isExamActive && Boolean(micReady) && Boolean(attempt?.id),
+    onVoiceDetected: (meta) => {
+      if (sendViolationRef.current) {
+        sendViolationRef.current('VOICE_DETECTED', meta);
+      }
+    },
+  });
+
+  // Phase 1: Environment, Multi-Monitor & Sandbox Integrity
+  useEnvironmentIntegrity({
+    attemptId: attempt?.id,
+    cameraStream: cameraStream || cameraStreamRef.current,
+    isActive: isExamActive && Boolean(attempt?.id),
+    onSecurityAlert: (type, msg) => {
+      captureScreenNowRef.current?.(type, { reason: msg });
+      if (sendViolationRef.current) {
+        sendViolationRef.current(type, { reason: msg });
+      }
+    },
+  });
+
+  // Evidence Capture: Active Candidate Desktop Screen Snapshots
+  const { captureScreenNow } = useScreenSnapshotCapture({
+    examId,
+    attemptId: attempt?.id,
+    screenStream: screenStream || screenStreamRef.current,
+    isActive: isExamActive && Boolean(screenReady) && Boolean(attempt?.id),
+    periodicIntervalMs: 60000,
+  });
+
+  useEffect(() => {
+    captureScreenNowRef.current = captureScreenNow;
+  }, [captureScreenNow]);
 
   const handleResumeMedia = async () => {
     setIsResumingMedia(true);

@@ -578,6 +578,9 @@ def _map_investigation_to_response(inv) -> ExaminationInvestigationResponse:
         recommended_verdict=getattr(inv, "recommended_verdict", "CLEARED") or "CLEARED",
         auto_disqualification_recommended=getattr(inv, "auto_disqualification_recommended", False) or False,
         auto_disqualification_reason=getattr(inv, "auto_disqualification_reason", None),
+        autonomous_verdict=getattr(inv, "autonomous_verdict", None),
+        autonomous_action_taken=getattr(inv, "autonomous_action_taken", None),
+        audit_hash=getattr(inv, "audit_hash", None),
         executive_summary=inv.executive_summary,
         incident_timeline_json=inv.incident_timeline_json or [],
         correlations_json=inv.correlations_json or [],
@@ -857,6 +860,105 @@ async def upload_proctoring_evidence(
     return {
         "event_id": ev.id,
         "evidence_path": rel_path,
-        "evidence_url": f"/api/v1/proctoring/evidence/{ev.id}"
+        "evidence_url": f"/api/v1/proctoring/evidence/{ev.id}",
+        "trigger_event": trigger_event,
+        "status": "ARCHIVED"
+    }
+
+
+@router.post("/screen-snapshot")
+async def capture_screen_snapshot(
+    exam_id: str = Form(...),
+    attempt_id: str = Form(...),
+    file: UploadFile = File(...),
+    trigger_event: Optional[str] = Form("SCREEN_SNAPSHOT"),
+    metadata_json: Optional[str] = Form(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.STUDENT]))
+):
+    """
+    Candidate Active Screen Snapshot Ingestion:
+    Accepts snapshot captures of the candidate's shared desktop / exam screen.
+    Archived into the attempt's forensic timeline as visual evidence.
+    """
+    import uuid
+    import json
+    from datetime import datetime, timezone
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty screen snapshot file")
+
+    now = datetime.now(timezone.utc)
+    rel_path = ProctoringService.save_evidence_image(
+        exam_id=exam_id,
+        student_id=current_user.id,
+        event_type="SCREEN_SNAPSHOT",
+        image_bytes=content,
+        timestamp=now
+    )
+
+    parsed_meta = {}
+    if metadata_json:
+        try:
+            parsed_meta = json.loads(metadata_json)
+        except Exception:
+            parsed_meta = {"raw": metadata_json}
+
+    parsed_meta["source"] = "screen_stream_capture"
+    parsed_meta["trigger_event"] = trigger_event
+    parsed_meta["snapshot_type"] = "SCREEN"
+
+    # Severity: higher if triggered by active window/tab departure or prohibited object
+    sev = EventSeverity.HIGH.value if trigger_event in ("WINDOW_BLUR", "PAGE_HIDDEN", "FULLSCREEN_EXIT", "UNAUTHORIZED_OBJECT") else EventSeverity.LOW.value
+
+    ev_id = str(uuid.uuid4())
+    ev = ProctoringEvent(
+        id=ev_id,
+        exam_id=exam_id,
+        exam_attempt_id=attempt_id,
+        student_id=current_user.id,
+        event_type="SCREEN_SNAPSHOT",
+        severity=sev,
+        review_status=EventReviewStatus.PENDING.value,
+        detected_at=now,
+        started_at=now,
+        ended_at=now,
+        duration=0.0,
+        confidence=1.0,
+        face_count=1,
+        expected_identity=current_user.name,
+        detected_identity_status="SCREEN_CAPTURED",
+        evidence_path=rel_path,
+        incident_id=str(uuid.uuid4()),
+        ai_explanation=f"Active screen snapshot captured (Trigger: {trigger_event.replace('_', ' ').title()}).",
+        metadata_json=parsed_meta
+    )
+    db.add(ev)
+    await db.commit()
+    await db.refresh(ev)
+
+    # Broadcast live screen snapshot event to faculty monitor
+    try:
+        await signaling_manager.broadcast_violation(exam_id, {
+            "id": ev.id,
+            "student_id": current_user.id,
+            "exam_attempt_id": attempt_id,
+            "violation_type": "SCREEN_SNAPSHOT",
+            "trigger_event": trigger_event,
+            "timestamp": now.isoformat(),
+            "evidence_url": f"/api/v1/proctoring/evidence/{ev.id}",
+            "student_name": current_user.name,
+            "metadata": parsed_meta,
+        })
+    except Exception as b_err:
+        logger.debug(f"Broadcast screen snapshot error: {b_err}")
+
+    return {
+        "event_id": ev.id,
+        "evidence_path": rel_path,
+        "evidence_url": f"/api/v1/proctoring/evidence/{ev.id}",
+        "trigger_event": trigger_event,
+        "status": "ARCHIVED"
     }
 

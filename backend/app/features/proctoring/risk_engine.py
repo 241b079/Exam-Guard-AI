@@ -39,9 +39,16 @@ class RiskScoringEngine:
         "FULLSCREEN_EXIT": 15.0,
         "UNAUTHORIZED_OBJECT": 25.0,
         "AUDIO_ANOMALY": 15.0,
+        "VOICE_DETECTED": 15.0,
+        "MULTIPLE_VOICES_DETECTED": 25.0,
+        "LIVENESS_FAILED": 35.0,
+        "VIRTUAL_CAMERA_DETECTED": 40.0,
+        "MULTIPLE_DISPLAYS_DETECTED": 30.0,
+        "VIRTUAL_MACHINE_DETECTED": 40.0,
         "CAMERA_STOPPED": 20.0,
         "EXTERNAL_ASSISTANCE": 35.0,
         "MONITORING_INTERRUPTED": 0.0,  # Zero points: classified strictly as technical/network interruption
+        "SCREEN_SNAPSHOT": 0.0,  # Visual evidence telemetry
     }
 
     # Classification thresholds

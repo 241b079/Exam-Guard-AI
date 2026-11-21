@@ -55,6 +55,11 @@ class SessionMonitoringTracker:
         # Priority 2: Prohibited Object Detection tracking
         self.last_object_violation_at: Optional[datetime] = None
 
+        # Phase 1: Liveness & Landmark Micro-Variance Tracking (Anti-Spoofing / Photo Freeze)
+        self.landmark_history: List[np.ndarray] = []
+        self.last_liveness_violation_at: Optional[datetime] = None
+        self.active_liveness_incident_id: Optional[str] = None
+
 
 class ProctoringService:
     # Memory cache for student profiles: user_id -> 128-d face embedding
@@ -579,6 +584,97 @@ class ProctoringService:
                 pitch, yaw, roll, is_looking_away = estimate_head_pose(
                     live_img.shape[:2], faces_info[0][0]
                 )
+
+                # Phase 1: Liveness Anti-Spoofing (Static Photo / Frozen Camera Loop Detection)
+                try:
+                    img_h, img_w = live_img.shape[:2]
+                    raw_lms = np.array([float(faces_info[0][0][i]) for i in range(4, 14)], dtype=np.float64)
+                    norm_lms = raw_lms / np.array([img_w, img_h] * 5, dtype=np.float64)
+                    tracker.landmark_history.append(norm_lms)
+                    if len(tracker.landmark_history) > 15:
+                        tracker.landmark_history = tracker.landmark_history[-15:]
+
+                    if len(tracker.landmark_history) >= 12:
+                        var_sum = float(np.var(tracker.landmark_history, axis=0).sum())
+                        # Zero variance across 12 consecutive frames indicates a static photo presentation or frozen frame
+                        if var_sum < 0.000004:
+                            if tracker.last_liveness_violation_at is None or (now - tracker.last_liveness_violation_at).total_seconds() >= 15.0:
+                                tracker.last_liveness_violation_at = now
+                                live_inc_id = str(uuid.uuid4())
+                                rel_live_evidence = cls.save_evidence_image(
+                                    exam_id=exam_id,
+                                    student_id=student_user.id,
+                                    event_type="LIVENESS_FAILED",
+                                    image_bytes=live_image_bytes,
+                                    timestamp=now
+                                )
+                                live_event = ProctoringEvent(
+                                    exam_id=exam_id,
+                                    exam_attempt_id=attempt.id,
+                                    student_id=student_user.id,
+                                    event_type="LIVENESS_FAILED",
+                                    severity=EventSeverity.HIGH.value,
+                                    review_status=EventReviewStatus.PENDING.value,
+                                    detected_at=now,
+                                    started_at=now,
+                                    confidence=0.92,
+                                    face_count=1,
+                                    expected_identity=student_user.name,
+                                    detected_identity_status="LIVENESS_FAILED",
+                                    evidence_path=rel_live_evidence,
+                                    incident_id=live_inc_id,
+                                    ai_explanation="Anti-spoofing alert: Zero facial landmark micro-variance detected across consecutive samples (synthetic photo or frozen camera loop).",
+                                    metadata_json={
+                                        "landmark_variance": round(var_sum, 8),
+                                        "samples_analyzed": len(tracker.landmark_history),
+                                        "reason": "Static photo / frozen frame presentation attack suspected"
+                                    }
+                                )
+                                db.add(live_event)
+
+                                live_viol = ExamViolation(
+                                    exam_attempt_id=attempt.id,
+                                    student_id=student_user.id,
+                                    violation_type=ViolationType.LIVENESS_FAILED,
+                                    timestamp=now,
+                                    metadata_json={
+                                        "landmark_variance": round(var_sum, 8),
+                                        "evidence_path": rel_live_evidence
+                                    }
+                                )
+                                db.add(live_viol)
+
+                                from app.features.proctoring.risk_engine import RiskScoringEngine
+                                from app.features.proctoring.models import AIClassification
+                                await RiskScoringEngine.record_incident_and_update_risk(
+                                    db=db,
+                                    exam_id=exam_id,
+                                    attempt_id=attempt.id,
+                                    student_id=student_user.id,
+                                    incident_type="LIVENESS_FAILED",
+                                    category="LIVENESS_ANOMALY",
+                                    severity="HIGH",
+                                    confidence=0.92,
+                                    evidence_url=f"/api/v1/proctoring/evidence/{live_event.id}",
+                                    explanation="Anti-spoofing alert: Zero facial landmark micro-variance detected across consecutive samples (synthetic photo or frozen camera loop).",
+                                    duration_seconds=0.0,
+                                    ai_classification=AIClassification.CONFIRMED.value
+                                )
+                                await db.commit()
+
+                                await signaling_manager.broadcast_violation(exam_id, {
+                                    "id": live_event.id,
+                                    "student_id": student_user.id,
+                                    "exam_attempt_id": attempt.id,
+                                    "violation_type": "LIVENESS_FAILED",
+                                    "incident_id": live_inc_id,
+                                    "timestamp": now.isoformat(),
+                                    "evidence_url": f"/api/v1/proctoring/evidence/{live_event.id}",
+                                    "student_name": student_user.name,
+                                    "metadata": live_event.metadata_json,
+                                })
+                except Exception as live_err:
+                    logger.debug(f"Liveness verification check error: {live_err}")
 
             if is_looking_away:
                 if tracker.looking_away_started_at is None:

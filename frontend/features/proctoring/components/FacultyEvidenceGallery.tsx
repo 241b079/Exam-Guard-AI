@@ -24,6 +24,9 @@ import {
   Smartphone,
   ExternalLink,
   History,
+  Monitor,
+  Mic,
+  Volume2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -366,6 +369,38 @@ export function FacultyEvidenceGallery({
           </span>
         );
       }
+      case 'SCREEN_SNAPSHOT':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800 border border-blue-300">
+            <Monitor className="w-3.5 h-3.5 text-blue-600" /> Screen Snapshot
+          </span>
+        );
+      case 'VOICE_DETECTED':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-900 border border-amber-300">
+            <Mic className="w-3.5 h-3.5 text-amber-700" /> Room Voice Detected
+          </span>
+        );
+      case 'MULTIPLE_VOICES_DETECTED':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800 border border-red-300">
+            <Volume2 className="w-3.5 h-3.5 text-red-600" /> Multiple Voices
+          </span>
+        );
+      case 'LIVENESS_FAILED':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">
+            <ShieldAlert className="w-3.5 h-3.5 text-rose-600" /> Liveness Failed (Spoof)
+          </span>
+        );
+      case 'VIRTUAL_CAMERA_DETECTED':
+      case 'MULTIPLE_DISPLAYS_DETECTED':
+      case 'VIRTUAL_MACHINE_DETECTED':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-stone-100 text-stone-800 border border-stone-300">
+            <Monitor className="w-3.5 h-3.5 text-stone-600" /> {type.replace(/_/g, ' ')}
+          </span>
+        );
       case 'IDENTITY_MISMATCH':
         return (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-300">

@@ -18,6 +18,10 @@ import {
   Sparkles,
   HelpCircle,
   RefreshCw,
+  Cpu,
+  Copy,
+  Check,
+  Monitor,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -59,6 +63,15 @@ export function PostExamInvestigationModal({
   // Incident review state
   const [reviewingIncidentId, setReviewingIncidentId] = useState<string | null>(null);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [copiedHash, setCopiedHash] = useState(false);
+
+  const handleCopyHash = (hash: string) => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(hash);
+      setCopiedHash(true);
+      setTimeout(() => setCopiedHash(false), 2500);
+    }
+  };
 
   // Load investigation dossier
   const loadInvestigation = useCallback(async () => {
@@ -340,6 +353,69 @@ export function PostExamInvestigationModal({
                 </div>
               </div>
 
+              {/* Phase 3: Autonomous Adjudication Engine & Cryptographic Audit Card */}
+              <div className={`p-4 rounded-2xl border transition-all ${
+                investigation.autonomous_verdict === 'AUTO_CLEARED'
+                  ? 'bg-emerald-50/80 border-emerald-200 text-emerald-950'
+                  : investigation.autonomous_verdict === 'AUTO_DISQUALIFIED'
+                  ? 'bg-red-50/80 border-red-200 text-red-950'
+                  : 'bg-amber-50/80 border-amber-200 text-amber-950'
+              }`}>
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Cpu className={`w-4 h-4 ${
+                        investigation.autonomous_verdict === 'AUTO_CLEARED' ? 'text-emerald-600' :
+                        investigation.autonomous_verdict === 'AUTO_DISQUALIFIED' ? 'text-red-600' : 'text-amber-600'
+                      }`} />
+                      <span className="text-xs font-bold uppercase tracking-wider">
+                        Autonomous AI Adjudication:
+                      </span>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-extrabold ${
+                        investigation.autonomous_verdict === 'AUTO_CLEARED'
+                          ? 'bg-emerald-600 text-white'
+                          : investigation.autonomous_verdict === 'AUTO_DISQUALIFIED'
+                          ? 'bg-red-600 text-white'
+                          : 'bg-amber-600 text-white'
+                      }`}>
+                        {investigation.autonomous_verdict === 'AUTO_CLEARED'
+                          ? 'AUTO-CLEARED & PUBLISHED'
+                          : investigation.autonomous_verdict === 'AUTO_DISQUALIFIED'
+                          ? 'AUTO-DISQUALIFIED'
+                          : 'PENDING FACULTY REVIEW'}
+                      </span>
+                    </div>
+                    <p className="text-xs opacity-90">
+                      {investigation.autonomous_action_taken ||
+                        (investigation.autonomous_verdict === 'AUTO_CLEARED'
+                          ? 'Normal integrity metrics confirmed. Results autonomously published without manual instructor delay.'
+                          : investigation.autonomous_verdict === 'AUTO_DISQUALIFIED'
+                          ? 'Confirmed severe policy violations. Attempt autonomously disqualified by AI Proctor.'
+                          : 'Borderline or unresolved anomaly events routed for human instructor adjudication.')}
+                    </p>
+                  </div>
+
+                  {investigation.audit_hash && (
+                    <div className="flex items-center gap-2 bg-white/80 backdrop-blur-sm px-3 py-1.5 rounded-xl border border-stone-200 text-xs">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-semibold text-stone-500 uppercase">Audit Hash (SHA-256)</span>
+                        <code className="text-[11px] font-mono text-stone-800 font-bold">
+                          {investigation.audit_hash.slice(0, 12)}...{investigation.audit_hash.slice(-8)}
+                        </code>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyHash(investigation.audit_hash!)}
+                        title="Copy full cryptographic SHA-256 audit hash"
+                        className="p-1 rounded-lg hover:bg-stone-100 text-stone-500 hover:text-stone-800 transition-colors"
+                      >
+                        {copiedHash ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Controlled Result Publication Status Card */}
               <div className="p-4 rounded-2xl bg-white border border-[#EBE5DC] shadow-warm-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="space-y-1">
@@ -486,6 +562,27 @@ export function PostExamInvestigationModal({
                                 <span className="font-bold text-stone-900 text-xs">
                                   {(() => {
                                     const type = inc.incident_type;
+                                    if (type === 'SCREEN_SNAPSHOT') {
+                                      return '🖥️ Active Screen Snapshot Evidence';
+                                    }
+                                    if (type === 'VOICE_DETECTED') {
+                                      return '🎙️ Acoustic Integrity: Room Voice Detected';
+                                    }
+                                    if (type === 'MULTIPLE_VOICES_DETECTED') {
+                                      return '👥 Acoustic Integrity: Multiple Voices Detected';
+                                    }
+                                    if (type === 'LIVENESS_FAILED') {
+                                      return '🛑 Anti-Spoofing: Static Photo / Pre-recorded Feed';
+                                    }
+                                    if (type === 'VIRTUAL_CAMERA_DETECTED') {
+                                      return '📹 Hardware Security: Virtual Camera Emulation';
+                                    }
+                                    if (type === 'MULTIPLE_DISPLAYS_DETECTED') {
+                                      return '🖥️ Workspace Security: Secondary Monitor Connected';
+                                    }
+                                    if (type === 'VIRTUAL_MACHINE_DETECTED') {
+                                      return '📦 Sandbox Security: Virtual Machine / VM Detected';
+                                    }
                                     if (type === 'UNAUTHORIZED_OBJECT') {
                                       const obj = (inc as any).metadata?.detected_object_name || (inc as any).metadata?.primary_object || (inc as any).primary_object || 'Cell Phone';
                                       const u = String(obj).toUpperCase();
@@ -566,10 +663,23 @@ export function PostExamInvestigationModal({
                                       : continuousProctoringService.getEvidenceImageUrl(rawUrl);
                                     setPreviewImageUrl(targetUrl);
                                   }}
-                                  className="text-[11px] font-bold text-red-600 hover:text-red-700 flex items-center gap-1 bg-red-50 px-2.5 py-1 rounded-xl border border-red-100"
+                                  className={`text-[11px] font-bold flex items-center gap-1 px-2.5 py-1 rounded-xl border ${
+                                    inc.incident_type === 'SCREEN_SNAPSHOT'
+                                      ? 'text-blue-700 hover:text-blue-800 bg-blue-50 border-blue-200'
+                                      : 'text-red-600 hover:text-red-700 bg-red-50 border-red-100'
+                                  }`}
                                 >
-                                  <Camera className="w-3.5 h-3.5" />
-                                  <span>View Snapshot</span>
+                                  {inc.incident_type === 'SCREEN_SNAPSHOT' ? (
+                                    <>
+                                      <Monitor className="w-3.5 h-3.5" />
+                                      <span>View Screen</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Camera className="w-3.5 h-3.5" />
+                                      <span>View Snapshot</span>
+                                    </>
+                                  )}
                                 </button>
                               )}
 
@@ -752,9 +862,12 @@ export function PostExamInvestigationModal({
         {/* Modal for viewing evidence snapshot */}
         {previewImageUrl && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/80 backdrop-blur-sm">
-            <div className="bg-white p-4 rounded-3xl max-w-lg w-full space-y-3">
+            <div className="bg-white p-4 rounded-3xl max-w-4xl w-full space-y-3 shadow-2xl">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-stone-900">Captured Proctoring Evidence Frame</span>
+                <span className="text-xs font-bold text-stone-900 flex items-center gap-2">
+                  <Monitor className="w-4 h-4 text-stone-700" />
+                  <span>Captured Proctoring & Screen Evidence Frame</span>
+                </span>
                 <button
                   type="button"
                   onClick={() => setPreviewImageUrl(null)}
@@ -763,12 +876,12 @@ export function PostExamInvestigationModal({
                   ✕
                 </button>
               </div>
-              <div className="rounded-2xl overflow-hidden bg-black flex items-center justify-center max-h-[70vh]">
+              <div className="rounded-2xl overflow-hidden bg-black flex items-center justify-center max-h-[78vh]">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={previewImageUrl}
                   alt="Proctoring Incident Snapshot"
-                  className="max-h-full object-contain"
+                  className="max-h-full max-w-full object-contain"
                   onError={() => alert('Unable to load full resolution evidence frame.')}
                 />
               </div>

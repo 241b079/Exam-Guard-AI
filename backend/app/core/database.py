@@ -167,6 +167,13 @@ async def init_db():
                 "LOOKING_AWAY",
                 "UNAUTHORIZED_OBJECT",
                 "AUDIO_ANOMALY",
+                "VOICE_DETECTED",
+                "MULTIPLE_VOICES_DETECTED",
+                "LIVENESS_FAILED",
+                "VIRTUAL_CAMERA_DETECTED",
+                "MULTIPLE_DISPLAYS_DETECTED",
+                "VIRTUAL_MACHINE_DETECTED",
+                "SCREEN_SNAPSHOT",
             ]:
                 try:
                     await auto_conn.execute(text(f"ALTER TYPE violation_type_enum ADD VALUE IF NOT EXISTS '{val}';"))
@@ -177,6 +184,13 @@ async def init_db():
                 "LOOKING_AWAY",
                 "UNAUTHORIZED_OBJECT",
                 "AUDIO_ANOMALY",
+                "VOICE_DETECTED",
+                "MULTIPLE_VOICES_DETECTED",
+                "LIVENESS_FAILED",
+                "VIRTUAL_CAMERA_DETECTED",
+                "MULTIPLE_DISPLAYS_DETECTED",
+                "VIRTUAL_MACHINE_DETECTED",
+                "SCREEN_SNAPSHOT",
             ]:
                 try:
                     await auto_conn.execute(text(f"ALTER TYPE proctoring_event_type_enum ADD VALUE IF NOT EXISTS '{val}';"))
@@ -246,6 +260,9 @@ async def init_db():
             await conn.execute(text("ALTER TABLE examination_investigations ADD COLUMN IF NOT EXISTS recommended_verdict VARCHAR(30) DEFAULT 'CLEARED';"))
             await conn.execute(text("ALTER TABLE examination_investigations ADD COLUMN IF NOT EXISTS auto_disqualification_recommended BOOLEAN DEFAULT FALSE;"))
             await conn.execute(text("ALTER TABLE examination_investigations ADD COLUMN IF NOT EXISTS auto_disqualification_reason TEXT;"))
+            await conn.execute(text("ALTER TABLE examination_investigations ADD COLUMN IF NOT EXISTS autonomous_verdict VARCHAR(50);"))
+            await conn.execute(text("ALTER TABLE examination_investigations ADD COLUMN IF NOT EXISTS autonomous_action_taken TEXT;"))
+            await conn.execute(text("ALTER TABLE examination_investigations ADD COLUMN IF NOT EXISTS audit_hash VARCHAR(64);"))
 
             # Faculty Review Audit extensions
             await conn.execute(text("ALTER TABLE faculty_reviews ADD COLUMN IF NOT EXISTS previous_status VARCHAR(50);"))

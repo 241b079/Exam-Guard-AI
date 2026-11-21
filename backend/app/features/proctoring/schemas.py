@@ -173,6 +173,9 @@ class ExaminationInvestigationResponse(BaseModel):
     recommended_verdict: Optional[str] = "CLEARED"
     auto_disqualification_recommended: bool = False
     auto_disqualification_reason: Optional[str] = None
+    autonomous_verdict: Optional[str] = None
+    autonomous_action_taken: Optional[str] = None
+    audit_hash: Optional[str] = None
     faculty_decision: Optional[str] = None
     decision_reason: Optional[str] = None
     decision_notes: Optional[str] = None

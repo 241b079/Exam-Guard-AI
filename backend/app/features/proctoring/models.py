@@ -17,6 +17,13 @@ class ProctoringEventType(str, enum.Enum):
     LOOKING_AWAY = "LOOKING_AWAY"
     UNAUTHORIZED_OBJECT = "UNAUTHORIZED_OBJECT"
     AUDIO_ANOMALY = "AUDIO_ANOMALY"
+    VOICE_DETECTED = "VOICE_DETECTED"
+    MULTIPLE_VOICES_DETECTED = "MULTIPLE_VOICES_DETECTED"
+    LIVENESS_FAILED = "LIVENESS_FAILED"
+    VIRTUAL_CAMERA_DETECTED = "VIRTUAL_CAMERA_DETECTED"
+    MULTIPLE_DISPLAYS_DETECTED = "MULTIPLE_DISPLAYS_DETECTED"
+    VIRTUAL_MACHINE_DETECTED = "VIRTUAL_MACHINE_DETECTED"
+    SCREEN_SNAPSHOT = "SCREEN_SNAPSHOT"
     RECOVERED = "RECOVERED"
     # Additional evidence-based categories
     BROWSER_TAB_SWITCH = "BROWSER_TAB_SWITCH"
@@ -491,6 +498,9 @@ class ExaminationInvestigation(Base):
     recommended_verdict: Mapped[Optional[str]] = mapped_column(String(30), default="CLEARED", nullable=True)
     auto_disqualification_recommended: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     auto_disqualification_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    autonomous_verdict: Mapped[Optional[str]] = mapped_column(String(50), default=None, nullable=True)
+    autonomous_action_taken: Mapped[Optional[str]] = mapped_column(Text, default=None, nullable=True)
+    audit_hash: Mapped[Optional[str]] = mapped_column(String(64), default=None, nullable=True)
     assessment_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     assessment_completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
 
