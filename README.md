@@ -125,7 +125,48 @@ npm run start
 | FastAPI Swagger / OpenAPI Docs | http://localhost:8000/docs |
 | Backend Health Check | http://localhost:8000/health |
 
-For multi-device testing over HTTPS, WebSocket routing, and LiveKit reachability, see [Cross-device verification](docs/CROSS_DEVICE_TESTING.md).
+### Running with ngrok (HTTPS / cross-device access)
+
+To expose the portal and API over HTTPS (for example, to test camera/mic permissions or cross-device proctoring on another machine or mobile device):
+
+1. **Expose the backend and frontend in separate terminals:**
+
+   ```sh
+   ngrok http 8000
+   ```
+
+   ```sh
+   ngrok http 3000
+   ```
+
+   Each command prints a forwarding HTTPS URL (for example, `https://<your-backend>.ngrok-free.app` and `https://<your-frontend>.ngrok-free.app`). You can also inspect active tunnels and requests at `http://127.0.0.1:4040`.
+
+2. **Configure `frontend/.env.local`** with your backend ngrok URL:
+
+   ```sh
+   NEXT_PUBLIC_API_URL=https://<your-backend>.ngrok-free.app
+   # Optional: derived automatically as wss://<your-backend>.ngrok-free.app if omitted
+   # NEXT_PUBLIC_WS_URL=wss://<your-backend>.ngrok-free.app
+   ```
+
+3. **Verify `backend/.env` CORS settings** allow ngrok origins (included in `backend/.env.example`):
+
+   ```sh
+   CORS_ORIGIN_REGEX=^https?://.*\.ngrok(-free)?\.app$
+   ```
+
+   Or add the exact frontend URL to `CORS_ORIGINS`.
+
+4. **Restart the frontend and backend** after updating environment variables, then open the frontend ngrok URL (`https://<your-frontend>.ngrok-free.app`) in your browser.
+
+| ngrok Tunnel / Inspector | Example URL |
+| --- | --- |
+| Frontend Portal (HTTPS) | `https://<your-frontend>.ngrok-free.app` |
+| Backend API (HTTPS) | `https://<your-backend>.ngrok-free.app` |
+| Backend Swagger Docs | `https://<your-backend>.ngrok-free.app/docs` |
+| ngrok Local Web Inspector | `http://127.0.0.1:4040` |
+
+For WebSocket routing, LiveKit reachability, and full multi-device test steps, see [Cross-device verification](docs/CROSS_DEVICE_TESTING.md).
 
 ## Running and checking test cases
 
