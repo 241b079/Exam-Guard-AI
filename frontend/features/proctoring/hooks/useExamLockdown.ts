@@ -37,6 +37,16 @@ export function useExamLockdown({
   const warningTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastViolationMapRef = useRef<Map<string, number>>(new Map());
   const isSubmittingOrEndedRef = useRef<boolean>(!isActive);
+  const onViolationRecordedRef = useRef(onViolationRecorded);
+  const onSendRealtimeViolationRef = useRef(onSendRealtimeViolation);
+
+  useEffect(() => {
+    onViolationRecordedRef.current = onViolationRecorded;
+  }, [onViolationRecorded]);
+
+  useEffect(() => {
+    onSendRealtimeViolationRef.current = onSendRealtimeViolation;
+  }, [onSendRealtimeViolation]);
 
   useEffect(() => {
     isSubmittingOrEndedRef.current = !isActive;
@@ -46,6 +56,14 @@ export function useExamLockdown({
     setViolationCount(initialViolationCount);
   }, [initialViolationCount]);
 
+  useEffect(() => {
+    return () => {
+      if (warningTimeoutRef.current) {
+        clearTimeout(warningTimeoutRef.current);
+      }
+    };
+  }, []);
+
   // Show a non-intrusive banner warning to candidate
   const triggerWarning = useCallback((message: string) => {
     if (warningTimeoutRef.current) {
@@ -54,7 +72,8 @@ export function useExamLockdown({
     setActiveWarning(message);
     warningTimeoutRef.current = setTimeout(() => {
       setActiveWarning(null);
-    }, 4500);
+      warningTimeoutRef.current = null;
+    }, 2000);
   }, []);
 
   // Centralized violation dispatcher with robust client-side deduplication
@@ -105,11 +124,11 @@ export function useExamLockdown({
       }
 
       triggerWarning(warningText);
-      onViolationRecorded?.(type);
+      onViolationRecordedRef.current?.(type);
 
       // Fast-path: immediately push real-time event via WebSocket
       try {
-        onSendRealtimeViolation?.(type, {
+        onSendRealtimeViolationRef.current?.(type, {
           ...metadata,
           userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
         });
@@ -131,7 +150,7 @@ export function useExamLockdown({
         console.warn('Failed to dispatch integrity violation to server:', err);
       }
     },
-    [attemptId, onViolationRecorded, onSendRealtimeViolation, triggerWarning]
+    [attemptId, triggerWarning]
   );
 
   // Fullscreen helper
@@ -325,10 +344,6 @@ export function useExamLockdown({
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('blur', handleBlur);
       window.removeEventListener('focus', handleFocus);
-
-      if (warningTimeoutRef.current) {
-        clearTimeout(warningTimeoutRef.current);
-      }
     };
   }, [isActive, recordViolation]);
 

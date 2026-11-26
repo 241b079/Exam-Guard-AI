@@ -446,8 +446,9 @@ export default function StudentExaminationPage() {
     },
   });
 
-  // Phase 1: Real-Time Audio Voice Activity Detection (VAD)
+  // Phase 1: Real-Time Audio Voice Activity Detection (VAD) & Evidence Capture
   useAudioVAD({
+    examId,
     audioStream: cameraStream || cameraStreamRef.current,
     attemptId: attempt?.id,
     isActive: isExamActive && Boolean(micReady) && Boolean(attempt?.id),

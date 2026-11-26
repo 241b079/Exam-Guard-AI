@@ -2,19 +2,31 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { attemptService } from '@/features/attempts/services/attemptService';
+import { continuousProctoringService } from '../services/continuousProctoringService';
 
 export interface UseAudioVADOptions {
-  audioStream: MediaStream | null;
+  examId?: string;
   attemptId?: string | null;
+  audioStream: MediaStream | null;
   isActive: boolean;
   onVoiceDetected?: (meta: { decibels: number; sustainedMs: number; speechRatio: number }) => void;
   minSpeechDurationMs?: number; // default 1500ms
   cooldownMs?: number; // default 12000ms
 }
 
+/**
+ * useAudioVAD
+ * 
+ * Real-time Voice Activity Detection (VAD) & Acoustic Evidence Recorder.
+ * 1. Analyzes microphone input frequency band (85Hz - 2500Hz vocal range) via Web Audio API.
+ * 2. Maintains a lightweight rolling in-memory audio buffer (via MediaRecorder).
+ * 3. Upon sustained voice detection (>= 1.5s), captures and packages an audio snippet (.webm)
+ *    and uploads it to the backend as an archived audio evidence asset for faculty listening.
+ */
 export function useAudioVAD({
-  audioStream,
+  examId,
   attemptId,
+  audioStream,
   isActive,
   onVoiceDetected,
   minSpeechDurationMs = 1500,
@@ -33,10 +45,56 @@ export function useAudioVAD({
   const baselineNoiseRef = useRef<number>(-55);
   const calibrationSamplesRef = useRef<number[]>([]);
 
+  // Rolling audio recording buffer
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksBufferRef = useRef<Blob[]>([]);
+  const isRecordingIncidentRef = useRef<boolean>(false);
+  const recordingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   const onVoiceDetectedRef = useRef(onVoiceDetected);
   useEffect(() => {
     onVoiceDetectedRef.current = onVoiceDetected;
   }, [onVoiceDetected]);
+
+  // Capture trailing audio and upload packaged audio clip
+  const finalizeAndUploadAudioEvidence = useCallback(
+    async (decibels: number, sustainedMs: number, speechRatio: number) => {
+      if (!examId || !attemptId || audioChunksBufferRef.current.length === 0) {
+        isRecordingIncidentRef.current = false;
+        return;
+      }
+
+      try {
+        const mimeType = mediaRecorderRef.current?.mimeType || 'audio/webm';
+        const audioBlob = new Blob(audioChunksBufferRef.current, { type: mimeType });
+
+        if (audioBlob.size > 0) {
+          await continuousProctoringService.uploadAudioEvidence(
+            examId,
+            attemptId,
+            audioBlob,
+            'VOICE_DETECTED',
+            {
+              decibels: Math.round(decibels),
+              sustainedDurationMs: Math.round(sustainedMs),
+              speechEnergyRatio: Math.round(speechRatio * 100) / 100,
+              description: `Acoustic room voice clip recorded (${Math.round(decibels)} dB, sustained ${Math.round(sustainedMs / 100) / 10}s).`,
+              recorded_at: new Date().toISOString(),
+            }
+          );
+        }
+      } catch (uploadErr) {
+        console.debug('[AudioVAD] Audio evidence upload failed:', uploadErr);
+      } finally {
+        // Retain only the most recent chunk for continuous buffer continuity
+        if (audioChunksBufferRef.current.length > 2) {
+          audioChunksBufferRef.current = audioChunksBufferRef.current.slice(-2);
+        }
+        isRecordingIncidentRef.current = false;
+      }
+    },
+    [examId, attemptId]
+  );
 
   const dispatchVoiceViolation = useCallback(
     async (decibels: number, sustainedMs: number, speechRatio: number) => {
@@ -48,6 +106,7 @@ export function useAudioVAD({
 
       onVoiceDetectedRef.current?.({ decibels, sustainedMs, speechRatio });
 
+      // 1. Immediately log violation telemetry to backend
       if (attemptId) {
         try {
           await attemptService.recordViolation(attemptId, {
@@ -64,10 +123,89 @@ export function useAudioVAD({
           console.debug('[AudioVAD] Violation dispatch error:', err);
         }
       }
+
+      // 2. Trigger audio clip packaging (record another 2.5s of speech to catch full phrase)
+      if (!isRecordingIncidentRef.current && mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        isRecordingIncidentRef.current = true;
+        if (recordingTimeoutRef.current) {
+          clearTimeout(recordingTimeoutRef.current);
+        }
+        recordingTimeoutRef.current = setTimeout(() => {
+          finalizeAndUploadAudioEvidence(decibels, sustainedMs, speechRatio);
+        }, 2500);
+      }
     },
-    [attemptId, cooldownMs]
+    [attemptId, cooldownMs, finalizeAndUploadAudioEvidence]
   );
 
+  // Initialize MediaRecorder rolling buffer
+  useEffect(() => {
+    if (typeof window === 'undefined' || !isActive || !audioStream) {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        try {
+          mediaRecorderRef.current.stop();
+        } catch {
+          // ignore
+        }
+      }
+      mediaRecorderRef.current = null;
+      audioChunksBufferRef.current = [];
+      return;
+    }
+
+    const audioTracks = audioStream.getAudioTracks();
+    if (audioTracks.length === 0 || !audioTracks[0].enabled) {
+      return;
+    }
+
+    try {
+      if (typeof MediaRecorder !== 'undefined') {
+        let mimeType = 'audio/webm';
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+          mimeType = 'audio/webm;codecs=opus';
+        } else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
+          mimeType = 'audio/ogg;codecs=opus';
+        }
+
+        const audioOnlyStream = new MediaStream([audioTracks[0]]);
+        const recorder = new MediaRecorder(audioOnlyStream, { mimeType });
+
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) {
+            audioChunksBufferRef.current.push(e.data);
+            // Maintain a rolling buffer of the last 6 chunks (approx 6 seconds) when not saving an incident
+            if (!isRecordingIncidentRef.current && audioChunksBufferRef.current.length > 6) {
+              audioChunksBufferRef.current.shift();
+            }
+          }
+        };
+
+        recorder.start(1000); // 1-second chunks
+        mediaRecorderRef.current = recorder;
+      }
+    } catch (recErr) {
+      console.warn('[AudioVAD] MediaRecorder initialization warning:', recErr);
+    }
+
+    return () => {
+      if (recordingTimeoutRef.current) {
+        clearTimeout(recordingTimeoutRef.current);
+        recordingTimeoutRef.current = null;
+      }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        try {
+          mediaRecorderRef.current.stop();
+        } catch {
+          // ignore
+        }
+      }
+      mediaRecorderRef.current = null;
+      audioChunksBufferRef.current = [];
+      isRecordingIncidentRef.current = false;
+    };
+  }, [isActive, audioStream]);
+
+  // AudioContext & AnalyserNode VAD processor
   useEffect(() => {
     if (!isActive || !audioStream) {
       if (animationFrameRef.current) {

@@ -220,6 +220,8 @@ class AttemptMonitoringResponse(BaseModel):
     integrity_status: Optional[str] = "PENDING_REVIEW"
     evaluated_score: Optional[float] = None
     max_possible_score: Optional[float] = None
+    appeal_status: Optional[str] = None
+    appeal_reason: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -362,6 +364,23 @@ class FacultyAppealDecisionResponse(BaseModel):
     appeal_status: str
     publication_status: str
     integrity_status: str
+
+
+class FacultyAppealItem(BaseModel):
+    attempt_id: str
+    exam_id: str
+    exam_title: str
+    attempt_number: int = 1
+    student: GradebookStudentInfo
+    disqualification_reason: Optional[str] = None
+    disqualification_evidence: Optional[str] = None
+    appeal_status: str
+    appeal_reason: Optional[str] = None
+    appeal_submitted_at: Optional[datetime] = None
+    appeal_resolution_notes: Optional[str] = None
+    disqualified_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ManualGradeRequest(BaseModel):

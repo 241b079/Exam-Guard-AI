@@ -161,6 +161,57 @@ class ExamService:
         return ExamService._to_response(exam)
 
     @staticmethod
+    async def publish_all_results(db: AsyncSession, exam_id: str, faculty_id: str, is_admin: bool = False) -> dict:
+        from app.features.attempts.models import ExamAttempt, AttemptStatus
+        from app.features.proctoring.notification_service import NotificationService
+
+        exam = await ExamService.get_by_id(db, exam_id)
+        if not exam:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exam not found")
+        if exam.created_by_id != faculty_id and not is_admin:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to publish results for this exam")
+
+        result = await db.execute(
+            select(ExamAttempt).where(
+                ExamAttempt.exam_id == exam_id,
+                ExamAttempt.status == AttemptStatus.SUBMITTED
+            )
+        )
+        attempts = result.scalars().all()
+        now = datetime.now(timezone.utc)
+        published_count = 0
+
+        for att in attempts:
+            if att.integrity_status == "DISQUALIFIED" or att.publication_status == "DISQUALIFIED":
+                continue
+            if att.publication_status != "PUBLISHED":
+                att.publication_status = "PUBLISHED"
+                att.published_at = now
+                att.published_by_id = faculty_id
+                published_count += 1
+                try:
+                    await NotificationService.create_notification(
+                        db=db,
+                        user_id=att.student_id,
+                        notif_type="RESULT_PUBLISHED",
+                        title=f"Result Published: {exam.title}",
+                        message=f"Your examination result for {exam.title} has been officially authorized and released by faculty.",
+                        exam_id=exam.id,
+                        exam_attempt_id=att.id
+                    )
+                except Exception:
+                    pass
+
+        await db.commit()
+        return {
+            "success": True,
+            "exam_id": exam_id,
+            "published_count": published_count,
+            "total_submissions": len(attempts),
+            "message": f"Successfully published results for {published_count} student(s)."
+        }
+
+    @staticmethod
     async def get_all_exams_admin(db: AsyncSession) -> List[dict]:
         result = await db.execute(
             select(Exam)

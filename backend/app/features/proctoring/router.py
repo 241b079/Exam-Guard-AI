@@ -257,16 +257,35 @@ async def get_proctoring_evidence_file(
             # If token is malformed, still allow by UUID for faculty image rendering
             pass
 
-    media_type = (
-        "video/webm" if abs_path.endswith(".webm")
-        else ("video/mp4" if abs_path.endswith(".mp4") else "image/jpeg")
+    lower_path = abs_path.lower()
+    is_audio = (
+        (ev.metadata_json and ev.metadata_json.get("media_type") == "audio")
+        or ev.event_type in ("VOICE_DETECTED", "MULTIPLE_VOICES_DETECTED")
     )
+    if is_audio:
+        media_type = "audio/wav" if lower_path.endswith(".wav") else "audio/webm"
+    elif lower_path.endswith(".webm"):
+        media_type = "video/webm"
+    elif lower_path.endswith(".mp4"):
+        media_type = "video/mp4"
+    elif lower_path.endswith(".wav"):
+        media_type = "audio/wav"
+    elif lower_path.endswith(".mp3"):
+        media_type = "audio/mpeg"
+    elif lower_path.endswith(".ogg") or lower_path.endswith(".oga"):
+        media_type = "audio/ogg"
+    else:
+        media_type = "image/jpeg"
+
     return FileResponse(
         abs_path,
         media_type=media_type,
         content_disposition_type="inline",
         filename=os.path.basename(abs_path),
-        headers={"Cache-Control": "private, max-age=86400"}
+        headers={
+            "Cache-Control": "private, max-age=86400",
+            "Accept-Ranges": "bytes"
+        }
     )
 
 
@@ -364,6 +383,7 @@ from app.features.proctoring.models import (
     FacultyAlert,
     ExaminationInvestigation,
     ProctoringIncident,
+    DisqualificationRecord,
 )
 from app.features.proctoring.risk_engine import RiskScoringEngine
 from app.features.proctoring.investigation import PostExaminationInvestigationService
@@ -530,7 +550,7 @@ async def list_exam_investigations(
     return resp
 
 
-def _map_investigation_to_response(inv) -> ExaminationInvestigationResponse:
+def _map_investigation_to_response(inv, disq_rec: Optional[DisqualificationRecord] = None) -> ExaminationInvestigationResponse:
     student = inv.student
     roll = None
     if student:
@@ -596,9 +616,20 @@ def _map_investigation_to_response(inv) -> ExaminationInvestigationResponse:
         publication_status="DISQUALIFIED" if (inv.investigation_status == "DISQUALIFIED" or (attempt and (getattr(attempt, "integrity_status", "") == "DISQUALIFIED" or getattr(attempt, "publication_status", "") == "DISQUALIFIED"))) else (getattr(attempt, "publication_status", "UNPUBLISHED") if attempt else "UNPUBLISHED"),
         evaluated_score=0.0 if (inv.investigation_status == "DISQUALIFIED" or (attempt and (getattr(attempt, "integrity_status", "") == "DISQUALIFIED" or getattr(attempt, "publication_status", "") == "DISQUALIFIED"))) else (getattr(attempt, "total_score", None) if attempt else None),
         max_possible_score=getattr(attempt, "max_possible_score", None) if attempt else None,
+        appeal_status=getattr(disq_rec, "appeal_status", None) if disq_rec else None,
+        appeal_reason=getattr(disq_rec, "appeal_reason", None) if disq_rec else None,
+        appeal_submitted_at=getattr(disq_rec, "appeal_submitted_at", None) if disq_rec else None,
+        appeal_resolution_notes=getattr(disq_rec, "appeal_resolution_notes", None) if disq_rec else None,
         generated_at=inv.generated_at,
         updated_at=inv.updated_at,
     )
+
+
+async def _load_disqualification_record(db: AsyncSession, attempt_id: str) -> Optional[DisqualificationRecord]:
+    res = await db.execute(
+        select(DisqualificationRecord).where(DisqualificationRecord.exam_attempt_id == attempt_id)
+    )
+    return res.scalar_one_or_none()
 
 
 @router.get("/investigations/{exam_id}/attempt/{attempt_id}", response_model=ExaminationInvestigationResponse)
@@ -613,7 +644,8 @@ async def get_attempt_investigation(
     AI explanations, evidence links, and score breakdown.
     """
     inv = await PostExaminationInvestigationService.generate_investigation_report(db, attempt_id)
-    return _map_investigation_to_response(inv)
+    disq_rec = await _load_disqualification_record(db, attempt_id)
+    return _map_investigation_to_response(inv, disq_rec=disq_rec)
 
 
 @router.get("/investigations/{attempt_id}", response_model=ExaminationInvestigationResponse)
@@ -627,7 +659,8 @@ async def get_investigation_report(
     AI explanations, evidence links, and score breakdown.
     """
     inv = await PostExaminationInvestigationService.generate_investigation_report(db, attempt_id)
-    return _map_investigation_to_response(inv)
+    disq_rec = await _load_disqualification_record(db, attempt_id)
+    return _map_investigation_to_response(inv, disq_rec=disq_rec)
 
 
 @router.post("/investigations/{attempt_id}/incident/{incident_id}/review")
@@ -693,7 +726,8 @@ async def submit_faculty_investigation_decision(
         incident_reviews=req.incident_reviews,
         publish_result=req.publish_result or False,
     )
-    return _map_investigation_to_response(inv)
+    disq_rec = await _load_disqualification_record(db, attempt_id)
+    return _map_investigation_to_response(inv, disq_rec=disq_rec)
 
 
 @router.post("/attempts/{attempt_id}/publish-result")
@@ -856,6 +890,109 @@ async def upload_proctoring_evidence(
     db.add(ev)
     await db.commit()
     await db.refresh(ev)
+
+    return {
+        "event_id": ev.id,
+        "evidence_path": rel_path,
+        "evidence_url": f"/api/v1/proctoring/evidence/{ev.id}",
+        "trigger_event": event_type,
+        "status": "ARCHIVED"
+    }
+
+
+@router.post("/audio-evidence")
+async def upload_audio_evidence(
+    exam_id: str = Form(...),
+    attempt_id: str = Form(...),
+    file: UploadFile = File(...),
+    trigger_event: Optional[str] = Form("VOICE_DETECTED"),
+    metadata_json: Optional[str] = Form(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.STUDENT]))
+):
+    """
+    Candidate Voice Audio Evidence Ingestion:
+    Accepts recorded voice audio clips (webm/wav/mp3) captured during sustained room speech
+    and archives them into the candidate's forensic proctoring timeline.
+    """
+    import uuid
+    import json
+    from datetime import datetime, timezone
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty audio evidence file")
+
+    now = datetime.now(timezone.utc)
+    filename_lower = (file.filename or "").lower()
+    ext = "wav" if filename_lower.endswith(".wav") else ("mp3" if filename_lower.endswith(".mp3") else "webm")
+
+    rel_path = ProctoringService.save_evidence_clip(
+        exam_id=exam_id,
+        student_id=current_user.id,
+        event_type=trigger_event or "VOICE_DETECTED",
+        clip_bytes=content,
+        ext=ext,
+        timestamp=now
+    )
+
+    parsed_meta = {}
+    if metadata_json:
+        try:
+            parsed_meta = json.loads(metadata_json)
+        except Exception:
+            parsed_meta = {"raw": metadata_json}
+
+    parsed_meta["source"] = "audio_vad_recorder"
+    parsed_meta["media_type"] = "audio"
+    parsed_meta["trigger_event"] = trigger_event or "VOICE_DETECTED"
+    parsed_meta["format"] = ext
+
+    decibels = parsed_meta.get("decibels", 0)
+    sustained_ms = parsed_meta.get("sustainedDurationMs", 0)
+    dur_s = round(sustained_ms / 1000.0, 1) if sustained_ms else 2.5
+
+    ev_id = str(uuid.uuid4())
+    ev = ProctoringEvent(
+        id=ev_id,
+        exam_id=exam_id,
+        exam_attempt_id=attempt_id,
+        student_id=current_user.id,
+        event_type=trigger_event or "VOICE_DETECTED",
+        severity=EventSeverity.HIGH.value if (decibels and decibels > -32) else EventSeverity.MEDIUM.value,
+        review_status=EventReviewStatus.PENDING.value,
+        detected_at=now,
+        started_at=now,
+        ended_at=now,
+        duration=dur_s,
+        confidence=0.92,
+        face_count=1,
+        expected_identity=current_user.name,
+        detected_identity_status="VOICE_RECORDED",
+        evidence_path=rel_path,
+        incident_id=str(uuid.uuid4()),
+        ai_explanation=f"Acoustic speech recorded in room ({round(decibels)} dB, sustained {dur_s}s). Audio snippet archived for review.",
+        metadata_json=parsed_meta
+    )
+    db.add(ev)
+    await db.commit()
+    await db.refresh(ev)
+
+    # Broadcast live voice audio evidence event to faculty monitor
+    try:
+        await signaling_manager.broadcast_violation(exam_id, {
+            "id": ev.id,
+            "student_id": current_user.id,
+            "exam_attempt_id": attempt_id,
+            "violation_type": trigger_event or "VOICE_DETECTED",
+            "trigger_event": trigger_event or "VOICE_DETECTED",
+            "timestamp": now.isoformat(),
+            "evidence_url": f"/api/v1/proctoring/evidence/{ev.id}",
+            "student_name": current_user.name,
+            "metadata": parsed_meta,
+        })
+    except Exception as b_err:
+        logger.debug(f"Broadcast audio evidence error: {b_err}")
 
     return {
         "event_id": ev.id,

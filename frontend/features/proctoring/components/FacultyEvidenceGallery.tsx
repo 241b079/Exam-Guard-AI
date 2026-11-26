@@ -1334,36 +1334,57 @@ export function FacultyEvidenceGallery({
               <div className="lg:col-span-2 space-y-2">
                 <div className="relative aspect-video w-full rounded-2xl bg-stone-950 overflow-hidden border border-stone-800 flex items-center justify-center">
                   {inspectingEvent.evidence_url && !failedImageIds[inspectingEvent.id] ? (
-                    <>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={continuousProctoringService.getEvidenceImageUrl(inspectingEvent.id)}
-                        alt="Proctoring visual evidence"
-                        className="w-full h-full object-contain"
-                        onError={() =>
-                          setFailedImageIds((prev) => ({ ...prev, [inspectingEvent.id]: true }))
-                        }
-                      />
-                      {inspectingEvent.metadata_json?.bounding_box && (
-                        <div
-                          className="absolute border-2 border-rose-500 bg-rose-500/20 rounded pointer-events-none transition-all shadow-[0_0_12px_rgba(244,63,94,0.6)]"
-                          style={{
-                            left: `${Math.max(0, Math.min(95, (inspectingEvent.metadata_json.bounding_box[0] / 640) * 100))}%`,
-                            top: `${Math.max(0, Math.min(95, (inspectingEvent.metadata_json.bounding_box[1] / 480) * 100))}%`,
-                            width: `${Math.min(100, (inspectingEvent.metadata_json.bounding_box[2] / 640) * 100)}%`,
-                            height: `${Math.min(100, (inspectingEvent.metadata_json.bounding_box[3] / 480) * 100)}%`,
-                          }}
-                        >
-                          <span className="absolute -top-6 left-0 bg-rose-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow whitespace-nowrap">
-                            📱 {formatObjectName(
-                              inspectingEvent.metadata_json.detected_object_name ||
-                              inspectingEvent.metadata_json.primary_object ||
-                              inspectingEvent.detected_identity_status
-                            )}
-                          </span>
+                    inspectingEvent.metadata_json?.media_type === 'audio' || inspectingEvent.event_type.includes('VOICE') ? (
+                      <div className="p-8 w-full flex flex-col items-center justify-center space-y-4">
+                        <div className="w-16 h-16 rounded-full bg-amber-500/20 border border-amber-500/40 flex items-center justify-center">
+                          <Volume2 className="w-8 h-8 text-amber-400 animate-pulse" />
                         </div>
-                      )}
-                    </>
+                        <div className="text-center space-y-1">
+                          <p className="text-sm font-bold text-white">Recorded Room Voice Evidence Clip</p>
+                          <p className="text-xs text-stone-400">
+                            Acoustic voice activity recorded ({inspectingEvent.metadata_json?.decibels ?? -35} dB, sustained {inspectingEvent.duration || 2.5}s)
+                          </p>
+                        </div>
+                        <audio
+                          controls
+                          className="w-full max-w-md mt-2"
+                          src={continuousProctoringService.getEvidenceImageUrl(inspectingEvent.id)}
+                        >
+                          Your browser does not support audio playback.
+                        </audio>
+                      </div>
+                    ) : (
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={continuousProctoringService.getEvidenceImageUrl(inspectingEvent.id)}
+                          alt="Proctoring visual evidence"
+                          className="w-full h-full object-contain"
+                          onError={() =>
+                            setFailedImageIds((prev) => ({ ...prev, [inspectingEvent.id]: true }))
+                          }
+                        />
+                        {inspectingEvent.metadata_json?.bounding_box && (
+                          <div
+                            className="absolute border-2 border-rose-500 bg-rose-500/20 rounded pointer-events-none transition-all shadow-[0_0_12px_rgba(244,63,94,0.6)]"
+                            style={{
+                              left: `${Math.max(0, Math.min(95, (inspectingEvent.metadata_json.bounding_box[0] / 640) * 100))}%`,
+                              top: `${Math.max(0, Math.min(95, (inspectingEvent.metadata_json.bounding_box[1] / 480) * 100))}%`,
+                              width: `${Math.min(100, (inspectingEvent.metadata_json.bounding_box[2] / 640) * 100)}%`,
+                              height: `${Math.min(100, (inspectingEvent.metadata_json.bounding_box[3] / 480) * 100)}%`,
+                            }}
+                          >
+                            <span className="absolute -top-6 left-0 bg-rose-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow whitespace-nowrap">
+                              📱 {formatObjectName(
+                                inspectingEvent.metadata_json.detected_object_name ||
+                                inspectingEvent.metadata_json.primary_object ||
+                                inspectingEvent.detected_identity_status
+                              )}
+                            </span>
+                          </div>
+                        )}
+                      </>
+                    )
                   ) : (
                     <div className="text-center p-6 text-stone-500 space-y-2">
                       <Camera className="w-10 h-10 mx-auto opacity-30 text-stone-400" />

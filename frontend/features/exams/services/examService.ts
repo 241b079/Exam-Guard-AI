@@ -36,6 +36,15 @@ export const examService = {
     });
   },
 
+  async publishAllResults(examId: string): Promise<{ success: boolean; published_count: number; total_submissions: number; message: string }> {
+    return fetchApi<{ success: boolean; published_count: number; total_submissions: number; message: string }>(
+      `/api/v1/exams/${examId}/publish-results`,
+      {
+        method: 'POST',
+      }
+    );
+  },
+
   async getReexamPermissions(examId: string): Promise<import('../types').ReexamPermissionResponse[]> {
     return fetchApi<import('../types').ReexamPermissionResponse[]>(`/api/v1/exams/${examId}/reexam-permissions`);
   },

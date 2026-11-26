@@ -161,6 +161,10 @@ export interface ExaminationInvestigationResponse {
   publication_status?: string | null;
   evaluated_score?: number | null;
   max_possible_score?: number | null;
+  appeal_status?: string | null;
+  appeal_reason?: string | null;
+  appeal_submitted_at?: string | null;
+  appeal_resolution_notes?: string | null;
   confirmed_incidents_count?: number;
   suspicious_incidents_count?: number;
   inconclusive_incidents_count?: number;
@@ -247,6 +251,34 @@ export const continuousProctoringService = {
 
     return fetchApi<{ event_id: string; evidence_url: string; trigger_event: string; status: string }>(
       '/api/v1/proctoring/screen-snapshot',
+      {
+        method: 'POST',
+        body: formData,
+      }
+    );
+  },
+
+  /**
+   * Ingests a voice audio snippet evidence capture from sustained candidate room speech
+   */
+  async uploadAudioEvidence(
+    examId: string,
+    attemptId: string,
+    audioBlob: Blob,
+    triggerEvent: string = 'VOICE_DETECTED',
+    metadata?: Record<string, any>
+  ): Promise<{ event_id: string; evidence_url: string; trigger_event: string; status: string }> {
+    const formData = new FormData();
+    formData.append('exam_id', examId);
+    formData.append('attempt_id', attemptId);
+    formData.append('file', audioBlob, 'voice_evidence.webm');
+    formData.append('trigger_event', triggerEvent);
+    if (metadata) {
+      formData.append('metadata_json', JSON.stringify(metadata));
+    }
+
+    return fetchApi<{ event_id: string; evidence_url: string; trigger_event: string; status: string }>(
+      '/api/v1/proctoring/audio-evidence',
       {
         method: 'POST',
         body: formData,

@@ -395,11 +395,17 @@ export default function StudentExamHistoryPage() {
                       )}
                     </div>
 
-                    <Link href={`/student/exams/${item.exam_id}/result?attemptId=${item.attempt_id}`}>
-                      <Button variant="outline" size="sm" className="gap-1.5 text-xs font-semibold">
-                        View Detailed Score Report <ArrowRight className="w-3.5 h-3.5" />
-                      </Button>
-                    </Link>
+                    {isPub || isDisq ? (
+                      <Link href={`/student/exams/${item.exam_id}/result?attemptId=${item.attempt_id}`}>
+                        <Button variant="outline" size="sm" className="gap-1.5 text-xs font-semibold">
+                          View Detailed Score Report <ArrowRight className="w-3.5 h-3.5" />
+                        </Button>
+                      </Link>
+                    ) : (
+                      <span className="text-xs text-stone-400 italic flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5" /> Detailed report available after publication
+                      </span>
+                    )}
                   </div>
                 </div>
               );

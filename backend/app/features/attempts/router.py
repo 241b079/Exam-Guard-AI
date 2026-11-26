@@ -35,6 +35,7 @@ from app.features.attempts.schemas import (
     StudentAppealResponse,
     FacultyAppealDecisionRequest,
     FacultyAppealDecisionResponse,
+    FacultyAppealItem,
 )
 from app.features.attempts.service import AttemptService
 from app.features.proctoring.signaling import signaling_manager
@@ -272,6 +273,19 @@ async def submit_student_appeal(
     return await AttemptService.submit_appeal(db, attempt_id=attempt_id, student_id=current_user.id, reason=payload.reason)
 
 
+@router.get("/faculty/appeals", response_model=List[FacultyAppealItem])
+async def list_faculty_appeals(
+    exam_id: Optional[str] = Query(None),
+    appeal_status: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN]))
+):
+    """List student academic integrity appeals for faculty/admin, ordered most recent first."""
+    return await AttemptService.get_faculty_appeals(
+        db, current_user=current_user, exam_id=exam_id, appeal_status=appeal_status
+    )
+
+
 @router.post("/faculty/attempts/{attempt_id}/appeal/decision", response_model=FacultyAppealDecisionResponse)
 async def decide_student_appeal(
     attempt_id: str,
@@ -374,6 +388,16 @@ async def publish_attempt_result_alias(
         exam_attempt_id=attempt.id
     )
     return {"message": "Result successfully published", "attempt_id": attempt.id, "publication_status": "PUBLISHED", "published_at": now.isoformat()}
+
+
+@router.post("/exams/{exam_id}/publish-all-results")
+async def publish_all_results_attempt_alias(
+    exam_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN])),
+):
+    is_admin = current_user.role == UserRole.ADMIN
+    return await ExamService.publish_all_results(db, exam_id, faculty_id=current_user.id, is_admin=is_admin)
 
 
 @router.post("/attempts/{attempt_id}/hold-result")

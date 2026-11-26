@@ -458,6 +458,18 @@ export default function StudentExamResultPage() {
               </p>
             </div>
           </div>
+        ) : !isPublished ? (
+          <div className="p-8 bg-white rounded-3xl border border-[#EBE5DC] text-center space-y-3 shadow-warm print-card">
+            <div className="w-12 h-12 rounded-full bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center mx-auto">
+              <Clock className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-bold font-serif text-stone-900">
+              Detailed Responses & Answer Breakdown Withheld
+            </h3>
+            <p className="text-xs text-stone-600 max-w-md mx-auto leading-relaxed">
+              Your responses have been securely recorded. Question details, submitted answers, and answer keys are hidden while your examination is pending faculty review and publication.
+            </p>
+          </div>
         ) : (
           <div className="space-y-4 pt-2">
             <div className="flex items-center justify-between">
@@ -571,9 +583,11 @@ export default function StudentExamResultPage() {
 
         {/* Action Button (Hidden in Print) */}
         <div className="text-center pt-4 pb-8 no-print flex justify-center gap-3">
-          <Button variant="outline" size="lg" onClick={handlePrint} className="gap-2 shadow-warm">
-            <Printer className="w-4 h-4 text-[#C25E1A]" /> Print / Save as PDF
-          </Button>
+          {isPublished && (
+            <Button variant="outline" size="lg" onClick={handlePrint} className="gap-2 shadow-warm">
+              <Printer className="w-4 h-4 text-[#C25E1A]" /> Print / Save as PDF
+            </Button>
+          )}
           <Link href="/student/dashboard">
             <Button variant="primary" size="lg" className="gap-2 shadow-warm">
               <BookOpen className="w-4 h-4" /> Go to Dashboard

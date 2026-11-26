@@ -22,10 +22,13 @@ import {
   Copy,
   Check,
   Monitor,
+  Volume2,
+  Mic,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { getApiUrl } from '@/lib/api';
+import { attemptService } from '@/features/attempts/services/attemptService';
 import {
   continuousProctoringService,
   ExaminationInvestigationResponse,
@@ -60,9 +63,16 @@ export function PostExamInvestigationModal({
   const [decisionError, setDecisionError] = useState<string | null>(null);
   const [isPublishingResult, setIsPublishingResult] = useState<boolean>(false);
 
+  // Appeal adjudication state
+  const [appealNotes, setAppealNotes] = useState<string>('');
+  const [isDecidingAppeal, setIsDecidingAppeal] = useState<boolean>(false);
+  const [appealError, setAppealError] = useState<string | null>(null);
+
   // Incident review state
   const [reviewingIncidentId, setReviewingIncidentId] = useState<string | null>(null);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [previewAudioUrl, setPreviewAudioUrl] = useState<string | null>(null);
+  const [previewAudioMeta, setPreviewAudioMeta] = useState<any>(null);
   const [copiedHash, setCopiedHash] = useState(false);
 
   const handleCopyHash = (hash: string) => {
@@ -117,6 +127,8 @@ export function PostExamInvestigationModal({
       setError(null);
       setDecisionError(null);
       setPreviewImageUrl(null);
+      setPreviewAudioUrl(null);
+      setPreviewAudioMeta(null);
     }
   }, [isOpen, loadInvestigation]);
 
@@ -194,6 +206,27 @@ export function PostExamInvestigationModal({
       alert(err?.message || 'Failed to publish result.');
     } finally {
       setIsPublishingResult(false);
+    }
+  };
+
+  const handleDecideAppeal = async (appealDecision: 'APPROVED' | 'REJECTED') => {
+    setAppealError(null);
+    const confirmMsg =
+      appealDecision === 'APPROVED'
+        ? 'Approve this student appeal? This will clear the disqualification and restore the attempt for grading/publication.'
+        : 'Reject this student appeal? The disqualification decision will remain final.';
+    if (!window.confirm(confirmMsg)) return;
+
+    setIsDecidingAppeal(true);
+    try {
+      await attemptService.decideAppeal(attemptId, appealDecision, appealNotes.trim() || undefined);
+      setAppealNotes('');
+      await loadInvestigation();
+      onDecisionApplied?.();
+    } catch (err: any) {
+      setAppealError(err?.message || 'Failed to record appeal decision.');
+    } finally {
+      setIsDecidingAppeal(false);
     }
   };
 
@@ -653,35 +686,56 @@ export function PostExamInvestigationModal({
 
                             {/* Actions & Evidence */}
                             <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
-                              {(inc.evidence_url || (inc as any).primary_evidence_url) && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const rawUrl = inc.evidence_url || (inc as any).primary_evidence_url;
-                                    const targetUrl = rawUrl.startsWith('http') || rawUrl.startsWith('/')
-                                      ? (rawUrl.startsWith('/') ? `${getApiUrl()}${rawUrl}` : rawUrl)
-                                      : continuousProctoringService.getEvidenceImageUrl(rawUrl);
-                                    setPreviewImageUrl(targetUrl);
-                                  }}
-                                  className={`text-[11px] font-bold flex items-center gap-1 px-2.5 py-1 rounded-xl border ${
-                                    inc.incident_type === 'SCREEN_SNAPSHOT'
-                                      ? 'text-blue-700 hover:text-blue-800 bg-blue-50 border-blue-200'
-                                      : 'text-red-600 hover:text-red-700 bg-red-50 border-red-100'
-                                  }`}
-                                >
-                                  {inc.incident_type === 'SCREEN_SNAPSHOT' ? (
-                                    <>
-                                      <Monitor className="w-3.5 h-3.5" />
-                                      <span>View Screen</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Camera className="w-3.5 h-3.5" />
-                                      <span>View Snapshot</span>
-                                    </>
-                                  )}
-                                </button>
-                              )}
+                              {(inc.evidence_url || (inc as any).primary_evidence_url) && (() => {
+                                const isAudio = inc.incident_type === 'VOICE_DETECTED' || inc.incident_type === 'MULTIPLE_VOICES_DETECTED' || (inc as any).metadata?.media_type === 'audio';
+                                const isScreen = inc.incident_type === 'SCREEN_SNAPSHOT';
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const rawUrl = inc.evidence_url || (inc as any).primary_evidence_url;
+                                      const targetUrl = rawUrl.startsWith('http') || rawUrl.startsWith('/')
+                                        ? (rawUrl.startsWith('/') ? `${getApiUrl()}${rawUrl}` : rawUrl)
+                                        : continuousProctoringService.getEvidenceImageUrl(rawUrl);
+
+                                      if (isAudio) {
+                                        setPreviewAudioUrl(targetUrl);
+                                        setPreviewAudioMeta({
+                                          explanation: inc.ai_explanation,
+                                          time: inc.started_at ? new Date(inc.started_at).toLocaleTimeString() : '',
+                                          metadata: (inc as any).metadata,
+                                        });
+                                      } else {
+                                        setPreviewImageUrl(targetUrl);
+                                      }
+                                    }}
+                                    className={`text-[11px] font-bold flex items-center gap-1 px-2.5 py-1 rounded-xl border ${
+                                      isScreen
+                                        ? 'text-blue-700 hover:text-blue-800 bg-blue-50 border-blue-200'
+                                        : isAudio
+                                        ? 'text-amber-800 hover:text-amber-900 bg-amber-50 border-amber-200 shadow-warm-sm'
+                                        : 'text-red-600 hover:text-red-700 bg-red-50 border-red-100'
+                                    }`}
+                                  >
+                                    {isScreen ? (
+                                      <>
+                                        <Monitor className="w-3.5 h-3.5" />
+                                        <span>View Screen</span>
+                                      </>
+                                    ) : isAudio ? (
+                                      <>
+                                        <Volume2 className="w-3.5 h-3.5 text-amber-700" />
+                                        <span>Listen to Audio</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Camera className="w-3.5 h-3.5" />
+                                        <span>View Snapshot</span>
+                                      </>
+                                    )}
+                                  </button>
+                                );
+                              })()}
 
                               <div className="flex items-center gap-1.5 mt-1">
                                 {!isFalsePositive && (
@@ -716,6 +770,100 @@ export function PostExamInvestigationModal({
                   </div>
                 )}
               </div>
+
+              {/* Student Appeal Review Section */}
+              {investigation.appeal_status && investigation.appeal_status !== 'NONE' && (
+                <div className="bg-amber-50/70 rounded-2xl border border-amber-200 p-5 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <ShieldAlert className="w-4 h-4 text-amber-700" />
+                      <h3 className="text-sm font-bold font-serif text-stone-900">
+                        Student Academic Integrity Appeal
+                      </h3>
+                      <Badge
+                        variant={
+                          investigation.appeal_status === 'APPROVED'
+                            ? 'success'
+                            : investigation.appeal_status === 'REJECTED'
+                            ? 'danger'
+                            : 'warning'
+                        }
+                        className="text-[10px]"
+                      >
+                        {investigation.appeal_status === 'PENDING_REVIEW'
+                          ? 'PENDING REVIEW'
+                          : investigation.appeal_status}
+                      </Badge>
+                    </div>
+                    {investigation.appeal_submitted_at && (
+                      <span className="text-[11px] text-stone-500">
+                        Submitted: {new Date(investigation.appeal_submitted_at).toLocaleString()}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-white border border-amber-200/80 space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-amber-800 block">
+                      Candidate Appeal Statement
+                    </span>
+                    <p className="text-xs text-stone-800 leading-relaxed whitespace-pre-wrap">
+                      {investigation.appeal_reason || 'No appeal message provided.'}
+                    </p>
+                  </div>
+
+                  {investigation.appeal_resolution_notes && (
+                    <div className="p-3 rounded-xl bg-stone-50 border border-stone-200 text-xs text-stone-700">
+                      <span className="font-semibold text-stone-900">Resolution Notes: </span>
+                      {investigation.appeal_resolution_notes}
+                    </div>
+                  )}
+
+                  {appealError && (
+                    <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs">
+                      {appealError}
+                    </div>
+                  )}
+
+                  {investigation.appeal_status === 'PENDING_REVIEW' && (
+                    <div className="space-y-3 pt-1 border-t border-amber-200/70">
+                      <div>
+                        <label className="block text-xs font-bold text-stone-700 mb-1">
+                          Committee Resolution Notes (Optional)
+                        </label>
+                        <input
+                          type="text"
+                          value={appealNotes}
+                          onChange={(e) => setAppealNotes(e.target.value)}
+                          placeholder="e.g. Verified room audio and webcam footage; technical glitch confirmed..."
+                          className="w-full text-xs bg-white border border-[#EBE5DC] rounded-xl px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                        />
+                      </div>
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          onClick={() => handleDecideAppeal('REJECTED')}
+                          disabled={isDecidingAppeal}
+                          className="text-xs gap-1.5"
+                        >
+                          <XCircle className="w-3.5 h-3.5" />
+                          {isDecidingAppeal ? 'Processing...' : 'Reject Appeal'}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          onClick={() => handleDecideAppeal('APPROVED')}
+                          disabled={isDecidingAppeal}
+                          className="text-xs gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white"
+                        >
+                          <CheckCircle className="w-3.5 h-3.5" />
+                          {isDecidingAppeal ? 'Processing...' : 'Approve Appeal & Clear Disqualification'}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Faculty Final Adjudication Section */}
               <div className="p-5 rounded-2xl bg-stone-50 border border-[#EBE5DC] space-y-4">
@@ -887,6 +1035,50 @@ export function PostExamInvestigationModal({
               </div>
               <div className="text-right">
                 <Button size="sm" variant="outline" onClick={() => setPreviewImageUrl(null)}>
+                  Close
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal for listening to recorded voice audio evidence */}
+        {previewAudioUrl && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/80 backdrop-blur-sm">
+            <div className="bg-white p-6 rounded-3xl max-w-lg w-full space-y-4 shadow-2xl border border-stone-200">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-stone-900 flex items-center gap-2">
+                  <Volume2 className="w-4 h-4 text-amber-600" />
+                  <span>Captured Voice Audio Evidence Snippet</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPreviewAudioUrl(null)}
+                  className="text-stone-400 hover:text-stone-600 text-sm font-bold"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="p-4 bg-amber-50/70 rounded-2xl border border-amber-200 space-y-3">
+                <div className="flex items-center justify-between text-xs text-amber-950 font-medium">
+                  <span>{previewAudioMeta?.explanation || 'Acoustic room speech recorded'}</span>
+                  {previewAudioMeta?.time && (
+                    <span className="text-[11px] text-stone-400 font-mono">{previewAudioMeta.time}</span>
+                  )}
+                </div>
+                <div className="bg-white/80 p-3 rounded-xl border border-amber-200/60">
+                  <audio
+                    controls
+                    autoPlay
+                    className="w-full"
+                    src={previewAudioUrl}
+                  >
+                    Your browser does not support the audio element.
+                  </audio>
+                </div>
+              </div>
+              <div className="text-right">
+                <Button size="sm" variant="outline" onClick={() => setPreviewAudioUrl(null)}>
                   Close
                 </Button>
               </div>

@@ -184,6 +184,10 @@ class ExaminationInvestigationResponse(BaseModel):
     publication_status: Optional[str] = "UNPUBLISHED"
     evaluated_score: Optional[float] = None
     max_possible_score: Optional[float] = None
+    appeal_status: Optional[str] = None
+    appeal_reason: Optional[str] = None
+    appeal_submitted_at: Optional[datetime] = None
+    appeal_resolution_notes: Optional[str] = None
     generated_at: datetime
     updated_at: datetime
 

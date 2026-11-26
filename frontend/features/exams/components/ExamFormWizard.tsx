@@ -30,6 +30,7 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
   const [negativeMarking, setNegativeMarking] = useState<NegativeMarkingType>(initialData?.negative_marking || 'NONE');
   const [autoSubmit, setAutoSubmit] = useState<boolean>(initialData?.auto_submit ?? true);
   const [displayCountdown, setDisplayCountdown] = useState<boolean>(initialData?.display_countdown ?? true);
+  const [autoPublishResults, setAutoPublishResults] = useState<boolean>(initialData?.auto_publish_results ?? false);
 
   const [attemptPolicy, setAttemptPolicy] = useState<AttemptPolicyType>(initialData?.attempt_policy || 'ONE_ATTEMPT');
   const [maxAttempts, setMaxAttempts] = useState<number>(initialData?.max_attempts || 1);
@@ -74,6 +75,7 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
       negative_marking: negativeMarking,
       auto_submit: autoSubmit,
       display_countdown: displayCountdown,
+      auto_publish_results: autoPublishResults,
       attempt_policy: attemptPolicy,
       max_attempts: attemptPolicy === 'LIMITED_ATTEMPTS' ? maxAttempts : (attemptPolicy === 'ONE_ATTEMPT' ? 1 : undefined),
       max_rejoins: maxRejoins,
@@ -239,6 +241,45 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
                   <input type="radio" checked={!displayCountdown} onChange={() => setDisplayCountdown(false)} className="accent-[#C25E1A]" /> No
                 </label>
               </div>
+            </div>
+          </div>
+
+          <div className="p-4 bg-[#FAF7F2] border border-[#EBE5DC] rounded-2xl space-y-2">
+            <label className="text-sm font-semibold text-stone-900 block">Exam Result Publication Timing</label>
+            <p className="text-xs text-stone-500">
+              Decide whether student scores are revealed immediately on submission or held until faculty manually clicks &quot;Publish Results&quot;.
+            </p>
+            <div className="space-y-2.5 pt-2 text-xs">
+              <label className="flex items-start gap-2.5 cursor-pointer font-medium text-stone-800">
+                <input
+                  type="radio"
+                  name="autoPublishResults"
+                  checked={!autoPublishResults}
+                  onChange={() => setAutoPublishResults(false)}
+                  className="accent-[#C25E1A] mt-0.5"
+                />
+                <div>
+                  <span className="font-semibold block text-stone-900">Manual Faculty Release (Recommended)</span>
+                  <span className="text-[11px] text-stone-500 block">
+                    Marks and score reports are kept private. Faculty reviews candidate proctoring and clicks &quot;Publish All Results&quot; when ready.
+                  </span>
+                </div>
+              </label>
+              <label className="flex items-start gap-2.5 cursor-pointer font-medium text-stone-800">
+                <input
+                  type="radio"
+                  name="autoPublishResults"
+                  checked={autoPublishResults}
+                  onChange={() => setAutoPublishResults(true)}
+                  className="accent-[#C25E1A] mt-0.5"
+                />
+                <div>
+                  <span className="font-semibold block text-stone-900">Immediate Publication on Submission</span>
+                  <span className="text-[11px] text-stone-500 block">
+                    Students immediately see their evaluated score and answers as soon as they submit their exam.
+                  </span>
+                </div>
+              </label>
             </div>
           </div>
 
@@ -495,6 +536,12 @@ export const ExamFormWizard: React.FC<ExamFormWizardProps> = ({ initialData, exa
                   : assignmentType === 'BATCH'
                   ? `Batches (${assignedBatches.join(', ') || 'None'})`
                   : 'Selected Students'}
+              </span>
+            </div>
+            <div>
+              <span className="text-xs text-stone-500 block uppercase font-semibold">Result Publication</span>
+              <span className="font-semibold text-stone-900">
+                {autoPublishResults ? 'Immediate on Submission' : 'Manual Release by Faculty'}
               </span>
             </div>
           </div>

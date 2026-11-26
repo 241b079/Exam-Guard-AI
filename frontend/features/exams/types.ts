@@ -23,6 +23,7 @@ export interface Exam {
   attempt_policy?: AttemptPolicyType;
   max_attempts?: number;
   max_rejoins?: number;
+  auto_publish_results?: boolean;
   created_by_id: string;
   question_count: number;
   created_at: string;
@@ -45,6 +46,7 @@ export interface CreateExamPayload {
   attempt_policy?: AttemptPolicyType;
   max_attempts?: number;
   max_rejoins?: number;
+  auto_publish_results?: boolean;
 }
 
 export type UpdateExamPayload = Partial<CreateExamPayload> & {

@@ -1,124 +1,23 @@
-# Cross-Device Online Testing Guide (WebRTC Proctoring via ngrok)
+# Cross-Device Proctoring Verification
 
-This guide explains how to test the **Student → Faculty Live Proctoring** flow across two different physical devices (e.g., student on a mobile phone or laptop, and faculty on another laptop or tablet) using a public HTTPS tunnel such as `ngrok`.
+Use two browsers on separate devices to check the student attempt, faculty monitor, and post-exam review. Use a disposable database and temporary evidence directories for these checks. Create a dedicated synthetic exam and dedicated test accounts in that environment. Follow the [repository testing rules](../AGENTS.md) for teardown and never use a genuine faculty exam for a simulated attempt.
 
----
+## Connect the devices
 
-## 1. Prerequisites
+1. Start the services and the frontend and backend using the [local setup](../README.md#run-locally).
+2. For a tunnel-based setup, expose the frontend and API separately over HTTPS, for example with `ngrok http 3000` and `ngrok http 8000` in separate terminals. Configure the frontend with `NEXT_PUBLIC_API_URL=https://<api-host>`. The client derives WSS from the HTTPS API URL unless `NEXT_PUBLIC_WS_URL` is set.
+3. Configure the backend's `CORS_ORIGINS` to include the exact frontend HTTPS origin for the test. Restart both applications after changing their environment files.
+4. Choose which transport to exercise. For LiveKit, set `LIVEKIT_URL` to a WSS endpoint reachable by both browsers, configure the matching server key and secret on the backend, and provide a reachable media path. The Compose default of `ws://localhost:7880` addresses the local device only. For a deliberate peer-to-peer run, use `SFU_ENABLED=false` and set `NEXT_PUBLIC_ICE_SERVERS` if the test network needs custom STUN or TURN configuration.
 
-1. Two physical devices connected to the internet (e.g. Laptop A and Mobile Phone / Laptop B).
-2. [ngrok](https://ngrok.com/) installed on the development machine hosting the servers.
-3. PostgreSQL and Redis running locally or via Docker.
+## Walk through the exam
 
----
+| Step | Action | What to record |
+| --- | --- | --- |
+| Author and publish | As test faculty, publish the isolated exam and open its monitor. | Exam schedule and assignment, faculty signaling status, and transport selected. |
+| Start | As the test student, complete the profile photo, pre-exam identity check, and camera and microphone setup. Share the entire screen on a supported desktop browser when requested. | Device and browser version, granted permissions, unsupported media capabilities, and whether the monitor receives available tracks. |
+| Save and resume | Save an answer, interrupt the connection, then rejoin within policy and before the deadline. | Saved answer, attempt ID, remaining time, visible connection state, and rejoin counter where applicable. |
+| Check evidence | On the isolated test attempt, trigger a supported browser event with screen sharing active. | Whether the event reaches the faculty view and the timeline contains the expected evidence. Record software state and timestamps. |
+| Submit and review | Submit the exam, grade any short answer, open the investigation, and check student result visibility before and after release. | Evaluation, integrity, and publication states; evidence reviewed; visible student result after release. |
+| Close | End the session and remove the test-run accounts, exam, dependent records and files, or discard the isolated environment. | Cleanup verification and any remaining blocked verification steps. |
 
-## 2. Architecture Overview
-
-```
- [Student Device] (Mobile Phone / Laptop)
-       │
-       │ (HTTPS / WSS)
-       ▼
- [ngrok Tunnels]
-    ├── Frontend tunnel: https://<frontend-id>.ngrok-free.app  ──▶ Next.js (port 3000)
-    └── Backend tunnel:  https://<backend-id>.ngrok-free.app   ──▶ FastAPI (port 8000)
-                                                                       │
-                                                            WebRTC PeerConnection
-                                                            (STUN / TURN)
-                                                                       │
- [Faculty Device] (Laptop / Desktop)                                   ▼
-    └── Live Candidate Integrity Dashboard ◀───────────────────────────┘
-```
-
----
-
-## 3. Step-by-Step Setup
-
-### Step 1: Start Backend
-In the `backend` directory:
-```bash
-source .venv/bin/activate
-uvicorn app.main:app --reload --port 8000
-```
-Backend will be running on `http://localhost:8000`.
-
-### Step 2: Start ngrok Tunnels
-Open two separate terminal windows (or use an ngrok configuration file):
-
-**Tunnel 1: Backend API & WebSocket Signaling (port 8000)**
-```bash
-ngrok http 8000
-```
-Note the generated HTTPS forwarding URL, for example: `https://backend-abcd.ngrok-free.app`.
-
-**Tunnel 2: Frontend App (port 3000)**
-```bash
-ngrok http 3000
-```
-Note the generated HTTPS forwarding URL, for example: `https://frontend-wxyz.ngrok-free.app`.
-
-### Step 3: Configure Frontend Environment
-In `frontend`, create or edit `.env.local` (this file is git-ignored):
-```env
-NEXT_PUBLIC_API_URL=https://backend-abcd.ngrok-free.app
-```
-*(Optional: If you use a custom TURN server for restrictive networks)*:
-```env
-NEXT_PUBLIC_ICE_SERVERS=[{"urls":"stun:stun.l.google.com:19302"}]
-```
-
-### Step 4: Configure Backend CORS
-In `backend`, your `.env` can specify:
-```env
-CORS_ORIGIN_REGEX=^https?://.*\.ngrok(-free)?\.app$
-```
-*(FastAPI's CORSMiddleware is pre-configured to automatically allow all `*.ngrok-free.app` origins with credentials).*
-
-### Step 5: Start Frontend
-In the `frontend` directory:
-```bash
-npm run dev
-```
-Frontend will be running on `http://localhost:3000` and proxied through `https://frontend-wxyz.ngrok-free.app`.
-
----
-
-## 4. Performing the Cross-Device Test
-
-### On Device B (Faculty Laptop):
-1. In your browser, open `https://frontend-wxyz.ngrok-free.app/login`.
-2. Log in with a Faculty account (or register with role `FACULTY`).
-3. Create an exam, add questions, and click **Publish Exam**.
-4. Open the exam details page: `https://frontend-wxyz.ngrok-free.app/faculty/exams/<examId>`.
-5. Observe the **Candidate Integrity & Live Media Monitoring** section. Signaling status should show: `Signaling Connected`.
-
-### On Device A (Student Phone or Laptop):
-1. In the mobile/external browser, open `https://frontend-wxyz.ngrok-free.app/login`.
-2. Log in with an independent Student account (or register with role `STUDENT`).
-3. Go to **Exams**, select the published exam, and click **Start Exam**.
-4. **Step 1 (Guidelines)**: Read rules and proceed to Identity Check.
-5. **Step 2 (Identity Verification)**: Take live webcam photo and verify against profile photo.
-6. **Step 3 (Media Setup)**:
-   - Click **Allow Camera & Microphone**: Browser will prompt for permissions. Explicitly tap **Allow**.
-   - If on desktop: Click **Share Entire Screen** and select your entire screen.
-   - If on mobile: The system automatically detects mobile OS and adapts gracefully.
-   - Click **Continue to Exam**.
-
-### Verify Real-Time WebRTC Media on Faculty Monitor:
-- Look at the student's monitor card on the Faculty dashboard:
-  - Header displays student name and green **LIVE** badge.
-  - Video viewport renders the student's live camera feed.
-  - Switching to **Screen** shows the student's live screen feed (if desktop).
-  - Unmuting audio plays the candidate's live audio.
-- Test failure & disconnect handling:
-  - If student closes tab or turns off camera: Faculty card switches immediately to **Student Offline** or **Camera feed offline** without freezing.
-  - Student exam does **not** prematurely submit on network reconnects or media pauses.
-
----
-
-## 5. Security & Hygiene Checklist
-
-- [x] Never commit `.env` or `.env.local` containing private tunnel URLs or tokens.
-- [x] Never commit `NGROK_AUTHTOKEN`, private API keys, or TURN credentials.
-- [x] Authorization is strictly enforced by the backend: students can only transmit their own exam attempt; faculty can only monitor exams they own.
-- [x] WebRTC media flows directly peer-to-peer (or via STUN/TURN relays) without uploading raw webcam frames over unauthenticated REST.
+If the faculty monitor connects but shows no media, check the API configuration, the exam-room WebSocket, the selected media transport, and browser permissions separately. A successful WebSocket connection only verifies signaling reachability. For mobile runs, record which browser media capabilities were present and which screen tests were skipped.

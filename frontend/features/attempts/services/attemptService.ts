@@ -20,6 +20,7 @@ import {
   ManualGradeResponse,
   StudentAppealPayload,
   StudentAppealResponse,
+  FacultyAppealItem,
 } from '../types';
 
 export const attemptService = {
@@ -106,6 +107,31 @@ export const attemptService = {
     return fetchApi<StudentAppealResponse>(`/api/v1/student/attempts/${attemptId}/appeal`, {
       method: 'POST',
       body: JSON.stringify({ reason }),
+    });
+  },
+
+  async getFacultyAppeals(params?: { examId?: string; appealStatus?: string }): Promise<FacultyAppealItem[]> {
+    const query = new URLSearchParams();
+    if (params?.examId) query.set('exam_id', params.examId);
+    if (params?.appealStatus && params.appealStatus !== 'ALL') query.set('appeal_status', params.appealStatus);
+    const qs = query.toString();
+    return fetchApi<FacultyAppealItem[]>(`/api/v1/faculty/appeals${qs ? `?${qs}` : ''}`);
+  },
+
+  async decideAppeal(
+    attemptId: string,
+    decision: 'APPROVED' | 'REJECTED',
+    notes?: string
+  ): Promise<{
+    message: string;
+    attempt_id: string;
+    appeal_status: string;
+    publication_status: string;
+    integrity_status: string;
+  }> {
+    return fetchApi(`/api/v1/faculty/attempts/${attemptId}/appeal/decision`, {
+      method: 'POST',
+      body: JSON.stringify({ decision, notes: notes || undefined }),
     });
   },
 

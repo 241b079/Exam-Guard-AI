@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { FileText, Edit, HelpCircle, Upload, Send, Trash2, ArrowLeft, ShieldCheck, ShieldAlert, RefreshCw, AlertTriangle, Award, CheckCircle, Check, X, PenTool } from 'lucide-react';
+import { FileText, Edit, HelpCircle, Upload, Send, Trash2, ArrowLeft, ShieldCheck, ShieldAlert, RefreshCw, AlertTriangle, Award, CheckCircle, Check, X, PenTool, Scale, Clock, ArrowRight } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -15,6 +15,7 @@ import {
   ExamGradebookResponse,
   GradebookEntry,
   AttemptReviewResponse,
+  FacultyAppealItem,
 } from '@/features/attempts';
 import {
   useWebRTCFaculty,
@@ -63,6 +64,72 @@ export default function FacultyExamDetailPage() {
   >([]);
   const [riskFilter, setRiskFilter] = useState<string>('ALL');
   const [publishingAttemptId, setPublishingAttemptId] = useState<string | null>(null);
+  const [isPublishingAll, setIsPublishingAll] = useState(false);
+
+  // Exam-wise Student Appeals state
+  const [examAppeals, setExamAppeals] = useState<FacultyAppealItem[]>([]);
+  const [isLoadingAppeals, setIsLoadingAppeals] = useState(false);
+  const [appealActionAttemptId, setAppealActionAttemptId] = useState<string | null>(null);
+
+  const fetchExamAppeals = async () => {
+    setIsLoadingAppeals(true);
+    try {
+      const data = await attemptService.getFacultyAppeals({ examId });
+      setExamAppeals(data);
+    } catch {
+      // Non-critical if fails
+    } finally {
+      setIsLoadingAppeals(false);
+    }
+  };
+
+  const handleExamAppealDecision = async (attemptId: string, decision: 'APPROVED' | 'REJECTED') => {
+    const confirmMsg =
+      decision === 'APPROVED'
+        ? 'Approve this student appeal? This will clear the disqualification and restore the attempt for grading/publication.'
+        : 'Reject this student appeal? The disqualification decision will remain final.';
+    if (!window.confirm(confirmMsg)) return;
+
+    setAppealActionAttemptId(attemptId);
+    try {
+      await attemptService.decideAppeal(attemptId, decision);
+      await fetchExamAppeals();
+      await fetchMonitoring();
+      await fetchGradebook();
+    } catch (err: any) {
+      alert(err?.message || 'Failed to record appeal decision.');
+    } finally {
+      setAppealActionAttemptId(null);
+    }
+  };
+
+  const unpublishedSubmittedCount = React.useMemo(() => {
+    return monitoringData.filter(
+      (m) =>
+        m.status === 'SUBMITTED' &&
+        m.publication_status !== 'PUBLISHED' &&
+        m.investigation_status !== 'DISQUALIFIED'
+    ).length;
+  }, [monitoringData]);
+
+  const handlePublishAllResults = async () => {
+    if (unpublishedSubmittedCount === 0) {
+      alert('No unpublished submitted attempts found to publish.');
+      return;
+    }
+    if (!window.confirm(`Release verified exam results for all ${unpublishedSubmittedCount} candidate(s)?`)) return;
+    setIsPublishingAll(true);
+    try {
+      const res = await examService.publishAllResults(examId);
+      alert(res.message || 'Results published successfully for all candidates!');
+      await fetchMonitoring();
+      await fetchGradebook();
+    } catch (err: any) {
+      alert(err?.message || 'Failed to publish all results');
+    } finally {
+      setIsPublishingAll(false);
+    }
+  };
 
   const handlePublishAttempt = async (attemptId: string) => {
     setPublishingAttemptId(attemptId);
@@ -456,6 +523,7 @@ export default function FacultyExamDetailPage() {
       fetchMonitoring();
       fetchPermissions();
       fetchGradebook();
+      fetchExamAppeals();
     }
   }, [examId]);
 
@@ -634,6 +702,12 @@ export default function FacultyExamDetailPage() {
               <div className="flex justify-between">
                 <span>Display Countdown:</span>
                 <strong className="text-stone-900">{exam.display_countdown ? 'Yes' : 'No'}</strong>
+              </div>
+              <div className="flex justify-between">
+                <span>Result Release:</span>
+                <strong className={exam.auto_publish_results ? 'text-emerald-700' : 'text-stone-900'}>
+                  {exam.auto_publish_results ? 'Immediate on Submit' : 'Manual Faculty Release'}
+                </strong>
               </div>
             </div>
           </Card>
@@ -848,6 +922,140 @@ export default function FacultyExamDetailPage() {
             </div>
           </div>
         )}
+
+        {/* Exam-wise Student Appeals Section */}
+        <div className="p-6 bg-white rounded-3xl border border-[#EBE5DC] shadow-warm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-bold font-serif text-stone-900 flex items-center gap-2">
+                <Scale className="w-5 h-5 text-[#C25E1A]" />
+                Student Academic Integrity Appeals
+                {examAppeals.filter((a) => a.appeal_status === 'PENDING_REVIEW').length > 0 && (
+                  <Badge variant="warning" className="text-[10px]">
+                    {examAppeals.filter((a) => a.appeal_status === 'PENDING_REVIEW').length} Pending Review
+                  </Badge>
+                )}
+              </h2>
+              <p className="text-xs text-stone-500">
+                Appeals submitted by candidates for this exam, ordered with the most recent appeal first.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={fetchExamAppeals}
+                isLoading={isLoadingAppeals}
+                className="text-xs gap-1.5"
+              >
+                <RefreshCw className="w-3.5 h-3.5" /> Refresh
+              </Button>
+              <Link href="/faculty/appeals">
+                <Button variant="outline" size="sm" className="text-xs gap-1.5">
+                  All Appeals <ArrowRight className="w-3.5 h-3.5" />
+                </Button>
+              </Link>
+            </div>
+          </div>
+
+          {isLoadingAppeals && examAppeals.length === 0 ? (
+            <div className="py-4 text-center text-xs text-stone-500">Loading exam appeals...</div>
+          ) : examAppeals.length === 0 ? (
+            <div className="p-4 text-center rounded-2xl bg-[#FAF7F2] border border-[#EBE5DC] text-xs text-stone-500 italic">
+              No student appeals have been submitted for this exam.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {examAppeals.map((appeal) => {
+                const isPending = appeal.appeal_status === 'PENDING_REVIEW';
+                const isApproved = appeal.appeal_status === 'APPROVED';
+                const isBusy = appealActionAttemptId === appeal.attempt_id;
+
+                return (
+                  <div
+                    key={appeal.attempt_id}
+                    className={`p-4 rounded-2xl border space-y-3 ${
+                      isPending
+                        ? 'bg-amber-50/50 border-amber-200'
+                        : isApproved
+                        ? 'bg-emerald-50/40 border-emerald-200'
+                        : 'bg-rose-50/40 border-rose-200'
+                    }`}
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="font-bold text-stone-900">{appeal.student.name}</span>
+                        {appeal.student.roll_number && (
+                          <span className="font-mono text-[11px] bg-white px-2 py-0.5 rounded border border-[#EBE5DC] text-stone-600">
+                            {appeal.student.roll_number}
+                          </span>
+                        )}
+                        <span className="text-stone-500">• Attempt #{appeal.attempt_number}</span>
+                        {appeal.appeal_submitted_at && (
+                          <span className="text-stone-500 flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {new Date(appeal.appeal_submitted_at).toLocaleString()}
+                          </span>
+                        )}
+                      </div>
+                      <Badge
+                        variant={isApproved ? 'success' : isPending ? 'warning' : 'danger'}
+                        className="text-[10px] self-start sm:self-auto"
+                      >
+                        {isPending ? 'PENDING REVIEW' : appeal.appeal_status}
+                      </Badge>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-white border border-[#EBE5DC] text-xs text-stone-800 space-y-1">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-amber-800 block">
+                        Appeal Statement
+                      </span>
+                      <p className="leading-relaxed whitespace-pre-wrap">
+                        {appeal.appeal_reason || 'No appeal message provided.'}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setInvestigationAttemptId(appeal.attempt_id)}
+                        className="text-xs gap-1"
+                      >
+                        <FileText className="w-3.5 h-3.5" /> Inspect Investigation
+                      </Button>
+
+                      {isPending && (
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            onClick={() => handleExamAppealDecision(appeal.attempt_id, 'REJECTED')}
+                            disabled={isBusy}
+                            className="text-xs gap-1"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            {isBusy ? 'Saving...' : 'Reject'}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            onClick={() => handleExamAppealDecision(appeal.attempt_id, 'APPROVED')}
+                            disabled={isBusy}
+                            className="text-xs gap-1 bg-emerald-700 hover:bg-emerald-800 text-white"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            {isBusy ? 'Saving...' : 'Approve & Clear'}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
         {/* Candidate Results & Gradebook Section (Bug 1 & Bug 3) */}
         <div className="p-6 bg-white rounded-3xl border border-[#EBE5DC] shadow-warm space-y-4">
@@ -1328,31 +1536,48 @@ export default function FacultyExamDetailPage() {
 
           {/* Candidate Risk Scores & Investigation Table */}
           <div className="bg-white rounded-3xl border border-[#EBE5DC] overflow-hidden shadow-warm space-y-3 p-4">
-            {/* Filter Tabs */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs border-b border-stone-100">
-              {[
-                { id: 'ALL', label: 'All Attempts' },
-                { id: 'HIGH_CRITICAL', label: 'High / Critical Risk' },
-                { id: 'MODERATE', label: 'Moderate Risk' },
-                { id: 'PENDING', label: 'Pending Review' },
-                { id: 'CONFIRMED', label: 'Confirmed Violations' },
-                { id: 'CLEARED', label: 'Cleared' },
-                { id: 'UNPUBLISHED', label: 'Awaiting Publication' },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setRiskFilter(tab.id)}
-                  className={`px-3 py-1.5 rounded-xl font-semibold transition-colors whitespace-nowrap ${
-                    riskFilter === tab.id
-                      ? 'bg-stone-900 text-white shadow-warm-sm'
-                      : 'bg-stone-100 text-stone-600 hover:bg-stone-200/70'
-                  }`}
+            {/* Filter Tabs & Bulk Actions */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 border-b border-stone-100">
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 text-xs">
+                {[
+                  { id: 'ALL', label: 'All Attempts' },
+                  { id: 'HIGH_CRITICAL', label: 'High / Critical Risk' },
+                  { id: 'MODERATE', label: 'Moderate Risk' },
+                  { id: 'PENDING', label: 'Pending Review' },
+                  { id: 'CONFIRMED', label: 'Confirmed Violations' },
+                  { id: 'CLEARED', label: 'Cleared' },
+                  { id: 'UNPUBLISHED', label: 'Awaiting Publication' },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setRiskFilter(tab.id)}
+                    className={`px-3 py-1.5 rounded-xl font-semibold transition-colors whitespace-nowrap ${
+                      riskFilter === tab.id
+                        ? 'bg-stone-900 text-white shadow-warm-sm'
+                        : 'bg-stone-100 text-stone-600 hover:bg-stone-200/70'
+                    }`}
+                  >
+                    {tab.label}
+                    {tab.id === 'ALL' && ` (${monitoringData.length})`}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={handlePublishAllResults}
+                  disabled={isPublishingAll || unpublishedSubmittedCount === 0}
+                  className="gap-1.5 text-xs font-semibold bg-emerald-700 hover:bg-emerald-800 text-white border-none shadow-warm-sm disabled:opacity-50"
                 >
-                  {tab.label}
-                  {tab.id === 'ALL' && ` (${monitoringData.length})`}
-                </button>
-              ))}
+                  <Send className="w-3.5 h-3.5" />
+                  {isPublishingAll
+                    ? 'Publishing All Results...'
+                    : `Publish All Results (${unpublishedSubmittedCount} Pending)`}
+                </Button>
+              </div>
             </div>
 
             <div className="overflow-x-auto -mx-4 -mb-4">
@@ -1459,17 +1684,34 @@ export default function FacultyExamDetailPage() {
                             </div>
                           </td>
                           <td className="py-3 px-4">
-                            {invStatus === 'DISQUALIFIED' ? (
-                              <Badge variant="danger">DISQUALIFIED</Badge>
-                            ) : invStatus === 'VIOLATION_CONFIRMED' ? (
-                              <Badge variant="danger">VIOLATION CONFIRMED</Badge>
-                            ) : invStatus === 'CLEARED' ? (
-                              <Badge variant="success">CLEARED</Badge>
-                            ) : invStatus === 'UNDER_INVESTIGATION' ? (
-                              <Badge variant="warning">UNDER INVESTIGATION</Badge>
-                            ) : (
-                              <Badge variant="outline">PENDING REVIEW</Badge>
-                            )}
+                            <div className="flex flex-col items-start gap-1">
+                              {invStatus === 'DISQUALIFIED' ? (
+                                <Badge variant="danger">DISQUALIFIED</Badge>
+                              ) : invStatus === 'VIOLATION_CONFIRMED' ? (
+                                <Badge variant="danger">VIOLATION CONFIRMED</Badge>
+                              ) : invStatus === 'CLEARED' ? (
+                                <Badge variant="success">CLEARED</Badge>
+                              ) : invStatus === 'UNDER_INVESTIGATION' ? (
+                                <Badge variant="warning">UNDER INVESTIGATION</Badge>
+                              ) : (
+                                <Badge variant="outline">PENDING REVIEW</Badge>
+                              )}
+                              {att.appeal_status === 'PENDING_REVIEW' && (
+                                <Badge variant="warning" className="text-[10px]">
+                                  Appeal Pending
+                                </Badge>
+                              )}
+                              {att.appeal_status === 'APPROVED' && (
+                                <Badge variant="success" className="text-[10px]">
+                                  Appeal Approved
+                                </Badge>
+                              )}
+                              {att.appeal_status === 'REJECTED' && (
+                                <Badge variant="danger" className="text-[10px]">
+                                  Appeal Rejected
+                                </Badge>
+                              )}
+                            </div>
                           </td>
                           <td className="py-3 px-4 text-right">
                             <div className="flex items-center justify-end gap-1.5 flex-wrap">
@@ -1534,6 +1776,7 @@ export default function FacultyExamDetailPage() {
           onDecisionApplied={() => {
             fetchMonitoring();
             fetchGradebook();
+            fetchExamAppeals();
           }}
         />
       </div>

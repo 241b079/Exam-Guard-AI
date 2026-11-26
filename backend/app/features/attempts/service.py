@@ -40,6 +40,7 @@ from app.features.attempts.schemas import (
     ManualGradeResponse,
     StudentAppealResponse,
     FacultyAppealDecisionResponse,
+    FacultyAppealItem,
 )
 
 from app.features.users.models import User, UserRole
@@ -1050,8 +1051,14 @@ class AttemptService:
         latest_events_map = {}
         risk_scores_map = {}
         inv_map = {}
+        disq_map = {}
         if attempt_ids:
-            from app.features.proctoring.models import ProctoringEvent, StudentRiskScore, ExaminationInvestigation
+            from app.features.proctoring.models import (
+                ProctoringEvent,
+                StudentRiskScore,
+                ExaminationInvestigation,
+                DisqualificationRecord,
+            )
             pe_res = await db.execute(
                 select(ProctoringEvent)
                 .where(ProctoringEvent.exam_attempt_id.in_(attempt_ids))
@@ -1072,6 +1079,12 @@ class AttemptService:
             )
             for inv in inv_res.scalars().all():
                 inv_map[inv.exam_attempt_id] = inv
+
+            disq_res = await db.execute(
+                select(DisqualificationRecord).where(DisqualificationRecord.exam_attempt_id.in_(attempt_ids))
+            )
+            for disq in disq_res.scalars().all():
+                disq_map[disq.exam_attempt_id] = disq
 
         monitoring_data = []
         seen_student_ids = set()
@@ -1110,6 +1123,7 @@ class AttemptService:
 
             rs_obj = risk_scores_map.get(att.id)
             inv_obj = inv_map.get(att.id)
+            disq_obj = disq_map.get(att.id)
             r_score = rs_obj.current_score if rs_obj else (inv_obj.final_risk_score if inv_obj else 0.0)
             r_level = rs_obj.risk_level if rs_obj else (inv_obj.risk_classification if inv_obj else "LOW")
             i_count = rs_obj.incident_count if rs_obj else (inv_obj.total_incidents if inv_obj else 0)
@@ -1154,6 +1168,8 @@ class AttemptService:
                     integrity_status=att.integrity_status or "CLEARED",
                     evaluated_score=att.total_score,
                     max_possible_score=att.max_possible_score,
+                    appeal_status=disq_obj.appeal_status if disq_obj else None,
+                    appeal_reason=disq_obj.appeal_reason if disq_obj else None,
                 )
             )
         return monitoring_data
@@ -1892,4 +1908,63 @@ class AttemptService:
             publication_status=attempt.publication_status,
             integrity_status=attempt.integrity_status
         )
+
+    @staticmethod
+    async def get_faculty_appeals(
+        db: AsyncSession,
+        current_user: User,
+        exam_id: Optional[str] = None,
+        appeal_status: Optional[str] = None,
+    ) -> List[FacultyAppealItem]:
+        from app.features.proctoring.models import DisqualificationRecord
+
+        stmt = (
+            select(DisqualificationRecord, ExamAttempt, Exam, User)
+            .join(ExamAttempt, DisqualificationRecord.exam_attempt_id == ExamAttempt.id)
+            .join(Exam, DisqualificationRecord.exam_id == Exam.id)
+            .join(User, DisqualificationRecord.student_id == User.id)
+            .options(selectinload(User.student_profile))
+            .where(DisqualificationRecord.appeal_status != "NONE")
+        )
+
+        if current_user.role == UserRole.FACULTY:
+            stmt = stmt.where(Exam.created_by_id == current_user.id)
+        if exam_id:
+            stmt = stmt.where(DisqualificationRecord.exam_id == exam_id)
+        if appeal_status and appeal_status.upper() != "ALL":
+            stmt = stmt.where(DisqualificationRecord.appeal_status == appeal_status.upper())
+
+        stmt = stmt.order_by(
+            DisqualificationRecord.appeal_submitted_at.desc().nullslast(),
+            DisqualificationRecord.disqualified_at.desc(),
+        )
+
+        res = await db.execute(stmt)
+        rows = res.all()
+
+        items: List[FacultyAppealItem] = []
+        for disq, att, exam, student in rows:
+            roll = student.student_profile.student_id if student and student.student_profile else None
+            items.append(
+                FacultyAppealItem(
+                    attempt_id=att.id,
+                    exam_id=exam.id,
+                    exam_title=exam.title,
+                    attempt_number=att.attempt_number or 1,
+                    student=GradebookStudentInfo(
+                        id=student.id,
+                        name=student.name,
+                        email=student.email,
+                        roll_number=roll,
+                    ),
+                    disqualification_reason=disq.reason,
+                    disqualification_evidence=disq.evidence_summary,
+                    appeal_status=disq.appeal_status,
+                    appeal_reason=disq.appeal_reason,
+                    appeal_submitted_at=disq.appeal_submitted_at,
+                    appeal_resolution_notes=disq.appeal_resolution_notes,
+                    disqualified_at=disq.disqualified_at,
+                )
+            )
+        return items
 

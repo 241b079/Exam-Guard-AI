@@ -209,6 +209,8 @@ export interface AttemptMonitoringResponse {
   integrity_status?: string | null;
   evaluated_score?: number | null;
   max_possible_score?: number | null;
+  appeal_status?: string | null;
+  appeal_reason?: string | null;
 }
 
 export interface GradebookStudentInfo {
@@ -323,6 +325,21 @@ export interface StudentAppealResponse {
   attempt_id: string;
   appeal_status: string;
   appeal_submitted_at: string;
+}
+
+export interface FacultyAppealItem {
+  attempt_id: string;
+  exam_id: string;
+  exam_title: string;
+  attempt_number: number;
+  student: GradebookStudentInfo;
+  disqualification_reason?: string | null;
+  disqualification_evidence?: string | null;
+  appeal_status: string;
+  appeal_reason?: string | null;
+  appeal_submitted_at?: string | null;
+  appeal_resolution_notes?: string | null;
+  disqualified_at?: string | null;
 }
 
 export interface ManualGradeRequest {

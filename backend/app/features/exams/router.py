@@ -105,6 +105,21 @@ async def unpublish_exam(
     return await ExamService.unpublish_exam(db, exam_id, faculty_id=current_user.id, is_admin=is_admin)
 
 
+@router.post("/{exam_id}/publish-results")
+async def publish_all_exam_results(
+    exam_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.FACULTY, UserRole.ADMIN]))
+):
+    """
+    Bulk release / publication of exam results:
+    Releases scores and performance reports for all submitted students of this exam.
+    Disqualified attempts remain locked at 0.
+    """
+    is_admin = current_user.role == UserRole.ADMIN
+    return await ExamService.publish_all_results(db, exam_id, faculty_id=current_user.id, is_admin=is_admin)
+
+
 @router.get("/admin/catalog", response_model=List[dict])
 async def get_admin_global_exams(
     db: AsyncSession = Depends(get_db),
