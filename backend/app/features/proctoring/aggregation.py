@@ -179,15 +179,11 @@ class ExamIntegrityAggregator:
             if matching_ev:
                 covered_event_ids.add(matching_ev.id)
 
-            # Determine best evidence url
+            # Determine best evidence url (only if an actual evidence file exists)
             evidence_url = inc.primary_evidence_url
             if not evidence_url or evidence_url == "/api/v1/proctoring/evidence/None" or evidence_url.endswith("/None"):
                 if matching_ev and matching_ev.evidence_path:
                     evidence_url = f"/api/v1/proctoring/evidence/{matching_ev.id}"
-                elif matching_ev and matching_ev.id:
-                    evidence_url = f"/api/v1/proctoring/evidence/{matching_ev.id}"
-                elif inc.id:
-                    evidence_url = f"/api/v1/proctoring/evidence/{inc.id}"
                 else:
                     evidence_url = None
 

@@ -105,7 +105,6 @@ export function useExamLockdown({
       }
 
       lastViolationMapRef.current.set(type, now);
-      setViolationCount((prev) => prev + 1);
 
       // Warning message tailored to violation type
       let warningText = 'Exam integrity notice: Browser event recorded.';
@@ -124,6 +123,19 @@ export function useExamLockdown({
       }
 
       triggerWarning(warningText);
+
+      // Right-click and clipboard shortcuts are blocked with a warning popup only;
+      // do not increment violation count or dispatch as violations to faculty/backend.
+      if (
+        type === 'CONTEXT_MENU' ||
+        type === 'COPY_ATTEMPT' ||
+        type === 'PASTE_ATTEMPT' ||
+        type === 'CUT_ATTEMPT'
+      ) {
+        return;
+      }
+
+      setViolationCount((prev) => prev + 1);
       onViolationRecordedRef.current?.(type);
 
       // Fast-path: immediately push real-time event via WebSocket

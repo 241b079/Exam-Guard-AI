@@ -86,12 +86,15 @@ export function useWebRTCStudent({
   }, [examId, attemptId]);
 
   /**
-   * Attach/sync tracks to an RTCPeerConnection
+   * Attach/sync tracks to an RTCPeerConnection.
+   * Returns true if new senders were added (requiring SDP renegotiation).
    */
-  const syncTracksToPeer = useCallback((pc: RTCPeerConnection) => {
+  const syncTracksToPeer = useCallback((pc: RTCPeerConnection): boolean => {
+    let needsRenegotiation = false;
     const senders = pc.getSenders();
     const currentCam = cameraStreamRef.current;
     const currentScr = screenStreamRef.current;
+    const screenTrackIds = new Set(currentScr?.getVideoTracks().map((t) => t.id) || []);
 
     // Attach camera video and audio
     if (currentCam) {
@@ -100,12 +103,15 @@ export function useWebRTCStudent({
           (s) => s.track?.kind === track.kind && s.track?.id === track.id
         );
         if (!existingSender) {
-          const kindSender = senders.find((s) => s.track && s.track.kind === track.kind);
+          const kindSender = senders.find(
+            (s) => s.track && s.track.kind === track.kind && !screenTrackIds.has(s.track.id)
+          );
           if (kindSender && kindSender.track?.id !== track.id) {
             kindSender.replaceTrack(track).catch(() => {});
           } else if (!kindSender) {
             try {
               pc.addTrack(track, currentCam);
+              needsRenegotiation = true;
             } catch {}
           }
         }
@@ -119,10 +125,13 @@ export function useWebRTCStudent({
         if (!existingSender) {
           try {
             pc.addTrack(track, currentScr);
+            needsRenegotiation = true;
           } catch {}
         }
       });
     }
+
+    return needsRenegotiation;
   }, []);
 
   /**
@@ -139,6 +148,8 @@ export function useWebRTCStudent({
       cameraTrackId: cameraVideoTrack?.id || null,
       micTrackId: cameraAudioTrack?.id || null,
       screenTrackId: screenVideoTrack?.id || null,
+      cameraStreamId: currentCam?.id || null,
+      screenStreamId: currentScr?.id || null,
     };
   }, []);
 
@@ -460,13 +471,36 @@ export function useWebRTCStudent({
     inFlightOffersRef.current.clear();
   }, []);
 
-  // Sync tracks and notify faculty when cameraStream or screenStream is updated
+  // Sync tracks, renegotiate if new tracks were added, and notify faculty when cameraStream or screenStream is updated
   useEffect(() => {
-    peerConnectionsRef.current.forEach((pc) => {
-      syncTracksToPeer(pc);
+    peerConnectionsRef.current.forEach((pc, facultyClientId) => {
+      const added = syncTracksToPeer(pc);
+      if (
+        added &&
+        !isSfuActiveRef.current &&
+        pc.signalingState === 'stable' &&
+        wsRef.current?.readyState === WebSocket.OPEN
+      ) {
+        (async () => {
+          try {
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            wsRef.current?.send(
+              JSON.stringify({
+                type: 'offer',
+                target_client_id: facultyClientId,
+                sdp: offer.sdp,
+                stream_map: getStreamMap(),
+              })
+            );
+          } catch (err) {
+            console.warn('Failed to renegotiate WebRTC tracks with faculty:', err);
+          }
+        })();
+      }
     });
     sendMediaStatus();
-  }, [cameraStream, screenStream, syncTracksToPeer, sendMediaStatus]);
+  }, [cameraStream, screenStream, syncTracksToPeer, getStreamMap, sendMediaStatus]);
 
   // Establish signaling connection once on mount or when examId changes
   useEffect(() => {

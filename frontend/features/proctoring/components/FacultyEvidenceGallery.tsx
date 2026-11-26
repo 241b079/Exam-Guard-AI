@@ -522,9 +522,27 @@ export function FacultyEvidenceGallery({
           </div>
         </div>
 
-        {/* Evidence Thumbnail / Snapshot Container */}
+        {/* Evidence Thumbnail / Audio Player / Snapshot Container */}
         <div className="relative aspect-video w-full rounded-2xl bg-stone-950 overflow-hidden border border-stone-800 flex items-center justify-center group">
-          {hasEvidence && !failedImageIds[ev.id] ? (
+          {hasEvidence && (ev.metadata_json?.media_type === 'audio' || ev.event_type.includes('VOICE')) ? (
+            <div className="w-full h-full flex flex-col items-center justify-center p-4 bg-gradient-to-br from-stone-900 to-stone-950 text-center space-y-2.5">
+              <div className="flex items-center gap-2 text-amber-300 text-xs font-semibold">
+                <span className="p-1.5 rounded-full bg-amber-500/20 border border-amber-500/40">
+                  <Volume2 className="w-4 h-4 text-amber-400" />
+                </span>
+                <span>
+                  Recorded Voice Clip
+                  {ev.metadata_json?.decibels !== undefined ? ` (${ev.metadata_json.decibels} dB)` : ''}
+                </span>
+              </div>
+              <audio
+                controls
+                preload="metadata"
+                src={continuousProctoringService.getEvidenceImageUrl(ev.id)}
+                className="w-full max-w-[260px] h-9"
+              />
+            </div>
+          ) : hasEvidence && !failedImageIds[ev.id] ? (
             <>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -1333,7 +1351,10 @@ export function FacultyEvidenceGallery({
               {/* Evidence Visual Capture */}
               <div className="lg:col-span-2 space-y-2">
                 <div className="relative aspect-video w-full rounded-2xl bg-stone-950 overflow-hidden border border-stone-800 flex items-center justify-center">
-                  {inspectingEvent.evidence_url && !failedImageIds[inspectingEvent.id] ? (
+                  {inspectingEvent.evidence_url &&
+                  (inspectingEvent.metadata_json?.media_type === 'audio' ||
+                    inspectingEvent.event_type.includes('VOICE') ||
+                    !failedImageIds[inspectingEvent.id]) ? (
                     inspectingEvent.metadata_json?.media_type === 'audio' || inspectingEvent.event_type.includes('VOICE') ? (
                       <div className="p-8 w-full flex flex-col items-center justify-center space-y-4">
                         <div className="w-16 h-16 rounded-full bg-amber-500/20 border border-amber-500/40 flex items-center justify-center">

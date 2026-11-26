@@ -41,8 +41,9 @@ export function useAudioVAD({
   const animationFrameRef = useRef<number | null>(null);
 
   const speechStartRef = useRef<number | null>(null);
+  const lastSpeechFrameRef = useRef<number>(0);
   const lastViolationTimeRef = useRef<number>(0);
-  const baselineNoiseRef = useRef<number>(-55);
+  const baselineNoiseRef = useRef<number>(-45);
   const calibrationSamplesRef = useRef<number[]>([]);
 
   // Rolling audio recording buffer
@@ -230,6 +231,9 @@ export function useAudioVAD({
       if (!AudioCtx) return;
 
       const ctx = new AudioCtx();
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
+      }
       audioContextRef.current = ctx;
 
       const analyser = ctx.createAnalyser();
@@ -246,12 +250,16 @@ export function useAudioVAD({
       const sampleRate = ctx.sampleRate;
       const binWidth = sampleRate / analyser.fftSize;
 
-      // Identify frequency bin indexes for human vocal range (85 Hz to 2500 Hz)
+      // Identify frequency bin indexes for human vocal range (85 Hz to 3000 Hz)
       const speechBinStart = Math.max(1, Math.floor(85 / binWidth));
-      const speechBinEnd = Math.min(bufferLength - 1, Math.ceil(2500 / binWidth));
+      const speechBinEnd = Math.min(bufferLength - 1, Math.ceil(3000 / binWidth));
+      const speechBinCount = Math.max(1, speechBinEnd - speechBinStart + 1);
 
       const processAudio = () => {
         if (!analyserRef.current || ctx.state === 'closed') return;
+        if (ctx.state === 'suspended') {
+          ctx.resume().catch(() => {});
+        }
 
         analyserRef.current.getByteFrequencyData(dataArray);
 
@@ -266,9 +274,9 @@ export function useAudioVAD({
           }
         }
 
-        // Compute Root Mean Square (RMS) decibels
-        const avg = totalEnergy / bufferLength;
-        const db = avg > 0 ? 20 * Math.log10(avg / 255) : -100;
+        // Compute RMS decibels over the human vocal band (85Hz - 3000Hz)
+        const speechAvg = speechEnergy / speechBinCount;
+        const db = speechAvg > 0 ? 20 * Math.log10(speechAvg / 255) : -100;
         setCurrentDecibels(Math.round(db));
 
         // Self-calibrating baseline noise for first 30 frames
@@ -281,12 +289,13 @@ export function useAudioVAD({
         }
 
         const speechRatio = totalEnergy > 0 ? speechEnergy / totalEnergy : 0;
-        // Speech threshold: energy above baseline and high concentration in speech band
-        const thresholdDb = Math.max(-42, baselineNoiseRef.current + 12);
-        const isCurrentlySpeech = db > thresholdDb && speechRatio > 0.45 && avg > 12;
+        // Speech threshold: vocal-band energy above baseline and concentrated in speech band
+        const thresholdDb = Math.max(-36, baselineNoiseRef.current + 8);
+        const isCurrentlySpeech = db > thresholdDb && speechRatio > 0.25 && speechAvg > 8;
 
         const now = Date.now();
         if (isCurrentlySpeech) {
+          lastSpeechFrameRef.current = now;
           if (!speechStartRef.current) {
             speechStartRef.current = now;
           } else {
@@ -296,7 +305,8 @@ export function useAudioVAD({
               dispatchVoiceViolation(db, elapsed, speechRatio);
             }
           }
-        } else {
+        } else if (speechStartRef.current && now - lastSpeechFrameRef.current > 400) {
+          // Only reset speech timer after >400ms of silence (allows natural pauses between words)
           speechStartRef.current = null;
           setIsVoiceActive(false);
         }

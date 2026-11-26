@@ -233,8 +233,22 @@ export function useWebRTCFaculty({
             }));
           };
         } else if (track.kind === 'video') {
+          const incomingStreamId = event.streams?.[0]?.id;
+          const trackLabel = (track.label || '').toLowerCase();
+          const isScreenById = Boolean(mapping.screenTrackId && track.id === mapping.screenTrackId);
+          const isScreenByStream = Boolean(mapping.screenStreamId && incomingStreamId === mapping.screenStreamId);
+          const isScreenByLabel =
+            trackLabel.includes('screen') ||
+            trackLabel.includes('window') ||
+            trackLabel.includes('display') ||
+            trackLabel.includes('monitor');
+          const isSecondVideoTrack =
+            Boolean(mapping.screenTrackId) &&
+            camStream.getVideoTracks().length > 0 &&
+            track.id !== mapping.cameraTrackId;
+
           // Check if this video track is the screen share track
-          if (mapping.screenTrackId && track.id === mapping.screenTrackId) {
+          if (isScreenById || isScreenByStream || isScreenByLabel || isSecondVideoTrack) {
             scrStream.addTrack(track);
             updateStudentState(studentId, (prev) => ({
               ...prev,
