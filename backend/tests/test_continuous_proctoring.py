@@ -145,7 +145,7 @@ async def test_continuous_proctoring_full_suite(
 
         # ----------------------------------------------------
         # TEST 2: Student briefly moves out of frame
-        # Expected: TEMPORARILY_ABSENT pending, No immediate event (below grace period)
+        # Expected: TEMPORARY_ABSENCE pending, No immediate event (below grace period)
         # ----------------------------------------------------
         t2_res = await ac.post(
             "/api/v1/proctoring/continuous-verify",
@@ -155,7 +155,7 @@ async def test_continuous_proctoring_full_suite(
         )
         assert t2_res.status_code == 200
         t2_data = t2_res.json()
-        assert t2_data["state"] == "TEMPORARILY_ABSENT"
+        assert t2_data["state"] == "TEMPORARY_ABSENCE"
         assert t2_data["is_suspicious"] is False
         assert t2_data["event_created"] is False
 

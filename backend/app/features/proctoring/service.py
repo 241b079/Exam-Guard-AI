@@ -19,6 +19,7 @@ from app.features.attempts.models import ExamAttempt, AttemptStatus, ExamViolati
 from app.features.identity.service import FaceVerificationService
 from app.features.proctoring.models import (
     ProctoringEvent,
+    ProctoringIncident,
     ProctoringEventType,
     EventSeverity,
     EventReviewStatus,
@@ -528,7 +529,7 @@ class ProctoringService:
                         attempt_id=attempt.id,
                         trigger_event_type="RECOVERED",
                         trigger_incident_id=inc_record.id,
-                        trigger_confidence=1.0
+                        reason=f"Incident {incident_type} resolved after {int(duration)}s"
                     )
 
                 # 3. Record RECOVERED event

@@ -29,15 +29,35 @@ The integrity pipeline groups related observations into incidents, tracks risk p
 - [Cross-device verification](docs/CROSS_DEVICE_TESTING.md)
 - [Repository testing and data protection rules](AGENTS.md)
 
-## Run locally
+## Setup
 
-Use Python 3.10+, Node.js 18+ with npm, and Docker Compose. From the repository root:
+### Prerequisites
+
+- **Python** 3.10+
+- **Node.js** 18+ and **npm**
+- **Docker** and **Docker Compose** (for PostgreSQL 16, Redis 7, and LiveKit)
+
+### 1. Start infrastructure services
+
+From the repository root, start PostgreSQL, Redis, and the development LiveKit SFU server:
 
 ```sh
 docker compose up -d
 ```
 
-This starts PostgreSQL, Redis, and a development LiveKit server. In one terminal:
+Verify the containers are healthy:
+
+```sh
+docker compose ps
+```
+
+| Service | Container | Port(s) |
+| --- | --- | --- |
+| PostgreSQL 16 | `exam_proctoring_postgres` | `5432` |
+| Redis 7 | `exam_proctoring_redis` | `6379` |
+| LiveKit SFU | `exam_proctoring_livekit` | `7880`, `7881`, `7882/udp` |
+
+### 2. Backend setup
 
 ```sh
 cd backend
@@ -45,25 +65,113 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp -n .env.example .env
-uvicorn app.main:app --reload --port 8000
 ```
 
-Backend startup initializes the database. Review the development connection settings in `backend/.env` before startup. Initial face verification can download the model weights if they are missing. In another terminal:
+Review `backend/.env` before starting:
+- `DATABASE_URL`: PostgreSQL asyncpg connection string (defaults to `postgresql+asyncpg://user:password@localhost:5432/online_exam`, matching `docker-compose.yml`).
+- `REDIS_URL`: Redis connection string (defaults to `redis://localhost:6379`).
+- `SECRET_KEY`: JWT signing key (replace the development value in non-local environments).
+- `CORS_ORIGINS` / `CORS_ORIGIN_REGEX`: Allowed frontend origins.
+
+> **Note:** On initial face verification, OpenCV YuNet/SFace model weights are downloaded automatically if not already present.
+
+### 3. Frontend setup
 
 ```sh
 cd frontend
 npm ci
+```
+
+If the backend API is hosted on a non-default URL, create `frontend/.env.local` and set:
+
+```sh
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+## Running the application
+
+Run the backend and frontend in separate terminals after starting the Docker services.
+
+### Backend (FastAPI)
+
+```sh
+cd backend
+source .venv/bin/activate
+uvicorn app.main:app --reload --port 8000
+```
+
+Backend startup automatically initializes the database schema.
+
+### Frontend (Next.js)
+
+```sh
+cd frontend
 npm run dev
 ```
 
-| Endpoint | Address |
+For a production build:
+
+```sh
+cd frontend
+npm run build
+npm run start
+```
+
+### Local endpoints
+
+| Service / Endpoint | URL |
 | --- | --- |
-| Portal | http://localhost:3000 |
-| API schema and interactive docs | http://localhost:8000/docs |
-| API health response | http://localhost:8000/health |
+| Web Portal | http://localhost:3000 |
+| FastAPI Swagger / OpenAPI Docs | http://localhost:8000/docs |
+| Backend Health Check | http://localhost:8000/health |
 
-Set `NEXT_PUBLIC_API_URL` in `frontend/.env.local` if the API is on a different host. Use the cross-device guide for HTTPS, WebSocket routing, and LiveKit reachability.
+For multi-device testing over HTTPS, WebSocket routing, and LiveKit reachability, see [Cross-device verification](docs/CROSS_DEVICE_TESTING.md).
 
-## Verify changes
+## Running and checking test cases
 
-Run frontend tests with `npm test` from `frontend`. For backend integration tests, configure `DATABASE_URL` to point to a disposable PostgreSQL database before running `python -m pytest tests/` from `backend`. See the [testing rules](AGENTS.md) before creating any test records. Use synthetic exams only in isolated testing, remove all test data and evidence immediately, and protect authentic faculty exams and gradebooks.
+> [!IMPORTANT]
+> Read [AGENTS.md](AGENTS.md) before running tests against a shared database. Never leave synthetic users, demo exams, or mock proctoring history in the database, and never modify or delete authentic faculty exams.
+
+### Frontend tests
+
+Frontend unit and state-machine tests use Node's built-in test runner (`node --test tests/*.test.mjs`):
+
+```sh
+cd frontend
+npm test
+```
+
+To run a single frontend test file or lint check:
+
+```sh
+cd frontend
+node --test tests/continuous_proctoring.test.mjs
+npm run lint
+```
+
+### Backend tests
+
+Backend tests use `pytest` (with `pytest-asyncio`) and require PostgreSQL and Redis to be running (`docker compose up -d`). Configure `DATABASE_URL` in `backend/.env` (or export it) to point to a disposable/test PostgreSQL database.
+
+Run the full backend test suite:
+
+```sh
+cd backend
+.venv/bin/pytest tests/ -v
+```
+
+Run a specific test file or individual test case:
+
+```sh
+cd backend
+.venv/bin/pytest tests/test_continuous_proctoring.py -v
+.venv/bin/pytest tests/test_continuous_proctoring.py::test_continuous_proctoring_full_suite -v
+```
+
+Common useful `pytest` flags:
+- `-v`: verbose test output
+- `-x` / `--maxfail=1`: stop on first failure
+- `-k "<pattern>"`: run tests matching a name expression
+- `-s`: show stdout/stderr output during test execution
+
+The `backend/tests/conftest.py` autouse fixture (`clean_test_entities`) automatically cleans up synthetic test users and exams created during pytest runs.
